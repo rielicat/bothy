@@ -38,6 +38,21 @@ describe('Task detail (docs/design/ui.md §10.2)', () => {
     session.me!.user.role = 'owner';
   });
 
+  // A refined answer's drafts come before its model calls, say which draft was sent and what
+  // "agreed" counts, and read as text rather than code.
+  it('leads Technical details with the drafts of a refined answer', async () => {
+    await open('run_01jpricing00000000000000');
+    const tech = await screen.findByRole('button', { name: 'Technical details' });
+    tech.click();
+    const summary = await screen.findByText('3 drafts, 2 rounds. Draft 2 was sent; 2 of 3 drafts reached its answer.');
+    const headings = [...document.querySelectorAll('h3')].map((h) => h.textContent);
+    expect(headings.indexOf('Refine')).toBeLessThan(headings.indexOf('Model call 1'));
+    expect(summary).toBeTruthy();
+    (await screen.findByRole('button', { name: 'Correction 2, round 2' })).click();
+    const text = await screen.findByText('Raise the team plan to $24 from January …');
+    expect(text.closest('pre, code')).toBeNull();
+  });
+
   // The server answers 404 both for a deleted task and for someone else's (internal/httpapi/idor_test.go).
   it('says a task it cannot open may be deleted or belong to someone else', async () => {
     await open('run_missing');

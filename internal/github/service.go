@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -83,6 +84,10 @@ func New(d Deps) (*Service, error) {
 	s.tools = []core.Tool{
 		&repoList{s}, &repoCheckout{s}, &repoChanges{s}, &repoOpenPR{s},
 		&githubIssues{s}, &githubPR{s}, &githubComment{s}, &githubRuns{s},
+	}
+	if s.dataDir != "" {
+		// Snapshots live only while Knowledge reads them; a restart strands any.
+		_ = os.RemoveAll(s.snapshotDir())
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

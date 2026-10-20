@@ -1,7 +1,22 @@
-import type { Grant, Schedule, User } from '../../lib/api/types.gen';
+import { toast } from '../../components/ui';
+import { api, ApiError, refusal } from '../../lib/api/client';
+import type { Grant, RunScheduleResp, Schedule, User } from '../../lib/api/types.gen';
 import { toolGrantPhrase } from '../../lib/grants';
+import { router } from '../../lib/router.svelte';
 import { localZone } from '../../lib/schedules';
 import { sendSentence } from './tasks';
+
+/** Run now, from the list or the schedule's page: '' once it started (the toast opens its chat), else why not. */
+export async function runNow(s: Schedule): Promise<string> {
+  try {
+    const chat = (await api.post<RunScheduleResp>(`/api/schedules/${encodeURIComponent(s.id)}/run`))?.session_id;
+    toast('Schedule started.', chat ? { action: { label: 'Open chat', onclick: () => router.navigate(`/chat/${encodeURIComponent(chat)}`) } } : {});
+    return '';
+  } catch (e) {
+    // An empty check-in list, or Bothy paused: trying again won't help.
+    return refusal(e) || (e instanceof ApiError && e.code === 'paused' ? 'Bothy is paused by an admin, so nothing new starts.' : "Couldn't start it. Try again.");
+  }
+}
 
 export function blankSchedule(user: User | undefined): Schedule {
   return {

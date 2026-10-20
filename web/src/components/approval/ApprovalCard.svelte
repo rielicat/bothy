@@ -159,26 +159,29 @@
   async function resolve(choice: Choice, text?: string) {
     if (!open || busy) return;
     if (!canDecide && !(isRequester && choice === 'deny')) return;
+    // Read before the request: the event stream may drop this row first, and
+    // a card folding away must not read its state again (derived_inert).
+    const at = { id: view.id, multi, inline: mode === 'inline' };
     busy = choice;
     failed = '';
     try {
       const note = text?.trim() || undefined;
-      const a = await api.post<Approval>(`/api/approvals/${encodeURIComponent(view.id)}`, note ? { choice, comment: note } : { choice });
+      const a = await api.post<Approval>(`/api/approvals/${encodeURIComponent(at.id)}`, note ? { choice, comment: note } : { choice });
       resolved = a;
       denying = false;
       alwaysOpen = false;
       approvals.upsert(a);
-      if (multi) void votes.load(a.id);
+      if (at.multi) void votes.load(a.id);
       onresolve?.(choice, note, a);
       onresolved?.(a);
-      if (mode === 'inline') {
+      if (at.inline) {
         announce(`${choiceDone[choice]}.`);
         await tick();
         // The pressed button is gone; focus goes to the line that replaced it.
         if (!document.activeElement || document.activeElement === document.body) (decidedLine ?? article)?.focus();
       }
     } catch (e) {
-      failed = await refusal(e);
+      failed = await refusal(e, at);
     } finally {
       busy = '';
     }
@@ -186,19 +189,18 @@
 
   // A refusal the server explains (decided, already voted, asked by you) won't
   // go away by trying again: the card says why and shows where the request stands.
-  async function refusal(e: unknown): Promise<string> {
+  async function refusal(e: unknown, at: { id: string; multi: boolean; inline: boolean }): Promise<string> {
     const retry = "Couldn't send your decision. Try again.";
     if (!(e instanceof ApiError) || (e.status !== 403 && e.status !== 409)) return retry;
-    const id = view.id;
-    const fresh = await api.get<Approval>(`/api/approvals/${encodeURIComponent(id)}`).catch(() => null);
-    if (multi) void votes.load(id);
+    const fresh = await api.get<Approval>(`/api/approvals/${encodeURIComponent(at.id)}`).catch(() => null);
+    if (at.multi) void votes.load(at.id);
     if (fresh) {
       resolved = fresh;
       approvals.upsert(fresh);
       if (!isOpen(fresh)) {
         onresolved?.(fresh);
         // An inline card folds into its decided line, which has no room for the notice.
-        if (mode === 'inline') announce('This request was already decided.');
+        if (at.inline) announce('This request was already decided.');
         return 'This request was already decided.';
       }
     }

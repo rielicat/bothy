@@ -239,7 +239,7 @@
     untrack(() => {
       conv.listen();
       void conv.load().then(() => (loaded = true));
-      void models.load(auth.isAdmin);
+      void models.load();
       people.load();
       if (finePointer()) void tick().then(() => composer?.focus());
       const onscroll = () => measure();
@@ -707,7 +707,7 @@
               <ChatNotice text="From now on, Bothy will ask before sending anything out of this chat." detailsLabel="Why?">
                 {#snippet more()}
                   <p class="text-small text-muted">
-                    This chat has used private information and content from outside your team, like a web page. To keep that information from leaking, Bothy now asks first.
+                    This chat has used private information and content from outside your team, like a web page, a repository or a connected tool's reply. To keep that information from leaking, Bothy now asks first.
                     A new related chat starts clean.
                   </p>
                 {/snippet}

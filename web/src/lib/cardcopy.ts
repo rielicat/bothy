@@ -850,20 +850,24 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   const voteName = (v: { user_id: string; name?: string }) => who(v.user_id, v.name);
   const votes = o.votes?.votes ?? a2.votes?.map((v) => ({ ...v, name: '' })) ?? [];
 
+  // The Done tab lists lines without their cards, so there a cancellation says what it cancelled too.
+  const cancelled = (name: string): DecidedCopy => ({
+    glyph: 'close',
+    tone: 'muted',
+    segs: o.list ? [`${name.charAt(0).toUpperCase()}${name.slice(1)} cancelled `, ...copy.ing] : [`Cancelled by ${name}`],
+    time,
+    at,
+  });
   if (ap.status === 'expired') return { glyph: 'close', tone: 'muted', segs: ["Expired: Bothy didn't ", ...copy.ask], time, at };
   if (ap.status === 'cancelled') {
     // "You stopped Bothy." already says why, so a stop's line says what didn't happen.
     if (ap.decided_via === 'stop') return { glyph: 'close', tone: 'muted', segs: ["Cancelled: Bothy didn't ", ...copy.ask], time, at };
-    return { glyph: 'close', tone: 'muted', segs: [`Cancelled by ${requester === 'You' ? 'you' : requester || 'the person who asked'}`], time, at };
+    return cancelled(requester === 'You' ? 'you' : requester || 'the person who asked');
   }
   if (ap.status === 'denied') {
-    if (ap.decided_by_identity && ap.decided_by_identity === ap.approver?.requester_identity) {
-      return { glyph: 'close', tone: 'muted', segs: [`Cancelled by ${ap.requester?.name || 'the person who asked'}`], time, at };
-    }
+    if (ap.decided_by_identity && ap.decided_by_identity === ap.approver?.requester_identity) return cancelled(ap.requester?.name || 'the person who asked');
     const denial = votes.find((v) => v.choice === 'deny');
-    if (denial && a2.approver?.requester && denial.user_id === a2.approver.requester) {
-      return { glyph: 'close', tone: 'muted', segs: [`Cancelled by ${voteName(denial) === 'You' ? 'you' : voteName(denial)}`], time, at };
-    }
+    if (denial && a2.approver?.requester && denial.user_id === a2.approver.requester) return cancelled(voteName(denial) === 'You' ? 'you' : voteName(denial));
     const name = denial ? voteName(denial) : who(ap.decided_by, a2.decided_by_name);
     const reason = denial?.comment || a2.comment || undefined;
     const segs: Seg[] = name !== 'You' && !o.list && !denial ? [`${name} denied${via ? ` in ${via}` : ''}`] : [`${name} denied `, ...copy.ing];

@@ -24,7 +24,10 @@ func (s *Server) routeTable() []route {
 		{pattern: "GET /healthz", access: accessNone, safe: true, h: s.healthz},
 		{pattern: "GET /readyz", access: accessNone, safe: true, h: s.readyz},
 
-		{pattern: "GET /api/setup/state", access: accessLocal, setup: true, safe: true, h: s.setupState},
+		// Every page load asks; once setup is done it answers anyone that
+		// it is done (a 404 or 403 there was a console error on each load),
+		// and the gate's local-only rule moves into the handler.
+		{pattern: "GET /api/setup/state", access: accessNone, safe: true, h: s.setupState},
 		{pattern: "POST /api/setup/claim", access: accessLocal, setup: true, safe: true, h: s.setupClaim},
 		{pattern: "POST /api/setup/owner", access: accessSetup, setup: true, safe: true, h: s.setupOwner},
 		{pattern: "POST /api/setup/complete", access: accessAdmin, setup: true, safe: true, h: s.setupComplete},

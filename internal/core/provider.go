@@ -121,6 +121,10 @@ type ModelInfo struct {
 	ProviderName      string `json:"provider_name,omitempty"`
 	Recommended       bool   `json:"recommended,omitempty"`
 	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
+	// Slot is "main" or "fast" when GET /api/models finds the model first
+	// in that slot (main when both), so members, who can't read the
+	// config, see which model a chat uses; "" otherwise and elsewhere.
+	Slot Slot `json:"slot,omitempty"`
 }
 
 type ToolDef struct {
@@ -359,6 +363,10 @@ type ModelChoice struct {
 	ProviderName      string `json:"provider_name,omitempty"`
 	Recommended       bool   `json:"recommended,omitempty"`
 	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
+	// Slot is "main" or "fast" when GET /api/models finds the model first
+	// in that slot (main when both), so members, who can't read the
+	// config, see which model a chat uses; "" otherwise and elsewhere.
+	Slot Slot `json:"slot,omitempty"`
 }
 
 type Detection struct {

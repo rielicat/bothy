@@ -42,13 +42,43 @@ describe('punycode', () => {
     expect(punycode('mail bob@аpple.com')).toBe('mail bob@xn--pple-43d.com');
   });
 
+  // Bothy's own “…” quotes and Spanish punctuation put a non-ASCII character
+  // beside a full stop in plain prose.
+  it('leaves sentences alone', () => {
+    for (const s of [
+      'Priya Shah denied remembering “The office wifi password rotates on mondays.” for everyone',
+      'Abrimos el café. ¿Vienes?',
+      'café.',
+      'Ana.¿Ok?',
+      'Ünïcode…',
+    ])
+      expect(punycode(s)).toBe(s);
+    expect(punycode('visit аpple.com.')).toBe('visit xn--pple-43d.com.');
+    expect(punycode('(аpple.com)')).toBe('(xn--pple-43d.com)');
+  });
+
+  // Quotes and markdown around a name, or a lookalike slash inside one, must
+  // not hide a homograph on an approval card.
+  it('still shows quoted and slash-spoofed homographs', () => {
+    expect(punycode('open “аpple.com” now')).toBe('open “xn--pple-43d.com” now');
+    expect(punycode('"аpple.com"')).toBe('"xn--pple-43d.com"');
+    expect(punycode('**аpple.com**')).toBe('**xn--pple-43d.com**');
+    expect(punycode('`аpple.com`.')).toBe('`xn--pple-43d.com`.');
+    expect(punycode('paypal.com⁄signin.attacker.io')).not.toBe('paypal.com⁄signin.attacker.io');
+    expect(punycode('paypal.com∕signin.attacker.io')).toContain('xn--');
+  });
+
   // An approval card or tool output can carry a long field (a message in
   // Chinese, a base64 blob); these took seconds before.
   it('stays linear on long runs without spaces', () => {
     const t0 = performance.now();
     punycode('中'.repeat(50_000));
+    punycode('中.'.repeat(25_000));
+    punycode('中-'.repeat(25_000) + '!');
     punycode('a'.repeat(50_000));
     punycode('a+'.repeat(25_000));
+    punycode('-'.repeat(50_000) + 'a');
+    punycode('.'.repeat(50_000) + 'é');
     expect(performance.now() - t0).toBeLessThan(300);
   });
 });

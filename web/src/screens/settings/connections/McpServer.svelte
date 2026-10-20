@@ -26,8 +26,9 @@
   import { router } from '../../../lib/router.svelte';
   import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
-  import { effects, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
+  import { effects, headerError, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
   import FailureLine from './FailureLine.svelte';
+  import McpKey from './McpKey.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
   const name = $derived(params.item.slice('mcp-'.length));
@@ -47,6 +48,8 @@
   let saving = $state(false);
   let keying = $state(false);
   let newKey = $state('');
+  let newHeader = $state('');
+  let newRef = $state('');
   let keyTried = $state(false);
   let keyFailure = $state<Failure | null>(null);
   let lending = $state(false);
@@ -84,7 +87,7 @@
   const pending = $derived(pins.filter((p) => p.status === 'pending'));
   // An action whose change waits for review is decided in the review, not here.
   const actions = $derived(pins.filter((p) => (p.status === 'approved' || p.status === 'disabled') && !pending.some((q) => q.tool === p.tool)));
-  const def = (p: MCPPin) => (p.definition ?? {}) as { title?: string; description?: string; inputSchema?: unknown };
+  const def = (p: MCPPin) => (p.definition ?? {}) as { title?: string; description?: string; inputSchema?: unknown; annotations?: { readOnlyHint?: boolean } };
   const label = (p: MCPPin) => def(p).title || serverTitle(p.tool);
   const known = (e: SideEffect) => (effects.some((x) => x.value === e) ? e : 'irreversible');
   const pretty = (p?: MCPPin) => (p ? JSON.stringify(p.definition ?? {}, null, 2) : '');
@@ -131,11 +134,10 @@
     await load();
   }
 
-  // The key the Add dialog saved for this server goes with it.
-  const ownKey = $derived(config.value(`mcp.servers.${name}.headers.Authorization`, '') === `secret:mcp_${name}_header`);
-
   const url = $derived(String(config.value(`mcp.servers.${name}.url`, '')));
   const headers = $derived(config.keys(`mcp.servers.${name}.headers`, 'leaf').map((h) => [h, String(config.value(`mcp.servers.${name}.headers.${h}`, ''))]));
+  // The key the Add dialog saved for this server goes with it.
+  const ownKey = $derived(headers.some((h) => h[1] === `secret:mcp_${name}_header`));
   const refs = $derived([...headers.map((h) => h[1]), url]);
   // A key kept in AWS Secrets Manager is replaced there, not here.
   const keyable = $derived(config.value<string>(`mcp.servers.${name}.transport`) === 'http' && !refs.some((v) => v.includes('aws-sm:')));
@@ -150,7 +152,7 @@
   });
 
   function openKey() {
-    newKey = '';
+    newKey = newHeader = newRef = '';
     keyTried = false;
     keyFailure = null;
     keying = true;
@@ -159,16 +161,16 @@
   async function saveKey(e: SubmitEvent) {
     e.preventDefault();
     keyTried = true;
-    if (!newKey.trim()) return;
+    if ((!newKey.trim() && !newRef) || headerError(newHeader)) return;
     busy = true;
     const ref = keyRef ?? `mcp_${name}_header`;
     try {
-      await api.put(`/api/vault/global/${ref}`, { value: newKey.trim() });
+      if (!newRef) await api.put(`/api/vault/global/${ref}`, { value: newKey.trim() });
       // A new header changes the server's entry, which rediscovers it; a replaced key needs a reload to be tried.
-      keyFailure = keyRef ? null : await saveConfig({ [`mcp.servers.${name}.headers.Authorization`]: `secret:${ref}` });
+      keyFailure = keyRef ? null : await saveConfig({ [`mcp.servers.${name}.headers.${newHeader.trim() || 'Authorization'}`]: newRef || `secret:${ref}` });
       if (keyFailure) {
         // Nothing sends the key just saved: it doesn't stay behind.
-        await api.del(`/api/vault/global/${ref}`).catch(() => {});
+        if (!newRef) await api.del(`/api/vault/global/${ref}`).catch(() => {});
         if (/use https/.test(keyFailure.details ?? '')) keyFailure.message = 'Over http the key would be sent unencrypted. Add the server again with its https:// address.';
       } else {
         keying = false;
@@ -206,8 +208,9 @@
       case 'no_shared_key':
         return { label: 'Use my key', onclick: () => (lending = true) };
       case 'key_missing':
+      case 'key_needed':
       case 'key_rejected':
-        if (keyable) return { label: status.code === 'key_missing' ? 'Add key' : 'Replace key', onclick: openKey };
+        if (keyable) return { label: status.code === 'key_rejected' ? 'Replace key' : 'Add key', onclick: openKey };
         break;
       case 'key_locked':
         return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
@@ -357,6 +360,8 @@
           <h3 class="text-heading text-text">{label(p)}</h3>
           <p class="text-small text-muted">{before(p) ? 'Changed since you last allowed it' : 'New action'}</p>
           {#if def(p).description}<p class="mt-1 text-body text-text" data-copy-ignore>{def(p).description}</p>{/if}
+          <!-- The server's own word can't lower what it's allowed to do, so it is shown, not chosen. -->
+          {#if def(p).annotations?.readOnlyHint}<p class="mt-1 text-small text-muted">{title} says this only reads information.</p>{/if}
           {#if before(p)}
             <p class="mt-1 text-small">
               <LinkButton aria-expanded={!!shown[p.tool]} onclick={() => (shown[p.tool] = !shown[p.tool])}>{shown[p.tool] ? 'Hide what changed' : 'Show what changed'}</LinkButton>
@@ -383,14 +388,25 @@
 
 <Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy} cancel>
   <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
-    <TextField
-      label="Key"
-      type="password"
-      bind:value={newKey}
-      autocomplete="off"
-      error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
-      help={keyHelp}
-    />
+    {#if keyRef}
+      <TextField
+        label="Key"
+        type="password"
+        bind:value={newKey}
+        autocomplete="off"
+        error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
+        help={keyHelp}
+      />
+    {:else}
+      <!-- Nothing names a key yet, so it can be a saved one, in any header. -->
+      <McpKey
+        bind:header={newHeader}
+        bind:ref={newRef}
+        bind:key={newKey}
+        optional={false}
+        error={keyTried ? { header: headerError(newHeader), key: newKey.trim() ? undefined : 'Enter the key.' } : undefined}
+      />
+    {/if}
     <FailureLine failure={keyFailure} />
   </form>
   {#snippet footer()}

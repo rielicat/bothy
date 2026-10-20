@@ -391,7 +391,8 @@
   {#if repo}
     <dl class="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-body" data-details>
       <dt class="text-muted">Commit read</dt>
-      <dd>{#if repo.sha}<span class="font-mono text-code" data-path>{repo.sha.slice(0, 7)}</span>{:else}Not read yet{/if}</dd>
+      <!-- indexed_sha, not sha: "Read again" asks for the branch head, so the requested commit is "" until a checkout names one. -->
+      <dd>{#if repo.indexed_sha}<span class="font-mono text-code" data-path>{repo.indexed_sha.slice(0, 7)}</span>{:else}Not read yet{/if}</dd>
       <dt class="text-muted">Files indexed</dt>
       <dd class="tabular-nums">{repo.files.toLocaleString()}</dd>
       {#if repo.skipped}

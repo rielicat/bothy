@@ -108,7 +108,8 @@ surface shows, from the Action, the spec and the decision only: `question`,
 chat"), the `ing` phrase, `kind` (`action`, `pull_request`, `deploy`,
 `review` for notes edits) and `tone` (`destructive` for irreversible and
 financial actions and schedule deletion, never for deploys), plain field
-labels per tool with MCP (schema-declared scalar arguments), admin and
+labels per tool with MCP (schema-declared scalar arguments, required ones first in
+the schema's `required` order), admin and
 unknown-tool fallbacks, and plain decision warnings. A field that shows the
 exact action (a shell command, a message, a comment) replaces `Code`; a value
 inside a sentence goes through `inline()`, so it can never break the line.

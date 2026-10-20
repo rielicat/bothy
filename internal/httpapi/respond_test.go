@@ -38,3 +38,24 @@ func TestMapErrorPlainMessages(t *testing.T) {
 		}
 	}
 }
+
+type upstreamErr struct{}
+
+func (upstreamErr) Error() string {
+	return "GitHub rejected the credentials (wrong, expired or revoked token): Bad credentials"
+}
+func (upstreamErr) UpstreamStatus() int { return http.StatusUnauthorized }
+
+// Another service refusing (GitHub rejecting the token) is a 502 with its
+// reason, not an internal error; a sentinel still decides first.
+func TestUpstreamRefusalIsBadGateway(t *testing.T) {
+	h := newHarness(t)
+	// Only GitHub's own reason: what wraps it can name local paths.
+	st, env, _ := h.srv.mapError(fmt.Errorf("github: reading /data/github/checkouts/ws_1/acme/web: %w", upstreamErr{}))
+	if st != http.StatusBadGateway || env.Error.Error.Code != "provider_error" || env.Error.Error.Message != (upstreamErr{}).Error() {
+		t.Fatalf("upstream refusal = %d %+v", st, env.Error.Error)
+	}
+	if st, _, _ := h.srv.mapError(fmt.Errorf("%w: %w", core.ErrNotFound, upstreamErr{})); st != http.StatusNotFound {
+		t.Fatalf("a sentinel with an upstream cause = %d", st)
+	}
+}

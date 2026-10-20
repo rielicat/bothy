@@ -17,7 +17,7 @@
     conn,
     app,
     landing,
-    reading = 0,
+    reading = [],
     onchanged,
     onreplace,
     top,
@@ -27,8 +27,8 @@
     app?: GitHubApp;
     /** The app's installation just made this connection, or changed its repositories on GitHub: the picker opens. */
     landing?: 'installed' | 'updated';
-    /** Repositories just saved, which Bothy starts reading now. */
-    reading?: number;
+    /** Repositories just saved; Bothy reads those it hasn't read yet. */
+    reading?: string[];
     onchanged: () => void;
     onreplace: () => void;
     /** Lines above the sections: a GitHub round trip's outcome, apps to delete on GitHub. */
@@ -51,13 +51,15 @@
   let dropping = $state('');
   let details = $state(false);
   let flows = $state<Record<string, string>>({});
-  let added = $state(0);
+  let added = $state<string[]>([]);
   let checking = $state(false);
   let notInstalled = $state(false);
 
   const id = $derived(encodeURIComponent(conn.id));
   const full = (r: { owner: string; name: string }) => `${r.owner}/${r.name}`;
   const allowed = $derived(repos.filter((r) => r.allowed).map(full));
+  // Saving reads only repositories Bothy hasn't read, so ones already read don't count.
+  const unread = $derived((added.length ? added : reading).filter((n) => !indexed.some((x) => x.repo === n.toLowerCase() && (x.status === 'ready' || x.status === 'error'))).length);
   const web = $derived(githubWeb());
   const installation = $derived(conn.auth === 'app' && conn.installation_id ? installationSettingsURL(conn) : '');
 
@@ -183,7 +185,7 @@
     busy = true;
     if (await putRepos([...allowed, ...more])) {
       adding = false;
-      added = more.length;
+      added = [...more];
       toast(`${plural(more.length, 'repository', 'repositories')} added.`);
     }
     busy = false;
@@ -225,11 +227,11 @@
 
 <ConnPage title="GitHub">
   {@render top?.()}
-  {#if reading || added}
+  {#if unread}
     <StatusLine
       class="mb-6"
       tone="progress"
-      text="Bothy is reading {plural(reading || added, 'repository', 'repositories')}. You can keep working; this takes a few minutes."
+      text="Bothy is reading {plural(unread, 'repository', 'repositories')}. You can keep working; this takes a few minutes."
       action={{ label: 'See progress in Knowledge ›', onclick: () => router.navigate('/knowledge') }}
     />
   {/if}

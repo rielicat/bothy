@@ -202,3 +202,18 @@ func TestEventJSON(t *testing.T) {
 		t.Fatalf("payload json = %s", b)
 	}
 }
+
+// A draft title never ends in half a word.
+func TestDraftTitle(t *testing.T) {
+	for in, want := range map[string]string{
+		"Fix the login bug": "Fix the login bug",
+		"Remember this for the whole team: production deploys happen on Tuesdays":      "Remember this for the whole team: production…",
+		"Help me plan the weekend\n\nwith  the whole family, somewhere near the coast": "Help me plan the weekend with the whole family…",
+		strings.Repeat("x", 60):          strings.Repeat("x", TitleChars) + "…",
+		strings.Repeat("ab ", 16) + "cd": strings.Repeat("ab ", 15) + "ab…",
+	} {
+		if got := DraftTitle(in); got != want {
+			t.Errorf("DraftTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

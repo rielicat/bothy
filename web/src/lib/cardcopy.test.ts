@@ -448,6 +448,11 @@ describe('decidedLine', () => {
       'Alex Kim denied deploying acme/web to production · “Not before the freeze ends”',
     );
     expect(line(decided(dep, { status: 'denied', choice: 'deny', approver, votes: [vote(me, 'deny')] }))).toBe('Cancelled by you');
+    // The Done tab has no card above its lines, so a cancellation says what it cancelled.
+    expect(line(decided(dep, { status: 'denied', choice: 'deny', approver, votes: [vote(me, 'deny')] }), { list: true })).toBe('You cancelled deploying acme/web to production');
+    expect(line(decided(dep, { status: 'denied', choice: 'deny', approver: { ...approver, requester: alex }, votes: [vote(alex, 'deny')] }), { list: true })).toBe(
+      'Alex Kim cancelled deploying acme/web to production',
+    );
     // Never "Alex Kim and You" mid-sentence.
     expect(line(decided(dep, { status: 'allowed', choice: 'allow_once', approver: { ...approver, requester: 'usr_x' }, votes: [vote(alex, 'allow_once'), vote(me, 'allow_once')] }))).toBe(
       'You and Alex Kim approved deploying acme/web to production',

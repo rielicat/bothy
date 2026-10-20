@@ -1,7 +1,8 @@
 // Saved keys by friendly name and by what uses them (§11.6): the stored name
 // "anthropic_api_key" reads "Anthropic API key · used by Anthropic".
 import type { Entry } from '../../../lib/api/types.gen';
-import { capital } from '../../../lib/format';
+// A connected tool is named as Connections names it ("DeepWiki", "Acme helpdesk").
+import { capital, serviceName as toolName } from '../../../lib/format';
 
 const services: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -60,7 +61,7 @@ export function keyName(name: string): string {
   if (mine) return mine[1];
   // The secret header the Add an MCP server dialog saves.
   const mcp = /^mcp_([a-z0-9-]+)_header$/.exec(lower);
-  if (mcp) return `Key for ${serviceName(mcp[1])}`;
+  if (mcp) return `Key for ${toolName(mcp[1])}`;
   const [prefix] = lower.split(/[_.-]/);
   for (const [re, kind] of kinds) {
     if (re.test(lower) && services[prefix] && lower.replace(re, '') === prefix) return `${services[prefix]} ${kind}`;
@@ -97,7 +98,7 @@ export function usedBy(name: string, entries: Entry[]): string[] {
     const [area, id] = e.path.split('.');
     if (area === 'providers' || area === 'channels') out.add(serviceName(id));
     else if (area === 'search') out.add(serviceName(id.split('_')[0]));
-    else if (area === 'mcp') out.add(serviceName(e.path.split('.')[2] ?? 'a connected tool'));
+    else if (area === 'mcp') out.add(toolName(e.path.split('.')[2] ?? 'a connected tool'));
     else if (area === 'auth') out.add('Sign-in');
     else out.add(serviceName(area));
   }

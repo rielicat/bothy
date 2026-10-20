@@ -16,9 +16,11 @@ import (
 // State is what the offers depend on, for one viewer.
 type State struct {
 	Admin bool
-	// Repo is the viewer's newest ready knowledge index, else the first
-	// repository GitHub connections allow; "" when there is neither.
+	// Repo is the viewer's newest ready knowledge index, else a repository
+	// GitHub connections allow (PickRepo); "" when there is neither.
 	Repo string
+	// RepoUnread: Repo came from GitHub, and the viewer has no index of it.
+	RepoUnread bool
 	// GitHub: a connection exists; GitHubRepos: it allows at least one
 	// repository.
 	GitHub      bool
@@ -58,4 +60,22 @@ func plain(s string) string {
 		return r
 	}, oneLine(s))
 	return strings.ReplaceAll(s, "_", `\_`)
+}
+
+// PickRepo is the repository offered to a viewer with no index of their
+// own: the first one a release environment deploys, since that is where
+// the team works, else the first one GitHub allows (the alphabetical first
+// may be a stub nobody uses).
+func PickRepo(allowed []string, releases []Release) string {
+	for _, r := range releases {
+		for _, a := range allowed {
+			if strings.EqualFold(a, r.Repo) {
+				return a
+			}
+		}
+	}
+	if len(allowed) > 0 {
+		return allowed[0]
+	}
+	return ""
 }

@@ -37,7 +37,8 @@ class Attention {
       clearTimeout(timer);
       timer = setTimeout(() => void this.refresh(), 1000);
     };
-    const offs = [events.on('channel.status', soon), events.on('mcp.pin_pending', soon), events.on('sandbox.status', soon), events.on('config.changed', soon), events.onResync(soon)];
+    // A banner clearing (mcp_pins once a review is saved) is often the only sign a dot should go.
+    const offs = [events.on('channel.status', soon), events.on('mcp.pin_pending', soon), events.on('sandbox.status', soon), events.on('config.changed', soon), events.on('banner', soon), events.onResync(soon)];
     return () => {
       clearTimeout(timer);
       offs.forEach((f) => f());

@@ -259,11 +259,31 @@ func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
 		for len(sub.C()) > 0 {
 			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
 		}
-		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+		if want := []string{"Help me plan the weekend with the whole family…", "Weekend plans"}; !slices.Equal(titles, want) {
 			t.Fatalf("titles %q, want the first message's start replacing Bothy's title, then the generated one %q", titles, want)
 		}
 		if got := h.session(); got.Title != "Weekend plans" || got.TitleAuto {
 			t.Fatalf("named fork = title %q auto %v", got.Title, got.TitleAuto)
+		}
+
+		result, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result.Title, result.ScheduleID = "Morning build check · 19 Oct, 14:05", "sch_build"
+		if err := h.store.Sessions().Update(h.ctx, result); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := h.r.Fork(h.ctx, v, result.ID, h.user.ID); err != nil || f.Title != "Morning build check (clean)" {
+			t.Fatalf("fork of a schedule's result = %+v %v", f, err)
+		}
+		// A result someone renamed keeps every word of its name.
+		result.Title = "Build failures · follow up"
+		if err := h.store.Sessions().Update(h.ctx, result); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := h.r.Fork(h.ctx, v, result.ID, h.user.ID); err != nil || f.Title != "Build failures · follow up (clean)" {
+			t.Fatalf("fork of a renamed result = %+v %v", f, err)
 		}
 
 		hb, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
@@ -425,7 +445,7 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 		for len(sub.C()) > 0 {
 			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
 		}
-		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+		if want := []string{"Help me plan the weekend with the whole family…", "Weekend plans"}; !slices.Equal(titles, want) {
 			t.Fatalf("session titles %q, want the first message's start, then the generated title %q", titles, want)
 		}
 		var titled bool

@@ -1068,8 +1068,19 @@ func TestMiscReads(t *testing.T) {
 		t.Fatalf("skill = %+v", d)
 	}
 	expect(t, h.do("PATCH", "/api/skills/new", dto.SkillPatchReq{Enabled: true}, h.admin), http.StatusOK)
-	if l := decodeAs[[]core.ModelInfo](t, h.do("GET", "/api/models", nil, h.member)); len(l) != 1 {
-		t.Fatal("models")
+	if l := decodeAs[[]core.ModelInfo](t, h.do("GET", "/api/models", nil, h.member)); len(l) != 1 || l[0].Slot != "" {
+		t.Fatalf("models = %+v", l)
+	}
+	// A member can't read the config, so the list says which model is main.
+	h.cfg.update(func(c *config.Config) { c.Models.Main = []string{fakes.DefaultModel.Ref.String(), "other/model"} })
+	if l := decodeAs[[]core.ModelInfo](t, h.do("GET", "/api/models", nil, h.member)); len(l) != 1 || l[0].Slot != core.SlotMain {
+		t.Fatalf("models with a main slot = %+v", l)
+	}
+	h.cfg.update(func(c *config.Config) {
+		c.Models.Main, c.Models.Fast = []string{"other/model"}, []string{fakes.DefaultModel.Ref.String()}
+	})
+	if l := decodeAs[[]core.ModelInfo](t, h.do("GET", "/api/models", nil, h.member)); len(l) != 1 || l[0].Slot != core.SlotFast {
+		t.Fatalf("models with a fast slot = %+v", l)
 	}
 	h.memory.Files = nil
 	if res := decodeAs[dto.SearchResp](t, h.do("GET", "/api/search?q=", nil, h.member)); res.Chats == nil || len(res.Chats)+len(res.Notes)+len(res.Code) != 0 {

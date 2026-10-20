@@ -411,10 +411,19 @@ func TestSetupRoutes(t *testing.T) {
 	owner2 := &client{name: "owner", user: me.User.ID, cookie: session, csrf: me.CSRF}
 	expect(t, h.do("POST", "/api/setup/complete", nil, owner2, remote, overTLS()), http.StatusForbidden)
 	expect(t, h.do("POST", "/api/setup/complete", nil, owner2), http.StatusNoContent)
-	for _, p := range []string{"GET /api/setup/state", "POST /api/setup/claim", "POST /api/setup/owner", "POST /api/setup/complete"} {
+	for _, p := range []string{"POST /api/setup/claim", "POST /api/setup/owner", "POST /api/setup/complete"} {
 		m, path, _ := strings.Cut(p, " ")
 		if rec := h.do(m, path, nil, owner2); rec.Code != http.StatusNotFound {
 			t.Errorf("%s after completion = %d", p, rec.Code)
+		}
+	}
+	// The web asks on every load: once setup is done it answers anyone, with
+	// nothing about the install.
+	for _, from := range []reqOpt{fromAddr("127.0.0.1:5000"), remote} {
+		rec := h.do("GET", "/api/setup/state", nil, nil, from, overTLS())
+		expect(t, rec, http.StatusOK)
+		if st := decodeAs[dto.SetupState](t, rec); st.NeedsSetup || !st.OwnerSet || st.Install != "" || st.Claimed || st.Sandbox {
+			t.Errorf("state after completion = %+v", st)
 		}
 	}
 }

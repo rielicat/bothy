@@ -367,11 +367,15 @@ func (s *Server) gate(w http.ResponseWriter, r *http.Request, rt route) error {
 			}
 		}
 		if infoOf(r).class != classLocal {
-			return newError(http.StatusForbidden, "forbidden", "setup is only available from this machine").
-				withFix("ssh -L 8080:127.0.0.1:8080 <host>, then open the printed setup URL on http://127.0.0.1:8080")
+			return setupLocalOnly()
 		}
 	}
 	return nil
+}
+
+func setupLocalOnly() error {
+	return newError(http.StatusForbidden, "forbidden", "setup is only available from this machine").
+		withFix("ssh -L 8080:127.0.0.1:8080 <host>, then open the printed setup URL on http://127.0.0.1:8080")
 }
 
 func bearer(r *http.Request) (string, bool) {

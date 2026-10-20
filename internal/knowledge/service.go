@@ -33,6 +33,13 @@ type Deps struct {
 	// Redactor masks secrets in the repository text a draft sends to the
 	// model and in the notes it writes; nil sends the text as read.
 	Redactor core.Redactor
+
+	// Snapshot, when set, writes what a GitHub repository holds at a commit
+	// ("" = its default branch's head now) into a folder of its own, and
+	// GitHub sources are indexed from it: boxes edit the workspace checkout,
+	// and an index of their edits would cite code no commit holds. Without
+	// it they are indexed from the checkout.
+	Snapshot func(ctx context.Context, ws core.WorkspaceID, repo, sha string) (dir, resolved string, done func(), err error)
 }
 
 const (
@@ -271,15 +278,26 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 		s.log.Warn("knowledge: mark indexing", "repo", id, "err", err)
 		return
 	}
-	ws := workspaceDir(s.d.WorkDir, p)
-	total := r.Files
-	if total == 0 {
-		total = estimateFiles(ws, r.Dir, s.caps().files)
-	}
-	s.setProgress(r.ID, core.IndexProgress{Total: total})
+	ws, dir, sha := workspaceDir(s.d.WorkDir, p), r.Dir, r.SHA
+	s.setProgress(r.ID, core.IndexProgress{Total: r.Files})
 	defer s.clearProgress(r.ID)
 	s.publish(r, false)
-	st, err := indexDir(ctx, s.d.Repo, r.ID, r.SHA, ws, r.Dir, s.caps(), func(done int) {
+	if r.Source == core.KnowledgeGitHub && s.d.Snapshot != nil {
+		snap, got, done, err := s.d.Snapshot(ctx, p.Workspace, r.Repo, r.SHA)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			s.fail(ctx, r, &errUser{s.redact("Bothy couldn't read " + r.Repo + " from GitHub: " + err.Error())})
+			return
+		}
+		defer done()
+		ws, dir, sha = snap, ".", got
+	}
+	if r.Files == 0 {
+		s.setProgress(r.ID, core.IndexProgress{Total: estimateFiles(ws, dir, s.caps().files)})
+	}
+	st, err := indexDir(ctx, s.d.Repo, r.ID, sha, ws, dir, s.caps(), func(done int) {
 		if s.stepProgress(id, done) {
 			s.publish(r, false)
 		}
@@ -296,9 +314,9 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 		r.Status = core.IndexQueued
 	}
 	r.Files, r.Chunks, r.Bytes, r.Skipped, r.Truncated = st.files, st.chunks, st.bytes, st.skipped, st.truncated
-	// r.SHA is the commit this job read, even when a newer checkout has
-	// been requested meanwhile (then the row says queued again).
-	r.IndexedAt, r.IndexedSHA = s.clock.Now(), r.SHA
+	// sha is the commit this job read, even when a newer checkout has been
+	// requested meanwhile (then the row says queued again).
+	r.IndexedAt, r.IndexedSHA = s.clock.Now(), sha
 	if err := s.d.Repo.UpdateIndex(ctx, r); err != nil {
 		if !errors.Is(err, core.ErrNotFound) {
 			s.log.Error("knowledge: store index state", "repo", id, "err", err)
@@ -308,7 +326,7 @@ func (s *Service) runJob(ctx context.Context, id int64) {
 	s.setHas(r.Principal, true)
 	s.publish(r, false)
 	s.audit(ctx, "system", "knowledge.index", r, "ok", map[string]any{"state": "indexed", "files": st.files, "chunks": st.chunks,
-		"skipped": st.skipped, "truncated": st.truncated, "sha": r.SHA})
+		"skipped": st.skipped, "truncated": st.truncated, "sha": sha})
 	if r.Notes.Status == core.NotesNone && s.cfg().AutoNotes {
 		if _, err := s.startDraft(ctx, r, p, "system"); err != nil && !errors.Is(err, core.ErrConflict) {
 			s.log.Warn("knowledge: start notes draft", "repo", id, "err", err)
@@ -568,6 +586,11 @@ func (s *Service) Reindex(ctx context.Context, v core.Viewer, id int64, by core.
 		return nil, err
 	}
 	r.Status, r.Error = core.IndexQueued, ""
+	if r.Source == core.KnowledgeGitHub && s.d.Snapshot != nil {
+		// Reading again means what GitHub holds now, not the commit of the
+		// last checkout.
+		r.SHA = ""
+	}
 	if err := s.d.Repo.Upsert(ctx, r); err != nil {
 		return nil, err
 	}

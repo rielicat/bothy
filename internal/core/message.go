@@ -169,13 +169,19 @@ func (m *Message) Redacted(r Redactor, keepSigned bool) *Message {
 // generated title arrives.
 const TitleChars = 48
 
-// DraftTitle is that name: the text on one line, cut to TitleChars characters.
+// DraftTitle is that name: the text on one line, cut to TitleChars
+// characters at a word boundary and marked "…", so it never ends in half a
+// word ("…the whole team: product").
 func DraftTitle(text string) string {
 	s := strings.Join(strings.FieldsFunc(text, func(r rune) bool {
 		return unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 	}), " ")
 	if r := []rune(s); len(r) > TitleChars {
-		s = strings.TrimSpace(string(r[:TitleChars]))
+		cut := string(r[:TitleChars])
+		if i := strings.LastIndexByte(cut, ' '); r[TitleChars] != ' ' && i > 0 {
+			cut = cut[:i]
+		}
+		s = strings.TrimRight(strings.TrimSpace(cut), ",;:-") + "…"
 	}
 	return s
 }

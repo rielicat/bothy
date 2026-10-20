@@ -47,6 +47,7 @@ export function appStatus(app: AppName, s: AppStatus | undefined, people: number
 // What the server's status code says to fix (MCPStatus.code).
 const toolCodes: Record<string, string> = {
   key_missing: 'a saved key it uses is missing',
+  key_needed: 'it asks for a key',
   // Only people's own keys exist: an admin can let theirs show what it offers.
   no_shared_key: 'it needs a shared key to show what it can do',
   key_locked: "Bothy's saved keys are locked",
@@ -219,6 +220,9 @@ export function privateHost(address: string): string {
 
 /** "linear" → "Linear", "team-docs" → "Team docs", "deepwiki" → "DeepWiki". */
 export const serverTitle = serviceName;
+
+/** Why a header name can't carry a key; '' leaves it Authorization. */
+export const headerError = (h: string) => (h.trim() && !/^[\w-]+$/.test(h.trim()) ? 'Use letters, numbers and dashes, like X-Api-Key.' : undefined);
 
 export const effects: { value: SideEffect; label: string }[] = [
   { value: 'read', label: 'Only reads information' },

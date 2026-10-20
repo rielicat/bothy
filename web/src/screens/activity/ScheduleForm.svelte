@@ -12,7 +12,7 @@
   import CheckIn from './CheckIn.svelte';
   import DeleteSchedule from './DeleteSchedule.svelte';
   import Loading from '../../components/ui/Loading.svelte';
-  import { blankSchedule, grantSentence, hostsIn, listDate, nameFrom } from './schedule';
+  import { blankSchedule, grantSentence, hostsIn, listDate, nameFrom, runNow } from './schedule';
   import TaskRow from './TaskRow.svelte';
   import { dayLabel, taskView } from './tasks';
 
@@ -196,7 +196,10 @@
 </script>
 
 {#snippet pageMenu()}
-  <Menu items={[{ label: 'Delete schedule…', danger: true, onselect: () => (removing = s) }]} placement="bottom-end">
+  <Menu
+    items={[{ label: 'Run now', onselect: async () => (saveError = s ? await runNow(s) : '') }, 'separator', { label: 'Delete schedule…', danger: true, onselect: () => (removing = s) }]}
+    placement="bottom-end"
+  >
     {#snippet trigger(props)}<IconButton icon="more" label="More for this schedule" {...props} />{/snippet}
   </Menu>
 {/snippet}

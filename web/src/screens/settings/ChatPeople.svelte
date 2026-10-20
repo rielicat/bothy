@@ -99,10 +99,12 @@
   }
 
   function meta(t: Teammate): string {
-    if (t.status === 'blocked') return `${app(t)} · Blocked`;
+    // Two people of one app with the same name and no username are told apart by their account id there.
+    const twin = !t.handle && people.some((o) => o !== t && o.channel === t.channel && o.name === t.name) ? `ID ${t.external_id}` : '';
+    if (t.status === 'blocked') return [app(t), twin, 'Blocked'].filter(Boolean).join(' · ');
     const handle = t.handle && t.name !== `@${t.handle}` ? `@${t.handle}` : '';
     // On phones the switch is in the menu, so the row says who can approve.
-    return [handle, app(t), t.left ? leftText(t) : '', narrow && t.can_approve ? 'Can approve' : ''].filter(Boolean).join(' · ');
+    return [handle, app(t), twin, t.left ? leftText(t) : '', narrow && t.can_approve ? 'Can approve' : ''].filter(Boolean).join(' · ');
   }
 
   function active(t: Teammate): string {

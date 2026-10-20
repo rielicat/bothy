@@ -204,8 +204,13 @@ func (a *app) buildRest(ctx context.Context) error {
 		return err
 	}
 	repos := a.db.GitHub()
+	if a.github, err = github.New(github.Deps{Config: a.cfg, Store: repos, Vault: a.vault, Egress: a.egress, Bus: a.bus,
+		Audit: a.audit, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
+		return err
+	}
 	if a.knowledge, err = knowledge.New(knowledge.Deps{Repo: a.db.Knowledge(), Store: a.db, Config: a.cfg, LLM: a.llm, Budget: a.budget,
-		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		Redactor: a.redactor, Bus: a.bus, Audit: a.audit, DataDir: dirs.Data, WorkDir: dirs.Work, Clock: a.clock, Log: a.log,
+		Snapshot: a.github.Snapshot}); err != nil {
 		return err
 	}
 	if a.skills, err = skills.New(skills.Deps{Store: a.db, Config: a.cfg, Audit: a.audit, Bus: a.bus, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
@@ -214,10 +219,6 @@ func (a *app) buildRest(ctx context.Context) error {
 	a.registry = tools.NewRegistry(tools.RegistryDeps{Config: a.cfg, Log: a.log})
 	if a.mcp, err = mcp.New(mcp.Deps{Config: a.cfg, Store: a.db, Sandbox: a.sandbox, Egress: a.egress, Registry: a.registry,
 		Vault: a.vault, Bus: a.bus, Audit: a.audit, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
-		return err
-	}
-	if a.github, err = github.New(github.Deps{Config: a.cfg, Store: repos, Vault: a.vault, Egress: a.egress, Bus: a.bus,
-		Audit: a.audit, DataDir: dirs.Data, Clock: a.clock, Log: a.log}); err != nil {
 		return err
 	}
 	if a.runner, err = agent.New(agent.Deps{Store: a.db, Config: a.cfg, LLM: a.llm, Tools: a.registry, Policy: a.policy,

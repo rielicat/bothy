@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
+import { toaster } from '../../components/ui';
 import { installApi, type Call } from '../../test/api';
 import ScheduleForm from './ScheduleForm.svelte';
 
@@ -178,6 +179,18 @@ describe('A schedule from an example (docs/design/ui.md §10.3)', () => {
 });
 
 describe('Edit schedule', () => {
+  // Run now used to be only in the list row's menu.
+  it("runs the schedule from its own page's menu", async () => {
+    toaster.dismiss();
+    router.navigate('/activity/schedules/sch_01jstandup00000000000000');
+    render(ScheduleForm, { params: { id: 'sch_01jstandup00000000000000' } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'More for this schedule' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Run now' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/schedules/sch_01jstandup00000000000000/run')).toBe(true));
+    await waitFor(() => expect(toaster.current?.text).toBe('Schedule started.'));
+    expect(toaster.current?.action?.label).toBe('Open chat');
+  });
+
   it('opens a rule that fits no choice as Custom and lists recent runs', async () => {
     router.navigate('/activity/schedules/sch_01jinvoices0000000000000');
     render(ScheduleForm, { params: { id: 'sch_01jinvoices0000000000000' } });

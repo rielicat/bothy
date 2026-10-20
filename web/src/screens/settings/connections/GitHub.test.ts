@@ -124,6 +124,8 @@ describe('GitHub manage view', () => {
   it('replaces the token by disconnecting first, then connecting again', async () => {
     const calls = await setup();
     await fireEvent.click(await screen.findByRole('button', { name: 'Replace token' }));
+    // The token field is right there, not folded under the app wizard.
+    expect(await screen.findByLabelText('Token')).toBeTruthy();
     await enterToken();
     await screen.findByText(/Bothy can see/);
     await fireEvent.click(screen.getByLabelText('acme/web'));
@@ -278,13 +280,13 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     const dialog = await screen.findByRole('dialog', { name: 'Start over?' });
     expect(within(dialog).getByText('Bothy stops using Bothy (acme) and deletes its keys. The app stays on GitHub until you delete it there.')).toBeTruthy();
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Start over' }));
-    expect(await screen.findByText('Bothy no longer uses Bothy (acme). Delete it on GitHub too.')).toBeTruthy();
+    expect(await screen.findByText('Bothy no longer uses the GitHub App “Bothy (acme)”. Delete it on GitHub too.')).toBeTruthy();
     expect(screen.getByRole('link', { name: /Open app settings/ }).getAttribute('href')).toBe('https://github.com/organizations/acme/settings/apps/bothy-acme');
     expect(screen.getByRole('button', { name: 'Continue on GitHub' })).toBeTruthy();
 
     await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/github/apps/gha_01jacme00000000000000000000')).toBe(true));
-    await waitFor(() => expect(screen.queryByText('Bothy no longer uses Bothy (acme). Delete it on GitHub too.')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Bothy no longer uses the GitHub App “Bothy (acme)”. Delete it on GitHub too.')).toBeNull());
   });
 
   it('connects once the pending app is installed and asks which repositories to use', async () => {
@@ -297,10 +299,21 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     const calls = await app('github-app-made', '/settings/connections/github?github_app=installed');
     const dialog = await screen.findByRole('dialog', { name: 'Add repositories' });
     expect(router.query.has('github_app')).toBe(false);
-    await fireEvent.click(await within(dialog).findByLabelText('acme/docs'));
+    await fireEvent.click(await within(dialog).findByLabelText('acme/mobile'));
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Add repositories' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     expect(await screen.findByText('Bothy is reading 1 repository. You can keep working; this takes a few minutes.')).toBeTruthy();
+  });
+
+  // acme/docs was read before: adding it back starts no new read, so nothing says one started.
+  it("doesn't say it is reading a repository it has already read", async () => {
+    const calls = await app('github-app-made', '/settings/connections/github?github_app=installed');
+    const dialog = await screen.findByRole('dialog', { name: 'Add repositories' });
+    await fireEvent.click(await within(dialog).findByLabelText('acme/docs'));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add repositories' }));
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
+    await waitFor(() => expect(toaster.current?.text).toBe('1 repository added.'));
+    expect(screen.queryByText(/^Bothy is reading/)).toBeNull();
   });
 
   it("says so instead of opening the picker when there's nothing new to add", async () => {
@@ -362,7 +375,7 @@ describe("Bothy's own GitHub App (§12.2)", () => {
     const leave = await screen.findByRole('dialog', { name: 'Disconnect GitHub?' });
     expect(leave.textContent).toContain('Bothy (acme) stays on GitHub until you delete it there.');
     await fireEvent.click(within(leave).getByRole('button', { name: 'Disconnect GitHub' }));
-    expect(await screen.findByText('Bothy no longer uses Bothy (acme). Delete it on GitHub too.')).toBeTruthy();
+    expect(await screen.findByText('Bothy no longer uses the GitHub App “Bothy (acme)”. Delete it on GitHub too.')).toBeTruthy();
     expect(calls.some((c) => c.method === 'DELETE' && c.url.startsWith('/api/github/connections/'))).toBe(true);
   });
 
@@ -442,6 +455,7 @@ describe("Bothy's own GitHub App (§12.2)", () => {
   it('creates a replacement app for an existing connection', async () => {
     const calls = await app('');
     await fireEvent.click(await screen.findByRole('button', { name: 'Replace token' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Create a GitHub App for Bothy instead' }));
     await fireEvent.input(await screen.findByLabelText('Organization'), { target: { value: 'acme' } });
     await fireEvent.click(screen.getByRole('button', { name: 'Continue on GitHub' }));
     await waitFor(() => expect(posts(calls, '/api/github/apps')).toHaveLength(1));

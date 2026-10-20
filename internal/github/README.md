@@ -64,7 +64,12 @@ that started it); one no connection holds is refused. `FailedStep` names the
 step a failed run stopped at for `release.finished` (the release module cleans
 it and never shows it to the model). `Workflows` lists an allowed
 repository's `.github/workflows/` files (names cleaned to one plain line),
-`BranchHead` reads its default branch's commit, and `CommitSubject` a
+`BranchHead` reads its default branch's commit, `Snapshot` (not part of
+`core.GitHub`; Knowledge's `Deps.Snapshot`) writes what an allowed
+repository holds at a commit, or at its default branch's head now, into a
+folder under `<data>/github/snapshots` (the checkout's pristine archive when
+it holds that commit, else a download with the checkout caps; leftovers go at
+startup), and `CommitSubject` a
 commit's first line for deploy lists (also after the allowlist drops the
 repository, like `FailedStep`). `githubtest` is a fake GitHub API built
 from the examples in

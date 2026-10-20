@@ -189,6 +189,26 @@ func TestCleanTitle(t *testing.T) {
 	}
 }
 
+// Models write Title Case despite the prompt; names the person wrote with a
+// capital, acronyms and mixed-case words keep theirs.
+func TestSentenceCase(t *testing.T) {
+	for _, c := range []struct{ title, ask, want string }{
+		{"Open Pull Requests in acme/api", "Summarise the open pull requests in acme/api", "Open pull requests in acme/api"},
+		{"Priya: Check Deploy Timing", "Can you check the deploy timing for Priya?", "Priya: check deploy timing"},
+		{"Sync With Priya About Deploys", "sync with Priya about the deploys", "Sync with Priya about deploys"},
+		{"Check GitHub Actions For API Errors", "why do the github actions fail", "Check GitHub actions for API errors"},
+		{"Fix login redirect in Safari", "fix the login redirect in safari", "Fix login redirect in Safari"},
+		{"Weekend Plans", "plan my weekend", "Weekend Plans"},
+		{"Weekend plans", "plan my weekend", "Weekend plans"},
+		{"Bothy's Release Checklist, Drafted", "draft a release checklist", "Bothy's release checklist, drafted"},
+		{"", "x", ""},
+	} {
+		if got := sentenceCase(c.title, c.ask); got != c.want {
+			t.Errorf("sentenceCase(%q) = %q, want %q", c.title, got, c.want)
+		}
+	}
+}
+
 func TestHumanDuration(t *testing.T) {
 	for d, want := range map[time.Duration]string{24 * time.Hour: "24 h", 90 * time.Minute: "90 min", 1500 * time.Millisecond: "1.5s"} {
 		if got := humanDuration(d); got != want {

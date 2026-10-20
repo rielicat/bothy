@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { outsideSource } from '../../lib/activity';
   import { approvalsIn } from '../../lib/cardcopy';
   import { duration } from '../../lib/format';
   import CodeBlock from '../ui/CodeBlock.svelte';
@@ -22,7 +23,6 @@
   const rule = $derived(t.live?.rule ?? step.record?.rule ?? '');
   const ns = $derived(t.live?.ms != null ? t.live.ms * 1e6 : step.record?.duration);
   const untrusted = $derived(t.live?.untrusted ?? step.record?.untrusted ?? t.result?.untrusted);
-  const source = $derived(/^web_/.test(t.tool) ? 'a web page' : /^(repo_|github_|knowledge)/.test(t.tool) ? 'a repository' : 'content Bothy read');
 
   const how = $derived.by(() => {
     const a = step.approval;
@@ -69,6 +69,6 @@
       Tool <code class="font-mono">{t.tool}</code>{#if verdict && !how}{' · '}Decision {verdict}{/if}{#if rule}{' · '}Rule <code class="font-mono">{rule}</code>{/if}{#if ns}{' · '}Took {duration(ns)}{/if}
     </p>
     {#if action?.host}<p>Contacted <code class="font-mono">{action.host}</code></p>{/if}
-    {#if untrusted}<p>This came from outside your team ({source}). Bothy treats it with caution.</p>{/if}
+    {#if untrusted}<p>This came from outside your team ({outsideSource(t.tool)}). Bothy treats it with caution.</p>{/if}
   </div>
 </div>

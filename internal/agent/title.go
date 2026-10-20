@@ -134,7 +134,7 @@ func (r *Runner) makeTitle(ctx context.Context, sid core.SessionID, p core.Princ
 		r.log.Debug("title generation failed", "session", sid, "err", err)
 		return
 	}
-	title := cleanTitle(resp.Message.PlainText())
+	title := sentenceCase(cleanTitle(resp.Message.PlainText()), first.PlainText())
 	if title == "" {
 		return
 	}
@@ -180,4 +180,44 @@ func cleanTitle(s string) string {
 		s = strings.TrimSpace(string(r[:80])) + "…"
 	}
 	return s
+}
+
+// smallWords stay lower-case in Title Case too, so they don't tell it apart.
+var smallWords = map[string]bool{"a": true, "an": true, "and": true, "as": true, "at": true, "but": true, "by": true, "for": true,
+	"from": true, "in": true, "into": true, "of": true, "on": true, "or": true, "the": true, "to": true, "vs": true, "with": true}
+
+// sentenceCase undoes the Title Case models write despite the prompt ("Open
+// Pull Requests in acme/api"). Only when every plain word after the first
+// is capitalised are they lower-cased, and a word the person wrote
+// capitalised themselves (a name) keeps its capital; acronyms and
+// mixed-case words (API, GitHub) are never touched.
+func sentenceCase(title, ask string) string {
+	words := strings.Fields(title)
+	bare := func(w string) string { return strings.TrimFunc(w, func(r rune) bool { return !unicode.IsLetter(r) }) }
+	capital := func(w string) bool {
+		r := []rune(w)
+		return len(r) > 1 && unicode.IsUpper(r[0]) && strings.ToLower(string(r[1:])) == string(r[1:]) && strings.IndexFunc(w, func(r rune) bool { return !unicode.IsLetter(r) }) < 0
+	}
+	asked := map[string]bool{}
+	for _, w := range strings.Fields(ask) {
+		asked[bare(w)] = true
+	}
+	caps := 0
+	for _, w := range words[min(1, len(words)):] {
+		switch c := bare(w); {
+		case capital(c):
+			caps++
+		case c != "" && c == strings.ToLower(c) && !smallWords[c] && strings.IndexFunc(c, func(r rune) bool { return !unicode.IsLetter(r) }) < 0:
+			return title
+		}
+	}
+	if caps < 2 {
+		return title
+	}
+	for i := 1; i < len(words); i++ {
+		if c := bare(words[i]); capital(c) && !asked[c] {
+			words[i] = strings.Replace(words[i], c, strings.ToLower(c), 1)
+		}
+	}
+	return strings.Join(words, " ")
 }

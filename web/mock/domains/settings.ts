@@ -183,7 +183,20 @@ on('DELETE', '/api/config/{path...}', (_q, res, m) => {
 on('GET', '/api/providers', (req, res) =>
   json(res, 200, bedrock(req) ? [...providers, { id: 'bedrock', kind: 'bedrock', state: 'ok', since: ago(60 * 24 * 2), source: "This server's AWS access (instance role bothy-prod)" }] : providers),
 );
-on('GET', '/api/models', (req, res) => json(res, 200, bedrock(req) ? [...models, ...bedrockModels] : models));
+// As the server marks them: the first model of each slot, from the settings.
+on('GET', '/api/models', (req, res) => {
+  const first = (path: string) => (state.effective.entries.find((e) => e.path === path)?.value as string[] | undefined)?.[0];
+  const [main, fast] = [first('models.main'), first('models.fast')];
+  const list = bedrock(req) ? [...models, ...bedrockModels] : models;
+  json(
+    res,
+    200,
+    list.map((m) => {
+      const ref = `${m.ref.provider}/${m.ref.model}`;
+      return ref === main ? { ...m, slot: 'main' } : ref === fast ? { ...m, slot: 'fast' } : m;
+    }),
+  );
+});
 
 on('GET', '/api/persona', (req, res) => {
   state.personaReads++;

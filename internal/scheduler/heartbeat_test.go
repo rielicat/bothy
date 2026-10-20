@@ -190,7 +190,7 @@ func TestCheckInTurnedOffNoticeIsListed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(chats) != 1 || chats[0].Hidden || chats[0].Title != "Check-in · 12 Oct" {
+		if len(chats) != 1 || chats[0].Hidden || chats[0].Title != "Check-in · 12 Oct, 11:30" {
 			t.Fatalf("listed chats = %+v, want the check-in's chat with the notice", chats)
 		}
 		all, err := h.store.Sessions().List(ctx, h.viewer(), core.SessionFilter{IncludeHidden: true})

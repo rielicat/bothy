@@ -8,7 +8,12 @@ index of repositories and its own project notes, kept outside the repositories.
 `dir` may be host-absolute, box-side `/workspace/...` or workspace-relative,
 and a `workspace_id` other than the principal's is ignored) or `POST /api/knowledge/repos` (any directory of the
 caller's workspace; a default `local/<name>` already naming another folder is
-a 409) queues an index. Two workers walk the directory read-only through
+a 409) queues an index. A GitHub source is indexed from `Deps.Snapshot`
+(`github.Service.Snapshot`): the files its commit holds in a folder of their
+own, removed after the walk, never the workspace checkout boxes edit, so no
+citation names code the commit lacks. `Reindex` of a GitHub source asks for
+the default branch's head now (requested `sha` ""), and the commit read
+becomes `IndexedSHA`. Two workers walk the directory read-only through
 `os.Root`, never following symlinks and opening files with `O_NONBLOCK` (a FIFO
 a box plants cannot park a worker), and skip VCS metadata, vendored and build
 directories, lockfiles, minified and generated files (by name and by
@@ -49,7 +54,8 @@ searches the run's own principal only and touches the repo it used.
 index a background draft (`knowledge.auto_notes`) asks the fast model (main
 when no fast model is set, metered as purpose `notes`, daily cap checked) for
 fixed sections from the README, build files, two CI workflows and the
-top-level layout, all spotlighted as untrusted and passed through the vault
+top-level layout (a GitHub source's from `Deps.Snapshot` of the commit the
+index read, like the index itself), all spotlighted as untrusted and passed through the vault
 redactor (as is the reply); the result is marked untrusted. The `notes` tool
 (`TaintPrivate`, like memory) reads (read) or edits (append to a section, replace
 exact text) them; edits plan a diff, use `Action.Kind` memory so policy's

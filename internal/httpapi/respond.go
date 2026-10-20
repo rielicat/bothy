@@ -64,6 +64,7 @@ func (s *Server) mapError(err error) (int, errorEnvelope, time.Duration) {
 	var mbe *http.MaxBytesError
 	var limitErr interface{ RetryAfter() time.Duration }
 	var authErr interface{ Unauthenticated() bool }
+	var upstream interface{ UpstreamStatus() int }
 	switch {
 	case errors.As(err, &ae):
 		return ae.status, body(ae.code, ae.msg, ae.fix), ae.retry
@@ -99,6 +100,15 @@ func (s *Server) mapError(err error) (int, errorEnvelope, time.Duration) {
 		return http.StatusServiceUnavailable, body("no_sandbox", "Bothy can't run code on this server.", "/settings/security"), 0
 	case errors.Is(err, core.ErrNotImplemented):
 		return http.StatusServiceUnavailable, body("unavailable", "not available in this build", ""), 0
+	case errors.As(err, &upstream):
+		// Another service's refusal (GitHub rejecting the token) is not
+		// Bothy's own failure. Its own reason is written to be shown; the
+		// errors wrapping it may name local paths, so they are left out.
+		msg := err.Error()
+		if e, ok := upstream.(error); ok {
+			msg = e.Error()
+		}
+		return http.StatusBadGateway, body("provider_error", msg, ""), 0
 	}
 	return http.StatusInternalServerError, body("internal", "internal error", ""), 0
 }

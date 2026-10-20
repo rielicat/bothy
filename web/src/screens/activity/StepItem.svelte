@@ -2,6 +2,7 @@
   import Icon from '../../components/Icon.svelte';
   import Verbatim from '../../components/Verbatim.svelte';
   import { CodeBlock, DiffView, Spinner } from '../../components/ui';
+  import { outsideSource } from '../../lib/activity';
   import { duration } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import type { StepLine } from './steps';
@@ -54,7 +55,7 @@
             ? ` · Contacted ${call.action.host}`
             : ''}
         </p>
-        {#if call.untrusted}<p class="mt-1">This came from outside your team (a web page). Bothy treats it with caution.</p>{/if}
+        {#if call.untrusted}<p class="mt-1">This came from outside your team ({outsideSource(call.tool)}). Bothy treats it with caution.</p>{/if}
       {:else if line.approval}
         {#if line.approval.decision?.reason}<p class="mt-1">Why Bothy asked: {line.approval.decision.reason}</p>{/if}
         <p class="mt-1">Approval {line.approval.id}</p>

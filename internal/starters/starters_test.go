@@ -314,3 +314,24 @@ func TestOfferedShowsAdminsWhatToSetUp(t *testing.T) {
 		}
 	}
 }
+
+func TestPickRepo(t *testing.T) {
+	allowed := []string{"acme/api", "acme/web", "acme/docs"}
+	for _, c := range []struct {
+		name     string
+		releases []Release
+		want     string
+	}{
+		{"no environments", nil, "acme/api"},
+		{"an environment's repository", []Release{{Name: "production", Repo: "ACME/Web"}}, "acme/web"},
+		{"the first environment that is allowed", []Release{{Name: "x", Repo: "other/repo"}, {Name: "docs", Repo: "acme/docs"}, {Name: "p", Repo: "acme/web"}}, "acme/docs"},
+		{"environments of other repositories only", []Release{{Name: "x", Repo: "other/repo"}}, "acme/api"},
+	} {
+		if got := PickRepo(allowed, c.releases); got != c.want {
+			t.Errorf("%s: PickRepo = %q, want %q", c.name, got, c.want)
+		}
+	}
+	if got := PickRepo(nil, []Release{{Name: "p", Repo: "acme/web"}}); got != "" {
+		t.Errorf("nothing allowed: %q", got)
+	}
+}

@@ -587,7 +587,11 @@ func (m *Manager) connectHTTP(ctx context.Context, s *server, a *httpAuth) (*con
 	}
 	if err != nil {
 		err = a.hideEndpoint(s.spec.url, wrapServer(s.name, err))
-		if ht.rejected.Load() {
+		switch {
+		case ht.rejected.Load() && len(a.headers) == 0 && len(a.missing) == 0 && a.endpoint.IsZero():
+			// Nothing was sent to refuse: it asks for a key nobody gave it.
+			err = &codedErr{code: "key_needed", err: fmt.Errorf("%w: %w", errKeyNeeded, err)}
+		case ht.rejected.Load():
 			err = &codedErr{code: "key_rejected", err: fmt.Errorf("%w: %w", errKeyRejected, err)}
 		}
 		return nil, err
@@ -596,7 +600,10 @@ func (m *Manager) connectHTTP(ctx context.Context, s *server, a *httpAuth) (*con
 	return c, nil
 }
 
-var errKeyRejected = errors.New("the server didn't accept the key it was sent")
+var (
+	errKeyRejected = errors.New("the server didn't accept the key it was sent")
+	errKeyNeeded   = errors.New("the server asks for a key, and none is set")
+)
 
 // hideEndpoint puts the address as configured back in an error that quotes
 // the resolved one, which holds a key.

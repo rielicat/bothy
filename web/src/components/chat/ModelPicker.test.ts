@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ModelInfo } from '../../lib/api/types.gen';
+import { installApi } from '../../test/api';
 import ModelPicker from './ModelPicker.svelte';
 import { models, providerName } from './models.svelte';
 
@@ -11,6 +12,18 @@ describe('ModelPicker', () => {
   afterEach(() => {
     models.list = [];
     models.main = models.fast = '';
+  });
+
+  // Members can't read the config, so they saw "Main model" without its name.
+  it('learns the slots from the model list, without the config', async () => {
+    vi.resetModules();
+    const calls = installApi();
+    const { models: fresh } = await import('./models.svelte');
+    await fresh.load();
+    expect(fresh.main).toBe('anthropic/claude-sonnet-4-6');
+    expect(fresh.fast).toBe('anthropic/claude-haiku-4-5');
+    expect(fresh.name(fresh.main)).not.toBe('Main model');
+    expect(calls.some((c) => c.url.startsWith('/api/config'))).toBe(false);
   });
 
   it("keeps a router's long list to suggestions and finds the rest by search", async () => {

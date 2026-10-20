@@ -79,6 +79,10 @@ T.skill_read = T.skill_load;
 
 const CODE = new Set(['path', 'dir', 'command', 'host', 'hostpath', 'ref']);
 
+/** Where a tool's outside content came from, for "This came from outside your team ({source})". */
+export const outsideSource = (tool: string) =>
+  /^web_/.test(tool) ? 'a web page' : /^(repo_|github_|knowledge)/.test(tool) ? 'a repository' : /^mcp__/.test(tool) ? 'a connected tool' : 'content Bothy read';
+
 export function shellCommand(action?: Action, args?: Record<string, unknown>): string {
   const argv = action?.argv;
   if (argv?.length) return argv[0] === 'bash' && argv[1] === '-lc' ? (argv[2] ?? '') : argv.join(' ');
@@ -89,6 +93,12 @@ export function shellCommand(action?: Action, args?: Record<string, unknown>): s
  * separator and at 60 characters. Details keep the whole command. */
 export function shortCommand(cmd: string): string {
   let c = cmd.trim().replace(/^(cd\s+\S+\s*&&\s*)+/, '');
+  // The first line names a multi-line command; a heredoc's body follows it.
+  const nl = c.indexOf('\n');
+  if (nl >= 0) {
+    const first = shortCommand(c.slice(0, nl));
+    return first.endsWith('…') ? first : `${first} …`;
+  }
   if (c.length <= 60) return c;
   let quote = '';
   for (let i = 1; i < c.length; i++) {

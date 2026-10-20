@@ -143,6 +143,34 @@ describe('inbox items', () => {
     expect(schema.type === 'mcp_review' && schema.tools[0].prose).toBe(false);
   });
 
+  // The review in Approvals is the one people reach first; a server's readOnlyHint showed only on its own page.
+  it("says when a server calls an action read-only, leaving the class as it was", async () => {
+    const pin = (tool: string, definition: object) => ({ server: 'acme-helpdesk', tool, hash: tool, definition: { name: tool, ...definition }, status: 'pending', side_effect: 'external_send', private: false });
+    installApi({
+      override: (m, url) =>
+        m === 'GET' && url === '/api/inbox'
+          ? {
+              items: [
+                {
+                  id: 'mcp:acme-helpdesk',
+                  type: 'mcp_review',
+                  question: '',
+                  for_you: true,
+                  created_at: at,
+                  mcp: { server: 'acme-helpdesk', tools: [pin('echo', { annotations: { readOnlyHint: true } }), pin('create_ticket', { annotations: { readOnlyHint: false } })] },
+                },
+              ],
+            }
+          : undefined,
+    });
+    const [review] = await loadItems();
+    const { container } = render(ReviewCard, { item: review });
+    const rows = [...container.querySelectorAll('li')];
+    expect(rows[0].textContent).toContain('Acme helpdesk says this only reads information.');
+    expect(rows[1].textContent).not.toContain('only reads information.');
+    expect((within(rows[0]).getByLabelText('What this does') as HTMLSelectElement).value).toBe('external_send');
+  });
+
   it('spells a service the way it spells itself', async () => {
     const review = (await items())[2];
     expect(itemQuestion(review)).toBe("Review GitHub's new actions");

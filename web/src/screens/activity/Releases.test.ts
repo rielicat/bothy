@@ -39,6 +39,45 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     expect(waiting.closest('li')!.querySelector('p')!.textContent?.trim()).toMatch(/^Last deployed /);
   });
 
+  it("says the last request was denied, not that the environment is", async () => {
+    const now = new Date().toISOString();
+    await open((m, url) => {
+      if (m !== 'GET') return undefined;
+      if (url === '/api/approvals?status=pending') return { items: [] };
+      if (url === '/api/approvals?status=recent')
+        return {
+          items: [
+            {
+              id: 'apr_denied',
+              run_id: 'run_d',
+              status: 'denied',
+              decided_by: member.id,
+              decided_at: now,
+              created_at: now,
+              approver: { user_id: '', admin_only: false, roles: ['admin'], required: 2, requester: 'usr_01jsomeoneelse000000000000' },
+              votes: [{ approval_id: 'apr_denied', user_id: member.id, choice: 'deny', via: 'web', at: now }],
+              action: { tool: 'release_deploy', kind: 'release', side_effect: 'irreversible', payload: { repo: 'acme/web', environment: 'production', ref: 'main' }, fingerprint: 'f' },
+            },
+          ],
+        };
+      if (url === '/api/releases') {
+        const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+        return {
+          environments: [{ name: 'production', repo: 'acme/web', workflow: 'deploy.yml', ref_pattern: 'main', inputs: {}, required: 2, approvers: [] }],
+          deploys: [
+            { id: 'dep_ok', environment: 'production', repo: 'acme/web', workflow: 'deploy.yml', ref: 'main', principal_id: member.id, session_id: 'ses_x', requested_by: member.id,
+              approved_by: [], status: 'succeeded', created_at: hourAgo, updated_at: hourAgo, finished_at: hourAgo, sha: 'b'.repeat(40), short_sha: 'bbbbbbb', approved_by_names: [] },
+          ],
+        };
+      }
+      return undefined;
+    });
+    await screen.findByText('History');
+    const env = document.querySelector('ul > li')!;
+    expect(env.textContent).toContain('Last request denied');
+    expect(env.textContent).toMatch(/Last deployed /);
+  });
+
   it('shows a deploy Bothy lost track of as not tracked, and a request its asker withdrew as cancelled', async () => {
     const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
     await open((m, url) => {

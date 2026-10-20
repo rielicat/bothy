@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { repos } from '../../../mock/domains/knowledge';
 import { resetMock } from '../../../mock/server';
 import { toaster } from '../../components/ui';
 import { router } from '../../lib/router.svelte';
@@ -177,6 +178,22 @@ describe('Project notes', () => {
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Stop reading this repository…' }));
     const dialog = screen.getByRole('dialog', { name: 'Stop reading acme/web?' });
     expect(dialog.textContent).toContain("Bothy won't use acme/web to answer questions, and its project notes and their history will be deleted. This can't be undone.");
+  });
+
+  // "Read again" of a GitHub repository asks for the branch head (sha ""), and the commit read is indexed_sha.
+  it('names the commit Bothy last read, also after reading again', async () => {
+    const read = repos.find((r) => r.repo === 'acme/web')!;
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/knowledge/repos' ? { items: [{ ...read, sha: '', indexed_sha: 'b'.repeat(40) }] } : undefined) });
+    approvals.reset();
+    session.ready = false;
+    await session.init();
+    render(ProjectNotes, { params });
+    await screen.findByText('How to build and test');
+    await fireEvent.click(screen.getByRole('button', { name: 'Project options' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Technical details' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Technical details' });
+    expect(dialog.textContent).toContain('bbbbbbb');
+    expect(dialog.textContent).not.toContain('Not read yet');
   });
 
   it('gives members no admin actions', async () => {

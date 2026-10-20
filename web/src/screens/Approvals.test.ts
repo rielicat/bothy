@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { flushSync } from 'svelte';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { recentApprovals } from '../../mock/fixtures';
 import { resetMock } from '../../mock/server';
 import { votes } from '../components/approval/votes.svelte';
@@ -301,6 +302,24 @@ describe('Approvals inbox, other states', () => {
     expect(metas.some((m) => m?.includes('· ·'))).toBe(false);
   });
 
+  // The server lists recent requests by when they were asked; a request
+  // asked earlier and decided later used to sit under a newer decision.
+  it('lists the Done tab by when each request was decided, newest first', async () => {
+    const base = recentApprovals.find((a) => a.status === 'allowed')!;
+    const t = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+    const askedFirst = { ...base, id: 'apr_asked_first', created_at: t(30), decided_at: t(1), action: { ...base.action!, payload: { path: 'notes/first.md' }, paths: ['notes/first.md'] } };
+    const askedLater = { ...base, id: 'apr_asked_later', created_at: t(20), decided_at: t(2), action: { ...base.action!, payload: { path: 'notes/later.md' }, paths: ['notes/later.md'] } };
+    calls = installApi({ override: (m, url) => (m === 'GET' && url.startsWith('/api/approvals?status=recent') ? { items: [askedLater, askedFirst] } : undefined) });
+    approvals.reset();
+    votes.reset();
+    await session.init();
+    router.navigate('/approvals?tab=done');
+    render(Approvals, { params: {} });
+    await screen.findAllByText((_, el) => el?.hasAttribute('data-decided') ?? false);
+    const lines = [...document.querySelectorAll('[data-decided]')].map((l) => l.textContent ?? '');
+    expect(lines.findIndex((l) => l.includes('first.md'))).toBeLessThan(lines.findIndex((l) => l.includes('later.md')));
+  });
+
   it('groups the Done tab by day, every line naming what was decided', async () => {
     await open('/approvals?tab=done');
     expect(await screen.findByRole('heading', { name: 'Today' })).toBeTruthy();
@@ -316,5 +335,41 @@ describe('Approvals inbox, other states', () => {
     expect(first.className).toMatch(/text-text/);
     expect(first.nextElementSibling?.textContent?.replace(/\s+/g, ' ').trim()).toMatch(/^\d{1,2}:\d{2}( [AP]M)? · .+ · Show$/);
     expect(screen.getByRole('link', { name: 'Done' }).getAttribute('aria-current')).toBe('page');
+  });
+});
+
+describe('Approvals inbox, a decision racing its event', () => {
+  // The event stream can drop a decided row before the decision's own reply
+  // lands; the card then folds away (inert) and must not read its state.
+  it("doesn't read a card's state once its row is folding away", async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const realAnimate = Element.prototype.animate;
+    // An animation that never ends keeps the folding row inert.
+    Element.prototype.animate = (() => ({ finished: new Promise(() => {}), cancel() {}, play() {}, pause() {}, onfinish: null, currentTime: 0 })) as never;
+    try {
+      calls = installApi({
+        override: (m, url) => {
+          if (m !== 'POST' || url !== `/api/approvals/${SHELL}`) return undefined;
+          const a = approvals.pending.find((x) => x.id === SHELL)!;
+          flushSync(() => (approvals.pending = approvals.pending.filter((x) => x.id !== SHELL)));
+          return { ...a, status: 'allowed', choice: 'allow_once', decided_by: session.me?.user.id, decided_at: new Date().toISOString() };
+        },
+      });
+      approvals.reset();
+      votes.reset();
+      await session.init();
+      router.navigate('/approvals');
+      render(Approvals, { params: {} });
+      await screen.findByRole('heading', { name: 'For you' });
+      await fireEvent.click(row(SHELL).querySelector('button')!);
+      await waitFor(() => expect(expanded()?.dataset.approval).toBe(SHELL));
+      await fireEvent.keyDown(window, { key: 'a' });
+      await waitFor(() => expect(posts()).toHaveLength(1));
+      await waitFor(() => expect(live()).toContain('Approved.'));
+      expect(warn.mock.calls.map((c) => c.join(' ')).filter((c) => c.includes('derived_inert'))).toEqual([]);
+    } finally {
+      Element.prototype.animate = realAnimate;
+      warn.mockRestore();
+    }
   });
 });

@@ -167,7 +167,8 @@ func TestPlainCopy(t *testing.T) {
 		{name: "skill_read", a: action("skill_read", core.ActSkill, core.SERead, map[string]any{"name": "pdf", "path": "forms.md"}), s: spec("skill_read", core.SERead),
 			question: "Read forms.md from the “pdf” skill?", primary: "Read file", ing: "reading forms.md from the “pdf” skill", labels: []string{"Skill", "File"}},
 		{name: "MCP tool", a: mcp, s: mcpSpec, question: "Use Linear: Create issue?", primary: "Allow", ing: "using Linear: Create issue",
-			labels: []string{"Dry run", "Team id", "Title"}},
+			// The schema's own order: an author puts the title first, a map would sort it last.
+			labels: []string{"Title", "Team id", "Dry run"}},
 		{name: "MCP tool titled by its manifest", a: action("mcp__deepwiki__read_wiki_structure", core.ActMCP, core.SERead, map[string]any{"repoName": "sveltejs/svelte"},
 			func(a *core.Action) { a.MCPServer, a.MCPTool = "deepwiki", "read_wiki_structure" }),
 			s:        spec("mcp__deepwiki__read_wiki_structure", core.SERead, func(m *core.Manifest) { m.Title = "MCP deepwiki: read_wiki_structure" }),
@@ -437,5 +438,46 @@ func TestMessageToANamedChat(t *testing.T) {
 	c = renderCard(core.ApprovalRequest{Action: msg, Spec: spec("message", core.SEExternalSend), Decision: d})
 	if c.Question != "Send a message to the Telegram chat?" || field(c, "To").Value != "Telegram chat 5512" {
 		t.Errorf("without a name: question %q To %q", c.Question, field(c, "To").Value)
+	}
+}
+
+func TestFieldOrder(t *testing.T) {
+	for _, c := range []struct {
+		schema string
+		want   []string
+	}{
+		{`{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"},"priority":{}}}`, []string{"title", "body", "priority"}},
+		{`{"$defs":{"properties":{"x":{}}},"required":["b"],"properties":{"b":{"properties":{"z":{}}},"a":{}}}`, []string{"b", "a"}},
+		{`{"properties":{"a":{},"a":{}}}`, []string{"a"}},
+		{`{"type":"object"}`, nil},
+		{`[1,2]`, nil},
+		{`{"properties":{"a":{},`, []string{"a"}},
+		{``, nil},
+		// As discovery stores it, keys sorted: "required" still carries the author's order.
+		{`{"properties":{"body":{},"title":{}},"required":["title"],"type":"object"}`, []string{"title", "body"}},
+		{`{"properties":{"a":{},"b":{},"c":{}},"required":["c","nope","a","c"]}`, []string{"c", "a", "b"}},
+		{`{"properties":{"a":{},"b":{}},"required":[1,"b"]}`, []string{"b", "a"}},
+	} {
+		if got := fieldOrder(json.RawMessage(c.schema)); !slices.Equal(got, c.want) {
+			t.Errorf("fieldOrder(%s) = %q, want %q", c.schema, got, c.want)
+		}
+	}
+}
+
+// A ticket card reads Title before Body although discovery stored the
+// schema with its keys sorted.
+func TestMCPCardFieldsAsDiscoveryStoresTheSchema(t *testing.T) {
+	canon, err := core.CanonicalJSON(json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"body":{"type":"string"}},"required":["title"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := spec("mcp__acme-helpdesk__create_ticket", core.SEExternalSend)
+	s.Def.Schema = canon
+	var labels []string
+	for _, f := range schemaFields(s, map[string]any{"body": "It broke", "title": "Login fails"}) {
+		labels = append(labels, f.Label)
+	}
+	if !slices.Equal(labels, []string{"Title", "Body"}) {
+		t.Fatalf("labels = %q (schema %s)", labels, canon)
 	}
 }

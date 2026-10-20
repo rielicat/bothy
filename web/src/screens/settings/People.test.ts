@@ -226,6 +226,24 @@ describe('Settings → People → In chat apps', () => {
     expect(document.body.textContent).not.toMatch(/teammate|U02ALEX|spc_/i);
   });
 
+  // Six "Test · Telegram" rows looked the same; their account ids tell them apart.
+  it('tells apart people of one app with the same name and no username', async () => {
+    const tm = (id: string, extra = {}) => ({ channel: 'telegram', external_id: id, name: 'Test', status: 'teammate', can_approve: false, left: false, last_seen_at: '', spent_today_micros: 0, ...extra });
+    installApi({ override: (m, url) => (m === 'GET' && url === '/api/teammates' ? [tm('111'), tm('222'), tm('333', { handle: 'tester' }), tm('444', { channel: 'slack' })] : undefined) });
+    session.ready = false;
+    await session.init();
+    setCsrf('mock-csrf');
+    config.view = null;
+    render(Settings, { params: { group: 'people', page: 'people' } });
+    const s = await section();
+    await waitFor(() => expect(s.getAllByRole('listitem')).toHaveLength(4));
+    const metas = [...s.getAllByRole('listitem')].map((li) => li.querySelectorAll('p')[1]?.textContent ?? '');
+    expect(metas[0]).toContain('Telegram · ID 111');
+    expect(metas[1]).toContain('Telegram · ID 222');
+    expect(metas[2]).not.toContain('ID 333');
+    expect(metas[3]).not.toContain('ID 444');
+  });
+
   it('keeps the rows where they are when a change here reloads the list', async () => {
     const calls = await open();
     const s = await section();

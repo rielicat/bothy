@@ -5,8 +5,9 @@
   import type { MCPResolveResp, SandboxInfo } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { session } from '../../../lib/stores/session.svelte';
-  import { privateHost, saveConfig, type Failure } from './connections';
+  import { headerError, privateHost, saveConfig, type Failure } from './connections';
   import FailureLine from './FailureLine.svelte';
+  import McpKey from './McpKey.svelte';
 
   let { open = $bindable(false), onadded }: { open?: boolean; onadded?: () => void } = $props();
 
@@ -15,6 +16,8 @@
   let address = $state('');
   let allow = $state(false);
   let header = $state('');
+  let ref = $state('');
+  let key = $state('');
   let pkg = $state('');
   let version = $state('');
   // The exact version and integrity hash npm reports for pkg@version, which the server is pinned to.
@@ -27,7 +30,7 @@
   let codeRuns = $state<boolean | undefined>(undefined);
 
   function reset() {
-    name = address = header = pkg = version = hosts = pkgError = '';
+    name = address = header = ref = key = pkg = version = hosts = pkgError = '';
     pinned = null;
     how = 'http';
     tried = allow = false;
@@ -67,6 +70,7 @@
         : priv && !allow
           ? `Allow ${priv} below, or Bothy can't reach it.`
           : undefined,
+    header: how === 'http' ? headerError(header) : undefined,
     pkg: how === 'stdio' && !pkg.trim() ? 'Enter the npm package, like @linear/mcp.' : how === 'stdio' && pkgError ? pkgError : undefined,
     version: how === 'stdio' && version.trim() && !/^\d+\.\d+\.\d+\S*$/.test(version.trim()) ? 'Enter an exact version, like 1.4.0, or leave it empty.' : undefined,
   });
@@ -112,9 +116,11 @@
       const server: Record<string, unknown> = { name: id, transport: how, side_effects: { default: 'external_send' } };
       if (how === 'http') {
         let headers = {};
-        if (header.trim()) {
-          await api.put(`/api/vault/global/mcp_${id}_header`, { value: header.trim() });
-          headers = { Authorization: `secret:mcp_${id}_header` };
+        const h = header.trim() || 'Authorization';
+        if (ref) headers = { [h]: ref };
+        else if (key.trim()) {
+          await api.put(`/api/vault/global/mcp_${id}_header`, { value: key.trim() });
+          headers = { [h]: `secret:mcp_${id}_header` };
         }
         Object.assign(server, { url: address.trim(), headers }, priv && { allow_private: true });
       } else {
@@ -145,7 +151,7 @@
   }
 </script>
 
-<Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || pkg)} {busy} cancel>
+<Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || key || pkg)} {busy} cancel>
   <form id="add-mcp" class="space-y-5" onsubmit={add} novalidate>
     <TextField label="Name" bind:value={name} error={show('name')} placeholder="Linear" autocomplete="off" spellcheck="false" />
     <div>
@@ -168,14 +174,7 @@
               {#if priv}
                 <Checkbox bind:checked={allow} label="Allow {priv}" description="It's on your private network. Bothy blocks private addresses unless you allow them." />
               {/if}
-              <TextField
-                label="Secret header"
-                optional
-                type="password"
-                bind:value={header}
-                autocomplete="off"
-                help="Sent as the Authorization header, such as Bearer abc123. Stored encrypted. Only sent to this address."
-              />
+              <McpKey bind:header bind:ref bind:key error={{ header: show('header') }} />
             </div>
           {:else if blocked}
             <Notice tone="warning" text="This tool runs as a command, and running code is off on this server. Use its web address instead, or turn on running code in Security." />
