@@ -28,8 +28,8 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
   it('leads with one sentence in money and lists names, never ids', async () => {
     await start('/activity/spending');
     expect(await screen.findByText(/in the last 30 days$/)).toBeTruthy();
-    expect(screen.getByText('Today: $1.20 of the $5.00 daily limit')).toBeTruthy();
-    expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toBe('$1.20 of $5.00');
+    expect(screen.getByText('Today: $1.20 of the $3.00 daily limit')).toBeTruthy();
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toBe('$1.20 of $3.00');
     expect(screen.getByText('$18.20')).toBeTruthy();
     expect(screen.getByText('You')).toBeTruthy();
     // The provider is secondary text, muted like a chat app after a person's name.
@@ -116,13 +116,28 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
   it("doesn't repeat today's amount in the Today view", async () => {
     await start('/activity/spending?range=today');
     expect(await screen.findByText('$1.20 today')).toBeTruthy();
-    expect(screen.getByText('The daily limit is $5.00.')).toBeTruthy();
+    expect(screen.getByText('The daily limit is $3.00.')).toBeTruthy();
     expect(screen.queryByText(/^Today: /)).toBeNull();
   });
 
   it('warns at 80 % and stops at the limit', async () => {
     await start('/activity/spending', { mock: 'spend-80' });
-    expect(await screen.findByText('Bothy will stop starting new work at $5.00.')).toBeTruthy();
+    expect(await screen.findByText('Bothy will stop starting new work at $3.00.')).toBeTruthy();
+  });
+
+  // General reads the limit from the config, so the fixture's spending has to stay inside that one.
+  it('measures the half and 80 % scenarios against the configured daily limit', async () => {
+    const limit = async () => {
+      const view = (await (await fetch('/api/config')).json()) as { entries: { path: string; value: unknown }[] };
+      return Number(view.entries.find((e) => e.path === 'budgets.daily_usd')?.value);
+    };
+    await start('/activity/spending', { mock: 'spend-50' });
+    expect(await limit()).toBe(3);
+    expect(await screen.findByText('Today: $1.50 of the $3.00 daily limit')).toBeTruthy();
+    cleanup();
+    await start('/activity/spending', { mock: 'spend-80' });
+    expect(await screen.findByText('Today: $2.46 of the $3.00 daily limit')).toBeTruthy();
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuetext')).toBe('$2.46 of $3.00');
   });
 
   it('says when work waits for midnight, with Change limit for admins', async () => {
@@ -144,14 +159,14 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
   // Here instead of a banner over every page: nothing has stopped yet (§4.9).
   it("says how much of their share of today's limit chat apps have used", async () => {
     await start('/activity/spending');
-    expect(await screen.findByText('Chat apps today: $0.65 of their $3.00 share')).toBeTruthy();
+    expect(await screen.findByText('Chat apps today: $0.65 of their $1.80 share')).toBeTruthy();
     cleanup();
     await start('/activity/spending', { mock: 'chat-share:80' });
-    const warn = await screen.findByText("Chat apps have used 85% of their $3.00 share of today's limit.");
+    const warn = await screen.findByText("Chat apps have used 85% of their $1.80 share of today's limit.");
     expect(warn.className).toContain('text-warning-text');
     cleanup();
     await start('/activity/spending', { mock: 'chat-share:out' });
-    expect(await screen.findByText(/^Chat apps used their \$3\.00 share of today's limit\. Their new work waits until midnight\./)).toBeTruthy();
+    expect(await screen.findByText(/^Chat apps used their \$1\.80 share of today's limit\. Their new work waits until midnight\./)).toBeTruthy();
     await fireEvent.click(screen.getByRole('button', { name: 'Change share' }));
     expect(router.path).toBe('/settings/people');
   });
