@@ -2,7 +2,6 @@
   import type { Snippet } from 'svelte';
   import { api, ApiError } from '../../lib/api/client';
   import type { UploadResp } from '../../lib/api/types.gen';
-  import Button from '../../components/ui/Button.svelte';
   import FileToken from '../../components/ui/FileToken.svelte';
   import IconButton from '../../components/ui/IconButton.svelte';
   import ToggleButton from '../../components/ui/ToggleButton.svelte';
@@ -200,7 +199,7 @@
       role="listbox"
       aria-label="Commands"
       data-floating
-      class="absolute bottom-full left-0 mb-2 w-full max-w-80 rounded-lg border border-border bg-surface p-1 shadow-[var(--shadow-overlay)]"
+      class="absolute bottom-full left-0 mb-2 w-full max-w-80 rounded-lg border border-border bg-surface p-1 shadow-overlay"
     >
       {#each matches as c, i (c.cmd)}
         <li role="option" aria-selected={i === index} id="{id}-cmd-{i}">
@@ -219,7 +218,7 @@
   {/if}
 
   <div
-    class="rounded-lg border border-border-strong bg-surface p-3 transition-colors duration-120 has-[textarea:focus]:border-focus has-[textarea:focus]:shadow-[0_0_0_1px_var(--color-focus)]"
+    class="rounded-lg border border-border-strong bg-surface p-3 shadow-card transition-[border-color,box-shadow] duration-120 has-[textarea:focus]:border-focus has-[textarea:focus]:shadow-focus"
   >
     {#if files.length}
       <ul class="mb-2 flex flex-wrap gap-2" aria-label="Attached files">
@@ -266,12 +265,12 @@
           e.currentTarget.value = '';
         }}
       />
-      <IconButton icon="plus" label="Attach files" size="sm" variant={paused ? 'quiet' : 'ghost'} disabled={paused} onclick={() => input?.click()} />
-      <ToggleButton label="Refine" bind:pressed={refine} onchange={onrefine} tooltip="Bothy writes several drafts, checks them and sends the best one. Slower, and costs more." />
+      <IconButton icon="paperclip" label="Attach files" size="sm" variant={paused ? 'quiet' : 'ghost'} disabled={paused} onclick={() => input?.click()} />
+      <ToggleButton icon="target" label="Refine" bind:pressed={refine} onchange={onrefine} tooltip="Bothy writes several drafts, checks them and sends the best one. Slower, and costs more." />
       <span class="flex-1"></span>
       {@render picker?.()}
       {#if running}
-        <Button size="sm" icon="stop" onclick={onstop}>Stop</Button>
+        <IconButton icon="stop" label="Stop" size="sm" variant="secondary" onclick={onstop} />
       {/if}
       {#if !running || hasContent}
         <IconButton

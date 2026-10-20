@@ -19,7 +19,8 @@
 
 <div class={bare ? '' : 'pt-[20vh] max-sm:pt-[12vh]'}>
   {#if !bare}
-    <h1 class="text-display text-text" tabindex="-1">What should Bothy work on?</h1>
+    <img src="/icon.svg" alt="" width="40" height="40" class="mb-4 size-10" />
+    <h1 class="text-title text-text" tabindex="-1">What should Bothy work on?</h1>
     <p class="mt-2 max-w-[30rem] text-reading text-muted">Bothy can read your code, draft and research, and it asks before doing anything you'd want to check.</p>
   {/if}
   <!-- Room for four rows while they load, so the list doesn't push the page around. -->

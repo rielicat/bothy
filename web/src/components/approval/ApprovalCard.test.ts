@@ -97,6 +97,16 @@ describe('ApprovalCard', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
+  it('carries one status signal: a type icon, no status word, no warning border, no tinted field box', () => {
+    render(ApprovalCard, { approval: approval() });
+    const card = screen.getByRole('article');
+    expect(card.querySelector(':scope > svg use')?.getAttribute('href')).toBe('#i-terminal');
+    expect(card.textContent).not.toMatch(/Waiting for you/);
+    expect(card.className).not.toMatch(/border-warning|border-accent/);
+    const fields = card.querySelector('dl');
+    expect(fields?.closest('.bg-subtle')).toBeNull();
+  });
+
   it('says a schedule started a request instead of saying you asked', () => {
     const a = approval();
     render(ApprovalCard, { approval: { ...a, card: { ...a.card, context: 'Telegram · DM · schedule · session “Morning briefing”' } } });

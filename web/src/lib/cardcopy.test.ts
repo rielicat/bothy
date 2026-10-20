@@ -18,6 +18,7 @@ import {
   splitFiles,
   teamAsked,
   teamPerson,
+  waitingFor,
   type CardCopy,
 } from './cardcopy';
 
@@ -483,5 +484,29 @@ describe('helpers', () => {
       ['a.ts', 1, 1],
       ['b.ts', 2, 0],
     ]);
+  });
+});
+
+// §8.8: the one status a "Waiting for others" row carries.
+describe('waitingFor', () => {
+  const names: Record<string, string> = { [alex]: 'Alex Kim' };
+  const nameOf = (id: string) => names[id] ?? '';
+  const votes = (approvals: number, required: number) => ({ approvals, required }) as ApprovalVotes;
+
+  it('names the one person who can decide', () => {
+    expect(waitingFor(ap(undefined, { approver: { user_id: alex, admin_only: false } }), null, nameOf)).toBe('Waiting for Alex Kim');
+    expect(waitingFor(ap(undefined, { approver: { user_id: 'usr_01jgone000000000000000000', admin_only: false } }), null, nameOf)).toBe('Waiting for an approver');
+  });
+
+  it('says an admin decides admin and chat-app requests', () => {
+    expect(waitingFor(ap(undefined, { approver: { user_id: '', admin_only: true } }), null, nameOf)).toBe('Waiting for an admin');
+    expect(waitingFor(ap(undefined, { approver: { user_id: '', admin_only: false, team: true } }), null, nameOf)).toBe('Waiting for an admin');
+  });
+
+  it('counts votes on a request several people approve', () => {
+    const multi = ap(undefined, { approver: { user_id: '', admin_only: false, users: [me, alex], required: 2 } });
+    expect(isMulti(multi)).toBe(true);
+    expect(waitingFor(multi, votes(1, 2), nameOf)).toBe('1 of 2 approvals');
+    expect(waitingFor(multi, null, nameOf)).toBe('Waiting for approvers');
   });
 });

@@ -46,9 +46,17 @@ describe('conversation', () => {
 
     emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' });
     expect(await screen.findByText('Working…')).toBeTruthy();
+    // Stop is a quiet second action beside Send, never a filled button (§7.5).
+    const stop = screen.getByRole('button', { name: 'Stop' });
+    expect(stop.classList.contains('btn-secondary')).toBe(true);
+    expect(stop.className).not.toMatch(/\bbg-text\b|btn-primary/);
+    // Bothy's picture marks the turn while it works, before any words arrive.
+    expect(screen.getByText('Working…').parentElement!.querySelector('img[src="/api/agent/picture"]')).toBeTruthy();
     emit('run.delta', { text: 'Checking **your** files' });
     const strong = await screen.findByText('your');
     expect(strong.tagName).toBe('STRONG');
+    // No caret or pulsing dot after streaming text (D35).
+    expect(strong.closest('section')!.querySelector('[class*="animate-pulse"], [class*="animate-ping"], [class*="caret"]')).toBeNull();
     expect(screen.queryByText('Working…')).toBeNull();
     expect(screen.queryByText(/Thinking/)).toBeNull();
 
@@ -310,6 +318,37 @@ describe('where a chat came from (§7.1)', () => {
     expect(line.closest('section')?.firstElementChild).toBe(line);
     const link = line.querySelector('a');
     expect(link?.getAttribute('href') ?? null).toBe(href);
+  });
+
+  it("names a related chat's parent in the header on wide screens, and keeps the line for phones", async () => {
+    serve({ kind: 'chat', id: 'ses_parent', title: 'Q3 pricing notes' }, [userMsg('Hello', 'web:usr_1')]);
+    render(ConversationView, { id: SID });
+    await screen.findByText('Hello');
+    const crumb = await screen.findByRole('link', { name: 'Continued from Q3 pricing notes' });
+    expect(crumb.closest('header')).toBeTruthy();
+    expect(crumb.getAttribute('href')).toBe('/chat/ses_parent');
+    const line = screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === 'Continued from “Q3 pricing notes”');
+    expect(line.classList.contains('lg:hidden')).toBe(true);
+  });
+
+  it('keeps the other origins in the transcript only', async () => {
+    serve({ kind: 'schedule', id: 'sch_brief', title: 'Morning briefing' }, [userMsg('Hello', 'web:usr_1')]);
+    render(ConversationView, { id: SID });
+    const line = await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === 'From the schedule “Morning briefing”');
+    expect(line.classList.contains('lg:hidden')).toBe(false);
+    expect(document.querySelector('header a[href^="/activity/schedules"]')).toBeNull();
+  });
+
+  it("puts Bothy's picture at the start of each of its turns, and nowhere else", async () => {
+    const turn2 = { ...userMsg('And the other one?', 'web:usr_1'), id: 3, seq: 3 };
+    const reply2 = { ...reply('That one too.'), id: 4, seq: 4, run_id: 'run_2' };
+    serve(undefined, [userMsg('Hello', 'web:usr_1'), reply('Hi there.'), turn2, reply2]);
+    render(ConversationView, { id: SID });
+    await screen.findByText('That one too.');
+    const pictures = [...document.querySelectorAll<HTMLImageElement>('section img[src="/api/agent/picture"]')];
+    expect(pictures).toHaveLength(2);
+    expect(pictures.every((p) => p.alt === '')).toBe(true);
+    expect(pictures.map((p) => p.parentElement!.textContent?.trim())).toEqual([expect.stringContaining('Hi there.'), expect.stringContaining('That one too.')]);
   });
 
   it('says nothing for a chat that came from nowhere', async () => {

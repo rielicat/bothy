@@ -888,3 +888,12 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   else segs = [`${name} approved `, ...copy.ing];
   return { glyph: 'check', tone: 'accent', segs, time, at };
 }
+
+/** Who an open request waits on, for "Waiting for others" rows (§8.8). */
+export function waitingFor(ap: Approval, vv: ApprovalVotes | null | undefined, nameOf: (id: string) => string): string {
+  if (isMulti(ap)) return vv ? `${vv.approvals} of ${vv.required} approvals` : 'Waiting for approvers';
+  const r = ap.approver;
+  if (r?.admin_only || r?.team) return 'Waiting for an admin';
+  const n = r?.user_id ? nameOf(r.user_id) : '';
+  return n ? `Waiting for ${n}` : 'Waiting for an approver';
+}

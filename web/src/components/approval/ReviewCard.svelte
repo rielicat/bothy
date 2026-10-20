@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { itemIcon } from './icon';
+  import Icon from '../Icon.svelte';
   import { untrack } from 'svelte';
   import { appName, busyLabel, humanize } from '../../lib/cardcopy';
   import { relTime, fullTime, serviceName } from '../../lib/format';
@@ -89,7 +91,9 @@
   {#if shown[key]}<DiffView class="mt-2" {diff} mode={prose ? 'prose' : 'code'} />{/if}
 {/snippet}
 
-<article class="card focus-visible:outline-offset-[-1px] sm:p-5" aria-labelledby="{uid}-q" data-item={item.id} tabindex="-1">
+<article class="card focus-visible:outline-offset-[-1px] sm:grid sm:grid-cols-[1.25rem_minmax(0,1fr)] sm:gap-x-3" aria-labelledby="{uid}-q" data-item={item.id} tabindex="-1">
+  <Icon name={itemIcon(item)} size={18} class="mt-0.5 text-muted max-sm:hidden" />
+  <div class="min-w-0">
   <h3 id="{uid}-q" class="text-heading text-text [overflow-wrap:anywhere]">{itemQuestion(item)}</h3>
 
   {#if item.type === 'mcp_review'}
@@ -152,4 +156,5 @@
     {/each}
   </div>
   <p class="mt-3 text-small text-muted"><time datetime={item.created_at} title={fullTime(item.created_at)}>{relTime(item.created_at, { now: clock.now })}</time></p>
+</div>
 </article>
