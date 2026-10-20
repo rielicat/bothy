@@ -149,7 +149,7 @@
       </div>
     {/if}
     <form novalidate onsubmit={submit}>
-      <div class="space-y-5 [&_.input]:h-11">
+      <div class="space-y-5">
         <TextField label="Username" bind:value={username} bind:input={userInput} autocomplete="username" autocapitalize="none" spellcheck="false" />
         <PasswordField label="Password" bind:value={password} bind:input={passInput} autocomplete="current-password" />
       </div>

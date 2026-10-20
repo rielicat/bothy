@@ -282,6 +282,7 @@ describe('Approvals inbox, other states', () => {
     for (const r of rows) {
       const status = r.querySelector('span.shrink-0')!;
       expect(status.textContent).toMatch(/^(Waiting for .+|\d+ of \d+ approvals)$/);
+      expect(status.textContent).not.toContain('Someone');
       expect(status.querySelector('use')?.getAttribute('href')).toBe('#i-clock');
       expect(r.textContent).not.toContain('Waiting for you');
     }

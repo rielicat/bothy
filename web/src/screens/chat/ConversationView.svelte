@@ -574,7 +574,7 @@
   >
 {/snippet}
 
-<!-- Bothy's picture, as the chat apps show it; the logo stands in when there is none to load. -->
+<!-- Bothy's picture, as the chat apps show it (D48). -->
 {#snippet face()}
   <img
     src="/api/agent/picture"
@@ -583,10 +583,6 @@
     height="28"
     decoding="async"
     class="mb-1.5 block size-5 rounded-full sm:absolute sm:top-0 sm:left-0 sm:mb-0 sm:size-7 dark:border dark:border-border-strong"
-    onerror={(e) => {
-      const img = e.currentTarget as HTMLImageElement;
-      if (!img.src.endsWith('/icon.svg')) img.src = '/icon.svg';
-    }}
   />
 {/snippet}
 
@@ -618,7 +614,7 @@
   {#if !isNew}
     <header class="sticky top-[calc(var(--bar,0px)+var(--inset))] z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
       <div data-edge class="flex min-w-0 flex-1 items-center gap-1.5">
-        {#if parent}<a href="/chat/{encodeURIComponent(parent.id ?? '')}" onclick={router.link} class="inline-flex min-h-6 max-w-[40%] shrink-0 items-center text-body text-muted hover:text-text max-lg:hidden"
+        {#if parent}<a href="/chat/{parent.id}" onclick={router.link} class="inline-flex min-h-6 max-w-[40%] shrink-0 items-center text-body text-muted hover:text-text max-lg:hidden"
             ><span class="sr-only">Continued from</span>{' '}<span class="truncate" data-copy-ignore>{parent.title}</span></a
           ><span aria-hidden="true" class="text-faint max-lg:hidden">/</span>{/if}
         <div class="min-w-0 flex-1">

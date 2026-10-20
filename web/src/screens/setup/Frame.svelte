@@ -22,7 +22,7 @@
         <img src="/icon.svg" alt="" width="56" height="56" class="mx-auto size-14 rounded-lg dark:border dark:border-border-strong" />
         <h1 class="mt-5 text-center text-title text-text" tabindex="-1">{title}</h1>
         {#if intro}<p class="mt-2 text-center text-reading text-pretty text-muted">{intro}</p>{/if}
-        <div class="mt-8">{@render children()}</div>
+        <div class="mt-8 [&_.input]:h-11">{@render children()}</div>
       </div>
       {#if after}<div class="mt-6 text-center text-small text-muted">{@render after()}</div>{/if}
     </div>

@@ -256,7 +256,7 @@
   function rowStatus(r: Row, mine: boolean): { text: string; warn?: boolean; clock?: boolean } | null {
     const a = r.approval;
     if (!a) return null;
-    if (!mine) return { text: waitingFor(a, votes.byId[a.id], (id) => people.name(id)), clock: true };
+    if (!mine) return { text: waitingFor(a, votes.byId[a.id], (id) => people.known(id)), clock: true };
     if (a.status === 'parked') return { text: `Waiting since ${timeOfDay(a.created_at)}` };
     const exp = expiryOf(a, clock.now);
     const at = date(a.card?.expires) ?? date(a.expires_at);

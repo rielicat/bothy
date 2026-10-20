@@ -44,7 +44,7 @@
   {#if notice}<Notice class="mb-6" tone="warning" text={notice} />{/if}
   <form novalidate onsubmit={submit}>
     <TextField label="Setup code" bind:value={code} bind:input {error} autocomplete="off" autocapitalize="none" spellcheck="false" oninput={() => (error = '')} />
-    <Button type="submit" variant="primary" class="mt-8 h-10 max-sm:w-full pointer-coarse:h-11" loading={busy} loadingLabel="Checking…">Continue</Button>
+    <Button type="submit" variant="primary" class="mt-6 h-11 w-full" loading={busy} loadingLabel="Checking…">Continue</Button>
   </form>
 
   <p class="mt-10 text-body text-muted">Lost the code? Run this on the server to see it again:</p>
