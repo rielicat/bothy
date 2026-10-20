@@ -296,6 +296,14 @@ describe('OptionList', () => {
     expect(screen.getByText('Extra controls for balanced')).toBeTruthy();
   });
 
+  it('centres an option that is only a title in its row, and keeps a described one on its first line', () => {
+    render(OptionList, { props: { name: 'preset', options } });
+    const row = (name: string) => screen.getByRole('radio', { name }).closest('label')!.classList;
+    expect(row('Balanced').contains('items-center')).toBe(true);
+    expect(row('Careful').contains('items-start')).toBe(true);
+    expect(row('Hands-off').contains('items-start')).toBe(true);
+  });
+
   it('opens no empty area under an option with nothing to show', () => {
     const { container } = render(OptionList, { props: { name: 'search', options: [{ value: 'none', title: 'Off', expandable: false }, ...options], value: 'none', expanded } });
     expect(screen.queryByText(/Extra controls/)).toBeNull();

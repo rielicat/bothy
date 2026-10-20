@@ -67,9 +67,11 @@
 <div role="radiogroup" aria-label={label} class="{framed ? 'card p-0' : ''} {cls}">
   {#each options as o, i (o.value)}
     {@const selected = o.value === value}
+    {@const described = !!(o.description || (o.disabled && o.reason))}
     <div class="border-b border-border last:border-b-0">
+      <!-- A title alone is centred in the 56 px row, or it would sit on an empty band above the next hairline. -->
       <label
-        class="flex min-h-14 items-start gap-3 py-3 {framed ? 'px-4' : ''} {o.disabled ? 'cursor-not-allowed' : 'cursor-pointer'}"
+        class="flex min-h-14 gap-3 py-3 {described ? 'items-start' : 'items-center'} {framed ? 'px-4' : ''} {o.disabled ? 'cursor-not-allowed' : 'cursor-pointer'}"
       >
         <input
           bind:this={inputs[i]}
@@ -78,15 +80,15 @@
           value={o.value}
           checked={selected}
           disabled={o.disabled}
-          class="mt-0.5 size-4 shrink-0 cursor-[inherit] accent-accent"
+          class="{described ? 'mt-0.5' : ''} size-4 shrink-0 cursor-[inherit] accent-accent"
           aria-labelledby="{uid}-{i}-title"
-          aria-describedby={o.description || (o.disabled && o.reason) ? `${uid}-${i}-desc` : undefined}
+          aria-describedby={described ? `${uid}-${i}-desc` : undefined}
           onchange={() => choose(o.value)}
           onkeydown={(e) => key(e, i)}
         />
         <span class="min-w-0">
           <span id="{uid}-{i}-title" class="block text-body font-medium {o.disabled ? 'text-faint' : 'text-text'}">{o.title}</span>
-          {#if o.description || (o.disabled && o.reason)}
+          {#if described}
             <span id="{uid}-{i}-desc" class="block text-small text-muted">
               {o.description ?? ''}{#if o.description && o.disabled && o.reason}{' '}{/if}{#if o.disabled && o.reason}{o.reason}{/if}
             </span>
