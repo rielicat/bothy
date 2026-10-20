@@ -9,32 +9,43 @@
   import { clampLines } from './tasks';
 
   // `next`: the way forward from this step, when the viewer has one ("Review it").
-  let { line, how, next }: { line: StepLine; how: string; next?: { label: string; href: string } } = $props();
+  // `gutter`: some step in the list has a state glyph, so every row keeps its column and the words line up.
+  let { line, how, next, gutter = true }: { line: StepLine; how: string; next?: { label: string; href: string }; gutter?: boolean } = $props();
 
   const uid = $props.id();
   let open = $state(false);
   const call = $derived(line.call);
-  const tone = $derived(line.state === 'waiting' ? 'text-warning-text' : 'text-muted');
+  const tone = $derived(line.state === 'waiting' ? 'text-warning-text' : 'text-text');
 </script>
 
-<li>
+<!-- A row of the task's group card (§10.2); the chevron says it opens. -->
+<li class="border-b border-border">
   <div class="flex items-start gap-3">
-  <button type="button" class="flex min-h-8 min-w-0 flex-1 cursor-pointer items-start gap-2 py-1.5 text-left text-body {tone} hover:text-text pointer-coarse:min-h-11" aria-expanded={open} aria-controls="{uid}-d" onclick={() => (open = !open)}>
-    <span class="flex h-5 w-4 shrink-0 items-center justify-center">
-      {#if line.state === 'running'}<Spinner size={12} />
-      {:else if line.state === 'waiting'}<Icon name="clock" />
-      {:else if line.state === 'failed'}<Icon name="alert" class="text-danger-text" />
-      {:else if line.state === 'denied'}<Icon name="close" />{/if}
-    </span>
-    <span class="min-w-0 [overflow-wrap:anywhere]" data-copy-ignore
+  <button
+    type="button"
+    class="-mx-2 flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 rounded-md px-2 py-2.5 text-left text-body {tone} hover:bg-subtle focus-visible:-outline-offset-2 pointer-coarse:min-h-12"
+    aria-expanded={open}
+    aria-controls="{uid}-d"
+    onclick={() => (open = !open)}
+  >
+    {#if gutter}
+      <span class="flex h-5 w-4 shrink-0 items-center justify-center text-muted">
+        {#if line.state === 'running'}<Spinner size={12} />
+        {:else if line.state === 'waiting'}<Icon name="clock" class="text-warning-text" />
+        {:else if line.state === 'failed'}<Icon name="alert" class="text-danger-text" />
+        {:else if line.state === 'denied'}<Icon name="close" />{/if}
+      </span>
+    {/if}
+    <span class="min-w-0 flex-1 [overflow-wrap:anywhere]" data-copy-ignore
       >{#each line.segments as s, i (i)}{#if s.code}<code class="text-code"><Verbatim text={s.text} /></code>{:else}{s.text}{/if}{/each}</span
     >
+    <span class="flex h-5 shrink-0 items-center text-muted"><Icon name="chevron-right" size={12} class="transition-transform duration-160 {open ? 'rotate-90' : ''}" /></span>
   </button>
   {#if next}
-    <a class="link inline-flex min-h-8 shrink-0 items-center py-1.5 text-body whitespace-nowrap pointer-coarse:min-h-11" href={next.href} onclick={router.link}>{next.label}</a>
+    <a class="link inline-flex min-h-11 shrink-0 items-center py-2.5 text-body whitespace-nowrap pointer-coarse:min-h-12" href={next.href} onclick={router.link}>{next.label}</a>
   {/if}
   </div>
-  <div id="{uid}-d" data-details class="pb-2 pl-6 text-small text-muted" hidden={!open}>
+  <div id="{uid}-d" data-details class="pb-3 text-small text-muted {gutter ? 'pl-6' : ''}" hidden={!open}>
     {#if open}
       {#if call}
         <!-- The chat's order (§7.4): result, how it was allowed, the exact request, then the technical line. -->

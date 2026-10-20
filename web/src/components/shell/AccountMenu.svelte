@@ -11,6 +11,7 @@
   // as a submenu. The F2 Menu has no submenus, so this one is its own.
   const uid = $props.id();
   const name = $derived(session.me?.user.display_name || session.me?.user.username || '');
+  const role = $derived({ owner: 'Owner', admin: 'Admin', member: 'Member' }[session.me?.user.role ?? ''] ?? '');
 
   let open = $state(false);
   let sub = $state(false);
@@ -148,7 +149,10 @@
 >
   <!-- bg-subtle, the avatar's own fill, is almost the sidebar's colour. -->
   <Avatar {name} class="bg-selected!" />
-  <span class="min-w-0 flex-1 truncate text-body font-medium text-text">{name}</span>
+  <span class="min-w-0 flex-1">
+    <span class="block truncate text-body font-medium text-text">{name}</span>
+    {#if role}<span class="block truncate text-small text-muted">{role}</span>{/if}
+  </span>
   <!-- On touch the chat rows' ⋯ buttons are 44 px wide; this one lines up under them. -->
   <Icon name="more" class="text-muted pointer-coarse:mr-1.5" />
 </button>
@@ -193,7 +197,7 @@
             e.currentTarget.focus();
             if (!sub) void openSub(false);
           }}
-          ><span class="flex-1">Theme</span><Icon name="chevron-right" class="text-muted" /></button
+          ><span class="flex-1">Theme</span><span class="text-small text-muted" aria-hidden="true">{themes.find((t) => t.v === theme.pref)?.label}</span><Icon name="chevron-right" class="text-muted" /></button
         >
       {:else}
         <button

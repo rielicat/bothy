@@ -31,16 +31,19 @@
   const bg = { warning: 'bg-warning-subtle', danger: 'bg-danger-subtle', neutral: 'bg-subtle' };
 </script>
 
-<div role={alertRole ? 'alert' : 'status'} class="flex min-h-10 items-center gap-3 px-6 py-2 text-body text-text max-sm:items-start max-sm:px-4 {bg[tone]}">
-  {#if tone === 'warning'}
-    <Icon name="alert" class="text-warning-text max-sm:mt-0.5" />
-  {:else if tone === 'danger'}
-    <Icon name="alert" class="text-danger-text max-sm:mt-0.5" />
-  {/if}
-  <p class="min-w-0 flex-1">
-    {text}{#if action}{' '}<LinkButton class="ml-1 font-medium" onclick={action.onclick}>{action.label}</LinkButton>{/if}
-  </p>
-  {#if dismissible}
-    <IconButton icon="close" label="Dismiss" size="sm" variant="quiet" class="-my-1 -mr-2" onclick={() => ondismiss?.()} />
-  {/if}
+<!-- The tint spans the main area; the words keep to the content column, so they start at the page's left edge (§4.9). -->
+<div role={alertRole ? 'alert' : 'status'} class="text-body text-text {bg[tone]}">
+  <div class="mx-auto flex min-h-10 w-full max-w-3xl items-center gap-3 px-6 py-2 max-sm:items-start max-sm:px-4">
+    {#if tone === 'warning'}
+      <Icon name="alert" class="shrink-0 text-warning-text max-sm:mt-0.5" />
+    {:else if tone === 'danger'}
+      <Icon name="alert" class="shrink-0 text-danger-text max-sm:mt-0.5" />
+    {/if}
+    <p class="min-w-0 flex-1">
+      {text}{#if action}{' '}<LinkButton class="ml-1 font-medium" onclick={action.onclick}>{action.label}</LinkButton>{/if}
+    </p>
+    {#if dismissible}
+      <IconButton icon="close" label="Dismiss" size="sm" variant="quiet" class="-my-1 -mr-2" onclick={() => ondismiss?.()} />
+    {/if}
+  </div>
 </div>

@@ -150,7 +150,7 @@
   }}
 >
   {#if shell.search}
-    <div class="flex h-13 shrink-0 items-center gap-3 border-b border-border px-4 focus-within:border-focus pointer-coarse:pr-2">
+    <div class="flex h-13 shrink-0 items-center gap-3 border-b border-border px-4 pointer-coarse:pr-2">
       <Icon name="search" class="text-muted" />
       <input
         bind:this={input}
@@ -193,6 +193,8 @@
         {/each}
       {:else if term && hits}
         <p class="px-2 py-2 text-body text-muted">No results for “{term}”.</p>
+      {:else if !term && chats.loaded}
+        <p class="px-2 py-2 text-body text-muted">No chats yet. The ones you start show up here.</p>
       {/if}
     </div>
   {/if}

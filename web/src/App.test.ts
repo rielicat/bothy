@@ -91,7 +91,8 @@ describe('a server that does not answer at start', () => {
       router.navigate('/settings/models');
       render(App);
       const main = await screen.findByRole('main');
-      expect(within(main).getByText("Bothy isn't responding. It may be restarting.")).toBeTruthy();
+      expect(within(main).getByRole('heading', { level: 1, name: "Bothy isn't responding" })).toBeTruthy();
+      expect(within(main).getByText('It may be restarting.')).toBeTruthy();
       expect(within(main).getByRole('button', { name: 'Try again' })).toBeTruthy();
       await new Promise((r) => setTimeout(r, 0));
       expect(router.path).toBe('/settings/models');

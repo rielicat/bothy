@@ -82,6 +82,8 @@
     return out;
   });
 
+  const gutter = $derived(lines.some((l) => l.line.state !== 'done'));
+
   const took = $derived.by(() => {
     const s = date(run?.started_at)?.getTime();
     const f = date(run?.finished_at)?.getTime();
@@ -128,7 +130,7 @@
 {#if missing}
   <!-- The server answers someone else's task as it does a deleted one, so the copy names both. -->
   <Page title="Can't open this task" back={{ href: '/activity', label: 'Activity' }}>
-    <EmptyState text="This task was deleted, or it belongs to someone else." action={{ label: 'Go to Activity', href: '/activity' }} />
+    <EmptyState picture text="This task was deleted, or it belongs to someone else." action={{ label: 'Go to Activity', href: '/activity' }} />
   </Page>
 {:else if !d || !run}
   <Page title="Task" back={{ href: '/activity', label: 'Activity' }}><Loading {failed} retry={load} /></Page>
@@ -141,8 +143,8 @@
     {#if lines.length}
       <section class="mt-10">
         <h2 class="section-title">What Bothy did</h2>
-        <ul class="mt-2">
-          {#each lines as l (l.line.key)}<StepItem line={l.line} how={l.how} next={l.next} />{/each}
+        <ul class="list-card mt-2">
+          {#each lines as l (l.line.key)}<StepItem line={l.line} how={l.how} next={l.next} {gutter} />{/each}
         </ul>
       </section>
     {/if}
@@ -150,8 +152,10 @@
     {#if answer}
       <section class="mt-10">
         <h2 class="section-title">Answer</h2>
-        <div bind:this={clamp} class="mt-2 text-reading {all ? '' : 'line-clamp-3'}"><Markdown text={answer} /></div>
-        {#if long || all}<LinkButton class="mt-1 text-small" onclick={() => (all = !all)}>{all ? 'Show less' : 'Show all'}</LinkButton>{/if}
+        <div class="card mt-2">
+          <div bind:this={clamp} class={all ? '' : 'line-clamp-3'}><Markdown text={answer} /></div>
+          {#if long || all}<LinkButton class="mt-2 text-small" onclick={() => (all = !all)}>{all ? 'Show less' : 'Show all'}</LinkButton>{/if}
+        </div>
       </section>
     {/if}
 
@@ -162,9 +166,10 @@
         <p class="mt-1 text-small text-text">
           {plural(refine.drafts, 'draft')}, {plural(refine.rounds, 'round')}. Draft {refine.winner + 1} was sent; {refine.votes[0]?.count ?? 1} of {refine.drafts} drafts reached its answer.
         </p>
+        <!-- Each entry hangs on a guide line under its toggle, as related chats do, so its words don't read as the page's own. -->
         {#each refine.entries ?? [] as e, i (i)}
           <Disclosure class="mt-1" label="{e.role === 'draft' ? 'Draft' : e.role === 'critique' ? 'Critique' : e.role === 'correct' ? 'Correction' : 'Continuation'} {e.draft + 1}{e.round ? `, round ${e.round}` : ''}">
-            <div class="text-small"><Markdown text={e.text} exposed /></div>
+            <div class="mb-2 ml-1.5 border-l border-border-strong pl-4"><Markdown class="md-small" text={e.text} exposed /></div>
           </Disclosure>
         {/each}
       {/if}

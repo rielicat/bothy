@@ -35,20 +35,21 @@
 </script>
 
 <Drawer bind:open title="Chat details" onclose={() => (technical = false)}>
-  <p class="text-body text-muted">
+  <p class="text-small text-muted">
     Started by {starter} · {dayLabel(session.created_at)} at {clock(session.created_at)} · {channelName[session.origin] ?? session.origin}
   </p>
-  <dl class="mt-4 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-body">
-    <dt class="text-muted">Model</dt>
-    <dd>{model}</dd>
-    <dt class="text-muted">Refine</dt>
-    <dd>{refine ? 'On' : 'Off'}</dd>
-    <dt class="text-muted">Cost so far</dt>
-    <dd class="tabular-nums">{money(cost)}</dd>
-    {#if used > 0.7}
-      <dt class="text-muted">Length</dt>
-      <dd>Getting long. Bothy will summarise older messages soon.</dd>
-    {/if}
+  <!-- One group card of plain facts, as Settings shows them (§11.1). -->
+  <dl class="list-card mt-3 text-body">
+    {#snippet fact(label: string, value: string, cls = '')}
+      <div class="row items-start justify-between gap-4 py-2.5">
+        <dt class="shrink-0 text-muted">{label}</dt>
+        <dd class="min-w-0 text-right {cls}">{value}</dd>
+      </div>
+    {/snippet}
+    {@render fact('Model', model)}
+    {@render fact('Refine', refine ? 'On' : 'Off')}
+    {@render fact('Cost so far', money(cost), 'tabular-nums')}
+    {#if used > 0.7}{@render fact('Length', 'Getting long. Bothy will summarise older messages soon.', 'text-pretty')}{/if}
   </dl>
   <Disclosure label="Technical details" class="mt-6" bind:open={technical}>
     <TechnicalDetails {breakdown} {calls} chatId={session.id} {modelId} />
