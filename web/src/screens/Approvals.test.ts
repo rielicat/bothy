@@ -302,6 +302,24 @@ describe('Approvals inbox, other states', () => {
     expect(metas.some((m) => m?.includes('· ·'))).toBe(false);
   });
 
+  // The server lists recent requests by when they were asked; a request
+  // asked earlier and decided later used to sit under a newer decision.
+  it('lists the Done tab by when each request was decided, newest first', async () => {
+    const base = recentApprovals.find((a) => a.status === 'allowed')!;
+    const t = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+    const askedFirst = { ...base, id: 'apr_asked_first', created_at: t(30), decided_at: t(1), action: { ...base.action!, payload: { path: 'notes/first.md' }, paths: ['notes/first.md'] } };
+    const askedLater = { ...base, id: 'apr_asked_later', created_at: t(20), decided_at: t(2), action: { ...base.action!, payload: { path: 'notes/later.md' }, paths: ['notes/later.md'] } };
+    calls = installApi({ override: (m, url) => (m === 'GET' && url.startsWith('/api/approvals?status=recent') ? { items: [askedLater, askedFirst] } : undefined) });
+    approvals.reset();
+    votes.reset();
+    await session.init();
+    router.navigate('/approvals?tab=done');
+    render(Approvals, { params: {} });
+    await screen.findAllByText((_, el) => el?.hasAttribute('data-decided') ?? false);
+    const lines = [...document.querySelectorAll('[data-decided]')].map((l) => l.textContent ?? '');
+    expect(lines.findIndex((l) => l.includes('first.md'))).toBeLessThan(lines.findIndex((l) => l.includes('later.md')));
+  });
+
   it('groups the Done tab by day, every line naming what was decided', async () => {
     await open('/approvals?tab=done');
     expect(await screen.findByRole('heading', { name: 'Today' })).toBeTruthy();

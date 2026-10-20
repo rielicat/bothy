@@ -272,7 +272,9 @@
     try {
       const r = await api.get<List<Approval>>('/api/approvals?status=recent&limit=100');
       const since = Date.now() - 30 * 86_400_000;
-      recent = (r.items ?? []).filter((a) => a && (date(a.decided_at ?? a.created_at)?.getTime() ?? 0) >= since);
+      const at = (a: Approval) => date(a.decided_at ?? a.created_at)?.getTime() ?? 0;
+      // Newest decision first: the server lists them by when they were asked.
+      recent = (r.items ?? []).filter((a) => a && at(a) >= since).sort((x, y) => at(y) - at(x));
       recentLoaded = true;
       // Decided lines name every voter, and the names come with the vote state.
       for (const a of recent) if (isMulti(a) && !(a.id in votes.byId)) void votes.load(a.id);
