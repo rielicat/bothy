@@ -5,7 +5,7 @@
 // check-ins), starters and the welcome chat (SPEC §14.10).
 import type { Approval, IndexedRepo, Message, RunDetail, Schedule, Session, SessionFrom, StarterRow, ToolCallRecord, User } from '../../src/lib/api/types.gen.ts';
 import { state as approvalState, hero, heroNotesPath, waiting } from './approvals.ts';
-import { ago, ahead, body, clone, core, emit, fail, ids, isPaused, json, member, newId, nowISO, on, onReset, owner, routes, scenario, sleep, viewer, type Req, type Res } from './core.ts';
+import { ago, ahead, body, clone, core, emit, fail, ids, isPaused, json, member, newId, nowISO, on, onReset, owner, resultDay, routes, scenario, sleep, viewer, type Req, type Res } from './core.ts';
 
 const ses = (id: string, title: string, origin: string, minAgo: number, extra: Partial<Session> = {}): Session => ({
   id,
@@ -54,8 +54,7 @@ const S = {
   checkin2: sid('checkin2'),
 };
 const CHECKIN = 'sch_01jcheckin00000000000000';
-/** "19 Oct": the date in a schedule result's title. */
-const dm = (minAgo: number) => new Date(ago(minAgo)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const dm = (minAgo: number) => resultDay(new Date(ago(minAgo)));
 const FORK_NOTICE =
   "This clean chat starts without the messages, private information or outside content of the chat it came from. Bothy's files are shared, so files from outside your team still count as outside content here.";
 const R = { staging: rid('staging'), login1: rid('login1'), login2: rid('login2'), pricing: rid('pricing'), notices: rid('notices'), decided: rid('decided') };

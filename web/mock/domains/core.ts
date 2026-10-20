@@ -28,6 +28,14 @@ export const newId = (p: string) => `${p}_` + Array.from({ length: 26 }, () => a
 export const nowISO = () => new Date().toISOString();
 
 export const ZERO = '0001-01-01T00:00:00Z';
+
+const goMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "19 Oct": the date in a schedule result's title, as Go's "2 Jan" writes it (en-GB would say "Sept"). */
+export function resultDay(at: Date, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { month: 'numeric', day: 'numeric', timeZone }).formatToParts(at);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return `${get('day')} ${goMonths[get('month') - 1]}`;
+}
 const now = Date.now();
 export const ago = (min: number) => new Date(now - min * 60_000).toISOString();
 export const ahead = (min: number) => new Date(now + min * 60_000).toISOString();

@@ -146,8 +146,23 @@ describe('sidebar (§4.2)', () => {
     const toggle = await waitFor(() => n.getByRole('button', { name: /^Related chats for “Monday pull request summary · / }));
     await fireEvent.click(toggle);
     const kids = within(n.getByRole('list', { name: /^Related to “Monday pull request summary · / }));
-    expect(kids.getAllByRole('link').map((a) => a.textContent?.trim())).toEqual(['Chase the reviews waiting in acme/web', expect.stringMatching(/^(\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2})$/)]);
-    expect(kids.getAllByRole('link')[1].getAttribute('title')).toMatch(/^Monday pull request summary · /);
+    const [chase, earlier] = kids.getAllByRole('link');
+    expect(chase.textContent?.trim()).toBe('Chase the reviews waiting in acme/web');
+    // The same words as the server's titles ("12 Oct"), not the browser's ("Oct 12").
+    expect(earlier.getAttribute('title')).toMatch(/^Monday pull request summary · \d{1,2} [A-Z][a-z]{2}$/);
+    expect(earlier.textContent?.trim()).toBe(earlier.getAttribute('title')!.split(' · ')[1]);
+  });
+
+  it("names yesterday's result by its date like the newest one, not \"Yesterday at\"", async () => {
+    await start('/activity');
+    const n = within(nav());
+    const toggle = await waitFor(() => n.getByRole('button', { name: /^Related chats for “Morning briefing · / }));
+    await fireEvent.click(toggle);
+    const kids = within(n.getByRole('list', { name: /^Related to “Morning briefing · / }));
+    for (const a of kids.getAllByRole('link')) {
+      expect(a.textContent?.trim()).toMatch(/^\d{1,2} [A-Z][a-z]{2}$/);
+      expect(a.textContent?.trim()).toBe(a.getAttribute('title')!.split(' · ')[1]);
+    }
   });
 
   it('opens the family of the open chat by itself, and marks its head while it is closed', async () => {

@@ -8,7 +8,7 @@ import { breakdown, sessions as chatSessions, state as chat } from './chat.ts';
 import { releaseEnvironments } from './connections.ts';
 import { state as knowledge } from './knowledge.ts';
 import { state as settings } from './settings.ts';
-import { active, ago, asMember, body, clone, emit, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
+import { active, ago, asMember, body, clone, emit, fail, ids, json, member, newId, nowISO, on, onReset, owner, resultDay, routes, scenario, viewer, type Req, type Res } from './core.ts';
 
 const limits = { max_steps: 0, max_tokens: 0, max_time: 0, max_cost_micros: 0 };
 const web = { channel: 'web', chat_id: '', kind: 'dm' };
@@ -544,7 +544,7 @@ on('POST', '/api/schedules/{id}/run', (req, res, m) => {
   if (!s) return fail(res, 404, 'not_found', 'No such schedule.');
   const checkin = s.kind === 'heartbeat';
   if (checkin && listBlank(req)) return fail(res, 400, 'bad_request', "The check-in list is empty, so there's nothing to check yet. Add something to it first.");
-  const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: s.tz }).format(new Date());
+  const day = resultDay(new Date(), s.tz);
   const id = newId('ses');
   const at = nowISO();
   chat.sessions.unshift({ ...clone(chatSessions[0]), id, title: `${checkin ? 'Check-in' : s.name} · ${day}`, origin: 'schedule', schedule_id: s.id, parent_id: undefined, root_id: undefined, hidden: checkin, taint: 0, created_at: at, updated_at: at, last_message_at: at });

@@ -5,12 +5,28 @@ import { router } from '../../lib/router.svelte';
 import { approvals, session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import { FakeEventSource } from '../../test/setup';
-import { chats, families, groupChats, PAGE } from './chats.svelte';
+import { chats, families, groupChats, PAGE, resultLabel } from './chats.svelte';
 
 const base = fixtureSessions[0];
 const at = (y: number, m: number, d: number, h = 12) => new Date(y, m - 1, d, h).toISOString();
 const ses = (id: string, title: string, last: string, extra: Partial<Session> = {}): Session => ({ ...base, id, title, last_message_at: last, principal_id: base.principal_id, ...extra });
 const rows = (list: Session[], parents: Session[] = []) => families(list, parents).map((r) => [r.head.id, r.kids.map((k) => k.id)]);
+
+describe("a schedule's earlier results (§4.2)", () => {
+  const now = new Date(2026, 9, 20, 12).getTime();
+  const result = (title: string, created: string) => ses('r', title, created, { schedule_id: 'sch_1', created_at: created });
+
+  it('read as the date the server put in their title, so they match the head above them', () => {
+    expect(resultLabel(result('Morning briefing · 19 Oct', at(2026, 10, 19, 7)), now)).toBe('19 Oct');
+    expect(resultLabel(result('Morning briefing · 20 Oct, 14:05', at(2026, 10, 20, 14)), now)).toBe('20 Oct, 14:05');
+    expect(resultLabel(result('Check-in · 3 Sep', at(2026, 9, 3, 9)), now)).toBe('3 Sep');
+  });
+
+  it('read as their day in the same words once renamed', () => {
+    expect(resultLabel(result('Friday numbers', at(2026, 10, 12, 9)), now)).toBe('12 Oct');
+    expect(resultLabel(result('Notes · for Sam', at(2025, 10, 12, 9)), now)).toBe('12 Oct 2025');
+  });
+});
 
 describe('families (§4.2)', () => {
   it('hangs a chat from its root, else its parent, one level deep', () => {

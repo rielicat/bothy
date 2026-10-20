@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { lineDiff } from './diff';
-import { bytes, capital, clock, countdown, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, skillName, tokens, usd } from './format';
+import { bytes, capital, clock, countdown, dayMonth, duration, estimate, expiresIn, fullTime, ms, money, parseGoDuration, plural, prettyGoDuration, relTime, skillName, tokens, usd } from './format';
 
 describe('format', () => {
   it('formats micro-dollars', () => {
@@ -110,6 +110,16 @@ describe('format (v0.2)', () => {
     const now = Date.parse('2026-10-14T15:30:00Z');
     expect(relTime('2026-10-13T14:02:00Z', { locale: 'en-US', timeZone: 'UTC', now })).toBe('Yesterday at 2:02 PM');
     expect(relTime('2026-10-12T09:00:00Z', { locale: 'en-US', timeZone: 'UTC', now })).toBe('Oct 12');
+  });
+
+  it("writes a day the way the server titles a schedule's result, whatever the language", () => {
+    const now = Date.parse('2026-10-14T15:30:00Z');
+    expect(dayMonth('2026-10-13T14:02:00Z', { timeZone: 'UTC', now })).toBe('13 Oct');
+    expect(dayMonth('2026-09-03T09:00:00Z', { timeZone: 'UTC', now })).toBe('3 Sep');
+    expect(dayMonth('2025-10-14T09:00:00Z', { timeZone: 'UTC', now })).toBe('14 Oct 2025');
+    // 23:30 in Santiago is already the next day in UTC.
+    expect(dayMonth('2026-10-14T02:30:00Z', { timeZone: 'America/Santiago', now })).toBe('13 Oct');
+    expect(dayMonth('0001-01-01T00:00:00Z')).toBe('');
   });
 
   it('gives the full date for titles', () => {

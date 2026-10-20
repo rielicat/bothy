@@ -1,13 +1,12 @@
 <script lang="ts">
   import type { Session } from '../../lib/api/types.gen';
-  import { relTime } from '../../lib/format';
   import { router } from '../../lib/router.svelte';
   import { clock } from '../../lib/stores/clock.svelte';
   import Dot from '../ui/Dot.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import Menu from '../ui/Menu.svelte';
   import Spinner from '../ui/Spinner.svelte';
-  import { chats, groupChats, type ChatRow } from './chats.svelte';
+  import { chats, groupChats, resultLabel, type ChatRow } from './chats.svelte';
 
   const uid = $props.id();
   const current = $derived(router.current?.pattern === '/chat/:id' ? router.current.params.id : '');
@@ -95,7 +94,7 @@
         {#if r.kids.length && chats.isOpen(r.key)}
           <ul id="{uid}-{r.key}" aria-label="Related to “{chats.title(r.head)}”" class="ml-3 border-l border-border-strong pl-2">
             {#each r.kids as k (k.id)}
-              <li>{@render row(k, undefined, r.key === `s:${k.schedule_id}` ? relTime(k.created_at, { now: clock.now }) : '')}</li>
+              <li>{@render row(k, undefined, r.key === `s:${k.schedule_id}` ? resultLabel(k, clock.now) : '')}</li>
             {/each}
           </ul>
         {/if}

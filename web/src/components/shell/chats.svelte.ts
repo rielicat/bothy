@@ -3,7 +3,7 @@
 // are open.
 import { api, qs } from '../../lib/api/client';
 import type { List, Run, RunStatusData, Session, SessionData, SessionPage } from '../../lib/api/types.gen';
-import { date, isZeroTime } from '../../lib/format';
+import { date, dayMonth, isZeroTime } from '../../lib/format';
 import { appendNew } from '../../lib/list';
 import { router } from '../../lib/router.svelte';
 import { events } from '../../lib/sse.svelte';
@@ -50,6 +50,21 @@ export function families(list: Session[], parents: Session[] = []): ChatRow[] {
       return { key, head, kids: all.filter((s) => s !== head), at: time(all[0]) };
     })
     .sort((a, b) => b.at - a.at);
+}
+
+// What the scheduler writes after " · " in a result's title: "19 Oct", or "19 Oct, 14:05" for a later run that day.
+const resultDate = /^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)(, \d{2}:\d{2})?$/;
+
+/**
+ * How a schedule's earlier result reads in its series: the date its title
+ * ends with, in the server's words and the schedule's time zone, so it reads
+ * like the head above it; a result renamed since reads as its day.
+ */
+export function resultLabel(s: Session, now = Date.now()): string {
+  const title = s.title.trim();
+  const i = title.lastIndexOf(' · ');
+  const tail = i > 0 ? title.slice(i + 3) : '';
+  return resultDate.test(tail) ? tail : dayMonth(s.created_at, { now });
 }
 
 export interface ChatGroup {

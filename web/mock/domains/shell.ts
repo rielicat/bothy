@@ -3,7 +3,7 @@
 import type { Approval, BannerData, Me, Message, Run, SearchHit, Session } from '../../src/lib/api/types.gen.ts';
 import { approvals as approvalFixtures } from './approvals.ts';
 import { welcomePending } from './chat.ts';
-import { active, ago, body, boot, clients, core, emit, fail, ids, isPaused, json, nowISO, on, onReset, owner, pausedBanner, pauseInfo, pausedNow, principals, routes, scenario, scenarios, viewer, ZERO, type Handler, type Req } from './core.ts';
+import { active, ago, body, boot, clients, core, emit, fail, ids, isPaused, json, nowISO, on, onReset, owner, pausedBanner, pauseInfo, pausedNow, principals, resultDay, routes, scenario, scenarios, viewer, ZERO, type Handler, type Req } from './core.ts';
 
 const sealed = scenario('sealed', "Bothy's saved keys are locked (vault sealed banner).", 'shell');
 const providerAuth = scenario('provider-auth', 'Anthropic stopped accepting the key (provider banner).', 'shell');
@@ -48,8 +48,7 @@ const T = {
   chase: 'ses_01jteamchase000000000000000',
 };
 const PRS = 'sch_01jteamprs00000000000000000';
-/** "19 Oct": the date in a schedule result's title. */
-const dm = (minAgo: number) => new Date(ago(minAgo)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const dm = (minAgo: number) => resultDay(new Date(ago(minAgo)));
 
 const chat = (id: string, title: string, minAgo: number, extra: Partial<Session> = {}): Session => ({
   id,

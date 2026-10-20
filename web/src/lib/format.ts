@@ -199,6 +199,19 @@ export function relTime(t: string | undefined | null, opts: FormatOpts = {}): st
   return dateFormat(opts.locale, opts.timeZone, style).format(d);
 }
 
+// Go's "Jan", the months the server writes in a schedule result's title, whatever the browser's language.
+const shortMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** A day as the server writes it in a schedule result's title: "19 Oct", and "19 Oct 2025" outside the current year. */
+export function dayMonth(t: string | undefined | null, opts: Omit<FormatOpts, 'locale'> = {}): string {
+  const d = date(t);
+  if (!d) return '';
+  const parts = dateFormat('en-CA', opts.timeZone, { year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  const thisYear = dateFormat('en-CA', opts.timeZone, { year: 'numeric' }).format(new Date(opts.now ?? Date.now()));
+  return `${Number(get('day'))} ${shortMonths[Number(get('month')) - 1]}${get('year') === thisYear ? '' : ` ${get('year')}`}`;
+}
+
 /** The full date for the title or aria-label of a relative time: "14 October 2026, 10:42". */
 export function fullTime(t: string | undefined | null, opts: Omit<FormatOpts, 'now'> = {}): string {
   const d = date(t);
