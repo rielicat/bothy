@@ -4,9 +4,9 @@
   import type { Approval } from '../../lib/api/types.gen';
   import { cardCopy, decidedLine, joinNames, withdrawn, type DecidedCopy } from '../../lib/cardcopy';
   import { clock, fullTime } from '../../lib/format';
+  import { channelName } from '../../lib/labels';
   import { clock as tick } from '../../lib/stores/clock.svelte';
   import { session } from '../../lib/stores/session.svelte';
-  import { appName, people as chatPeople } from '../chat/people.svelte';
   import PhraseText from '../chat/PhraseText.svelte';
   import Icon from '../Icon.svelte';
   import LinkButton from '../ui/LinkButton.svelte';
@@ -59,10 +59,10 @@
     const time = at && clock(at);
     // Ballots carry names a member can't look up and each voter's reason.
     const ballots = a.approvals?.votes ?? (a.votes ?? []).map((v) => ({ user: v.user_id, name: '', choice: v.choice, comment: v.comment }));
-    const nameOf = (id?: string, name?: string) => (id && chatPeople.name(id) !== 'Someone' ? chatPeople.name(id) : name || chatPeople.name(id));
+    const nameOf = (id?: string, name?: string) => (id && people.name(id) !== 'Someone' ? people.name(id) : name || people.name(id));
     const denial = ballots.find((v) => v.choice === 'deny');
     const by = denial ? nameOf(denial.user, denial.name) : nameOf(a.decided_by, a.decided_by_name);
-    const via = a.decided_via && !['web', 'timeout', 'stop'].includes(a.decided_via) ? appName[a.decided_via] : '';
+    const via = a.decided_via && !['web', 'timeout', 'stop'].includes(a.decided_via) ? channelName[a.decided_via] : '';
     const comment = denial?.comment || a.comment;
     const muted = (phrase: Phrase) => ({ glyph: 'close' as const, tone: 'muted' as const, phrase, time, at });
     if (a.status === 'expired') return muted(prefix("Expired: Bothy didn't ", p.ask));
@@ -89,7 +89,7 @@
       ? { ...transcriptLine(approval, phrases), segs: [] }
       : decidedLine(approval, {
           me: viewer?.id ?? session.me?.user.id,
-          name: (id) => people.name(id),
+          name: (id) => people.known(id),
           votes: votes.byId[approval.id],
           list,
           now: tick.now,

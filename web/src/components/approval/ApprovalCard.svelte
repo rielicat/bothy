@@ -111,7 +111,7 @@
   const inOwnChat = $derived(!!view.session_id && router.path === `/chat/${encodeURIComponent(view.session_id)}`);
   const team = $derived(fromTeam(view));
   const someoneElse = $derived(team || (!!requesterId && !!me && requesterId !== me.id));
-  const requesterName = $derived((team && view.requester?.name) || (multi && vv?.requester_name) || people.name(requesterId) || 'Someone');
+  const requesterName = $derived((team && view.requester?.name) || (multi && vv?.requester_name) || people.known(requesterId) || 'Someone');
   const expiry = $derived(expiryOf(view, clock.now));
   const warnings = $derived(copy.warnings.slice(0, 2));
   const moreWarnings = $derived(copy.warnings.slice(2));
@@ -124,7 +124,7 @@
           ? 'an admin, or someone who can approve in a chat app'
           : view.approver?.user_id && view.approver.user_id === me?.id
             ? 'you'
-            : people.name(view.approver?.user_id) || 'the person who asked',
+            : people.known(view.approver?.user_id) || 'the person who asked',
   );
   const alwaysWords = $derived(alwaysLabelParts(view.action, copy.grant));
   const denyHint = $derived(denyAudience(view) || undefined);
@@ -357,7 +357,7 @@
           {:else if multi}
             <p>Waiting for {vv?.approvers || 'the other approvers'}.</p>
           {:else}
-            <p>Waiting for {view.approver?.admin_only ? 'an admin' : view.approver?.team ? 'an approver' : people.name(view.approver?.user_id) || 'someone else'}.</p>
+            <p>Waiting for {view.approver?.admin_only ? 'an admin' : view.approver?.team ? 'an approver' : people.known(view.approver?.user_id) || 'someone else'}.</p>
           {/if}
         </div>
       {/if}

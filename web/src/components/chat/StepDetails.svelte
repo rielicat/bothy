@@ -3,7 +3,7 @@
   import { duration } from '../../lib/format';
   import CodeBlock from '../ui/CodeBlock.svelte';
   import DiffView from '../ui/DiffView.svelte';
-  import { people } from './people.svelte';
+  import { people } from '../approval/people.svelte';
   import type { StepView } from './steps';
 
   // A step's Details (§7.4): the result and how it was allowed first, then

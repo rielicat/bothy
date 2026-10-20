@@ -7,6 +7,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { ApprovalCard, DecidedLine } from '../../components/approval';
+  import { people } from '../../components/approval/people.svelte';
   import ActivityGroup from '../../components/chat/ActivityGroup.svelte';
   import ChatDetails from '../../components/chat/ChatDetails.svelte';
   import ChatNotice from '../../components/chat/ChatNotice.svelte';
@@ -14,7 +15,6 @@
   import ModelPicker from '../../components/chat/ModelPicker.svelte';
   import { models, providerName } from '../../components/chat/models.svelte';
   import NewChat from '../../components/chat/NewChat.svelte';
-  import { appName, people } from '../../components/chat/people.svelte';
   import PinnedDrawer from '../../components/chat/PinnedDrawer.svelte';
   import { refineLabel, refineStep, type RefineProgress } from '../../components/chat/refine';
   import { stepOf, type StepView } from '../../components/chat/steps';
@@ -35,6 +35,7 @@
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
   import { clock, estimate, fullTime, money, plural } from '../../lib/format';
+  import { channelName } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
@@ -88,7 +89,7 @@
   const exposed = $derived(((s?.taint ?? 0) & 3) === 3);
   const firstText = $derived(conv.items.find((i) => i.kind === 'user')?.text ?? '');
   const chatTitle = $derived(s?.title || firstText.slice(0, 48));
-  const where = $derived(s && ['telegram', 'slack', 'discord'].includes(s.origin) ? appName[s.origin] : '');
+  const where = $derived(s && ['telegram', 'slack', 'discord'].includes(s.origin) ? channelName[s.origin] : '');
   const blocks = $derived(buildBlocks(conv.items));
   const liveRun = $derived(conv.running && conv.live ? conv.live.id : '');
   let codeAvailable: boolean | null = $state(null);
