@@ -50,7 +50,7 @@
     try {
       if (id === 'new') {
         const want = router.query.get('example');
-        const e = want ? (await api.get<ScheduleExamples>('/api/schedules/examples').catch(() => null))?.examples.find((x) => x.id === want) : undefined;
+        const e = want ? (await api.get<ScheduleExamples>('/api/schedules/examples').catch(() => null))?.examples.find((x) => x.id === want && x.ready) : undefined;
         s = { ...blankSchedule(session.me?.user), deliver: { channel: 'web', chat_id: '', kind: 'dm' }, ...(e && { name: e.name, kind: e.kind, spec: e.spec, slot: e.slot, prompt: e.prompt }) };
         holes = e?.prompt.match(/\[[^\]]+\]/g) ?? [];
         named = !!e;

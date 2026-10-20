@@ -447,6 +447,10 @@ func TestScheduleExamples(t *testing.T) {
 	if x := get(h.member); len(x.Examples) != 0 || !x.Checkin.Empty || len(x.Checkin.Lines) != 0 {
 		t.Fatalf("nothing set up = %+v", x)
 	}
+	// An admin sees what schedules can do before anything is connected.
+	if x := get(h.owner); !slices.Equal(exIDs(x), []string{"pr-summary", "build-check", "news"}) || x.Examples[0].Ready || x.Examples[0].Prompt != "" {
+		t.Fatalf("admin, nothing set up = %+v", x.Examples)
+	}
 	h.cfg.update(func(c *config.Config) {
 		c.Search.Provider = "brave"
 		c.Releases.Environments = []config.ReleaseEnv{{Name: "production", Repo: "octocat/Hello-World"}}
@@ -456,7 +460,7 @@ func TestScheduleExamples(t *testing.T) {
 	if !slices.Equal(exIDs(x), []string{"pr-summary", "build-check", "news"}) {
 		t.Fatalf("examples = %q", exIDs(x))
 	}
-	if e := x.Examples[0]; e.Kind != "cron" || e.Spec != "0 9 * * 1" || e.Slot != core.SlotFast || e.Needs != "github" ||
+	if e := x.Examples[0]; !e.Ready || e.Kind != "cron" || e.Spec != "0 9 * * 1" || e.Slot != core.SlotFast || e.Needs != "github" ||
 		!strings.Contains(e.Prompt, "octocat/Hello-World") || e.Name != "Monday pull request summary" {
 		t.Fatalf("first example = %+v", e)
 	}

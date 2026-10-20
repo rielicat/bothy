@@ -472,6 +472,8 @@ describe('welcome chat (§5.7)', () => {
     expect(calls.filter((c) => c.method === 'POST' && c.url === '/api/me/welcome')).toHaveLength(1);
     expect(await screen.findByText(/^Hi Sam, I'm Bothy\. I work for your team/)).toBeTruthy();
     expect(await screen.findByRole('button', { name: 'What can you do for our team?' })).toBeTruthy();
+    // Nothing is further down, so there is no latest to jump to.
+    expect(screen.queryByRole('button', { name: 'Jump to latest' })).toBeNull();
     // Listed without waiting for its event, which the stream may have missed.
     await waitFor(() => expect(within(nav()).getByRole('link', { name: 'Welcome to Bothy' }).getAttribute('aria-current')).toBe('page'));
   });

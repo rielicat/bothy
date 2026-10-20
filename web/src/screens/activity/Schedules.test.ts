@@ -78,6 +78,22 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(screen.getByRole('heading', { level: 1 }).parentElement!.contains(button)).toBe(true);
   });
 
+  it('shows an admin what schedules can do before GitHub or web search is set up, leading to what they need', async () => {
+    const unready = {
+      examples: [
+        { id: 'pr-summary', name: 'Monday pull request summary', kind: 'cron', spec: '0 9 * * 1', slot: 'fast', needs: 'github', prompt: '', ready: false },
+        { id: 'news', name: 'Morning news on a topic', kind: 'cron', spec: '0 8 * * 1-5', slot: 'fast', needs: 'web_search', prompt: '', ready: false },
+      ],
+      checkin: { empty: true, lines: [] },
+    };
+    await start(undefined, (m, url) => (url === '/api/schedules/examples' ? unready : undefined), 'Examples', checkinOnly);
+    const [pr, news] = within(examplesSection()!).getAllByRole('link');
+    expect(pr.getAttribute('href')).toBe('/settings/connections/github');
+    expect(pr.textContent).toMatch(/Connect GitHub first/);
+    expect(news.getAttribute('href')).toBe('/settings/connections');
+    expect(news.textContent).toMatch(/Turn on web search first/);
+  });
+
   it("leaves out an example named like one of the person's schedules", async () => {
     await start(undefined, undefined, 'Examples', () => {
       checkinOnly();

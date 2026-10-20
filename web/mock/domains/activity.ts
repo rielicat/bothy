@@ -421,7 +421,7 @@ routes.unshift([
 
 // Schedule examples as internal/starters offers them for acme/web, in order.
 const REPO = 'acme/web';
-const examples: (ScheduleExample & { needs: 'github' | 'web_search' })[] = [
+const examples: (Omit<ScheduleExample, 'ready'> & { needs: 'github' | 'web_search' })[] = [
   { id: 'pr-summary', name: 'Monday pull request summary', kind: 'cron', spec: '0 9 * * 1', slot: 'fast', needs: 'github', prompt: `Summarise the pull requests in ${REPO} from the last 7 days: what was merged, what's still open, and anything that has waited more than 3 days for a review. Keep it short.` },
   { id: 'build-check', name: 'Morning build check', kind: 'cron', spec: '30 8 * * 1-5', slot: 'fast', needs: 'github', prompt: `Check the latest builds on the default branch of ${REPO}. If any failed since yesterday, say which ones and why in a sentence or two. If they all passed, say so in one line.` },
   { id: 'news', name: 'Morning news on a topic', kind: 'cron', spec: '0 8 * * 1-5', slot: 'fast', needs: 'web_search', prompt: 'Search the web for news from the last day about [your topic] and list the 5 most useful items, each with a one-line summary and a link.' },
@@ -489,10 +489,16 @@ on('GET', '/api/schedules/examples', (req, res) => {
   const own = listSchedules(req).filter((s) => s.kind !== 'heartbeat');
   const github = !active(req).has('github-none') && !active(req).has('github-no-repos');
   const search = settings.effective.entries.find((e) => e.path === 'search.provider')?.value !== 'none';
-  const fits = (e: (typeof examples)[number]) => (e.needs === 'github' ? github : search) && !own.some((s) => s.name.trim().toLowerCase() === e.name.toLowerCase());
+  const ready = (e: (typeof examples)[number]) => (e.needs === 'github' ? github : search);
+  const unused = (e: (typeof examples)[number]) => !own.some((s) => s.name.trim().toLowerCase() === e.name.toLowerCase());
+  // As starters.Offered: the ones that work, then for admins the others, without a prompt.
+  const offered = [
+    ...examples.filter((e) => ready(e) && unused(e)).map((e) => ({ ...e, ready: true })),
+    ...(asMember(req) ? [] : examples.filter((e) => !ready(e) && unused(e)).map((e) => ({ ...e, prompt: '', ready: false }))),
+  ];
   const env = releaseEnvironments(req).find((e) => e.repo === REPO)?.name;
   json(res, 200, {
-    examples: own.length >= 3 ? [] : examples.filter(fits).slice(0, 3),
+    examples: own.length >= 3 ? [] : offered.slice(0, 3),
     checkin: {
       empty: listBlank(req),
       lines: github

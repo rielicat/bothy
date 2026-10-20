@@ -735,7 +735,7 @@
   </section>
 
   <div class="sticky bottom-0 z-10 bg-bg pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
-    {#if !atBottom && conv.id}
+    {#if !atBottom && conv.id && !welcome}
       <div class="pointer-events-none absolute inset-x-0 -top-11 flex justify-center">
         <Button size="sm" class="pointer-events-auto" onclick={scrollDown}>Jump to latest</Button>
       </div>

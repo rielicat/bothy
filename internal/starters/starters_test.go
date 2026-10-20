@@ -1,6 +1,7 @@
 package starters
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -121,11 +122,11 @@ func TestExamples(t *testing.T) {
 	}
 	all := Examples(with(setUp, func(s *State) { s.Schedules = []string{"Morning news on a topic"} }))
 	want := []Example{
-		{ID: "pr-summary", Name: "Monday pull request summary", Spec: "0 9 * * 1", Slot: core.SlotFast, Needs: NeedsGitHub,
+		{ID: "pr-summary", Name: "Monday pull request summary", Spec: "0 9 * * 1", Slot: core.SlotFast, Needs: NeedsGitHub, Ready: true,
 			Prompt: "Summarise the pull requests in acme/api from the last 7 days: what was merged, what's still open, and anything that has waited more than 3 days for a review. Keep it short."},
-		{ID: "build-check", Name: "Morning build check", Spec: "30 8 * * 1-5", Slot: core.SlotFast, Needs: NeedsGitHub,
+		{ID: "build-check", Name: "Morning build check", Spec: "30 8 * * 1-5", Slot: core.SlotFast, Needs: NeedsGitHub, Ready: true,
 			Prompt: "Check the latest builds on the default branch of acme/api. If any failed since yesterday, say which ones and why in a sentence or two. If they all passed, say so in one line."},
-		{ID: "release-notes", Name: "Friday release notes draft", Spec: "0 15 * * 5", Slot: core.SlotMain, Needs: NeedsGitHub,
+		{ID: "release-notes", Name: "Friday release notes draft", Spec: "0 15 * * 5", Slot: core.SlotMain, Needs: NeedsGitHub, Ready: true,
 			Prompt: "Draft release notes from the pull requests merged in acme/api in the last 7 days, grouped as New, Improved and Fixed, in plain words for customers. Don't publish anything."},
 	}
 	if !slices.Equal(all, want) {
@@ -282,4 +283,34 @@ func TestCopy(t *testing.T) {
 // isSymbol is an emoji or other pictograph.
 func isSymbol(r rune) bool {
 	return unicode.Is(unicode.So, r) || unicode.Is(unicode.Sk, r) || r >= 0x1F000
+}
+
+// A new install shows admins what schedules can do: the examples they can't
+// use yet come after the ones they can, with no prompt, marked not ready.
+func TestOfferedShowsAdminsWhatToSetUp(t *testing.T) {
+	ids := func(s State) (out []string) {
+		for _, e := range Offered(s) {
+			out = append(out, fmt.Sprintf("%s:%v", e.ID, e.Ready))
+			if !e.Ready && e.Prompt != "" {
+				t.Errorf("%s offered without what it needs, but with a prompt", e.ID)
+			}
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name string
+		s    State
+		want []string
+	}{
+		{"admin, nothing set up", State{Admin: true}, []string{"pr-summary:false", "build-check:false", "news:false"}},
+		{"admin with web search", State{Admin: true, WebSearch: true}, []string{"news:true", "pr-summary:false", "build-check:false"}},
+		{"admin, everything set up", with(setUp, func(s *State) {}), []string{"pr-summary:true", "build-check:true", "news:true"}},
+		{"member, nothing set up", State{}, nil},
+		{"member with web search", State{WebSearch: true}, []string{"news:true"}},
+		{"admin with three schedules", State{Admin: true, Schedules: []string{"a", "b", "c"}}, nil},
+	} {
+		if got := ids(c.s); !slices.Equal(got, c.want) {
+			t.Errorf("%s: offered %q, want %q", c.name, got, c.want)
+		}
+	}
 }

@@ -369,6 +369,7 @@ type ScheduleExample struct {
 	Slot   core.Slot `json:"slot"`
 	Prompt string    `json:"prompt"`
 	Needs  string    `json:"needs"` // github | web_search
+	Ready  bool      `json:"ready"` // false: shown to an admin before what it needs is set up, with no prompt
 }
 
 // CheckinSuggestions are lines for an empty check-in list; Empty says the

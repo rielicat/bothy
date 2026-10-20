@@ -3644,6 +3644,7 @@ export interface ScheduleExample {
   slot: Slot;
   prompt: string;
   needs: string; // github | web_search
+  ready: boolean; // false: shown to an admin before what it needs is set up, with no prompt
 }
 /**
  * CheckinSuggestions are lines for an empty check-in list; Empty says the

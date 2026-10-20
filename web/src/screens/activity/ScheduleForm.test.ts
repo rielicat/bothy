@@ -114,8 +114,9 @@ describe('A schedule from an example (docs/design/ui.md §10.3)', () => {
   const news = 'Search the web for news from the last day about [your topic] and list the 5 most useful items, each with a one-line summary and a link.';
   const examples = {
     examples: [
-      { id: 'pr-summary', name: 'Monday pull request summary', kind: 'cron', spec: '0 9 * * 1', slot: 'main', needs: 'github', prompt: 'Summarise the pull requests in acme/web from the last 7 days.' },
-      { id: 'news', name: 'Morning news on a topic', kind: 'cron', spec: '0 8 * * 1-5', slot: 'fast', needs: 'web_search', prompt: news },
+      { id: 'pr-summary', name: 'Monday pull request summary', kind: 'cron', spec: '0 9 * * 1', slot: 'main', needs: 'github', prompt: 'Summarise the pull requests in acme/web from the last 7 days.', ready: true },
+      { id: 'news', name: 'Morning news on a topic', kind: 'cron', spec: '0 8 * * 1-5', slot: 'fast', needs: 'web_search', prompt: news, ready: true },
+      { id: 'build-check', name: 'Morning build check', kind: 'cron', spec: '30 8 * * 1-5', slot: 'fast', needs: 'github', prompt: '', ready: false },
     ],
     checkin: { empty: false, lines: [] },
   };
@@ -126,6 +127,11 @@ describe('A schedule from an example (docs/design/ui.md §10.3)', () => {
     render(ScheduleForm, { params: { id: 'new' } });
     return (await screen.findByLabelText('What should Bothy do?')) as HTMLTextAreaElement;
   }
+
+  it("starts blank for an example that can't run yet", async () => {
+    expect((await open('build-check')).value).toBe('');
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
+  });
 
   it('prefills what to do, when, the name and the model in the person\'s time zone, and saves it as a new schedule', async () => {
     expect((await open('pr-summary')).value).toBe('Summarise the pull requests in acme/web from the last 7 days.');

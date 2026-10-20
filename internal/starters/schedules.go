@@ -16,6 +16,9 @@ type Example struct {
 	Slot   core.Slot
 	Prompt string
 	Needs  string // NeedsGitHub | NeedsWebSearch
+	// Ready: what it needs is set up. Offered also lists the others for
+	// admins, without a prompt, pointing at what to set up first.
+	Ready bool
 }
 
 const (
@@ -56,19 +59,48 @@ func Examples(s State) []Example {
 	repo := oneLine(s.Repo)
 	var out []Example
 	for _, e := range examples {
-		switch {
-		case e.Needs == NeedsGitHub && (repo == "" || !s.GitHub),
-			e.Needs == NeedsWebSearch && !s.WebSearch,
-			used(s.Schedules, e.Name):
+		if !ready(s, e) || used(s.Schedules, e.Name) {
 			continue
 		}
 		e.Prompt = strings.ReplaceAll(e.Prompt, "{repo}", repo)
+		e.Ready = true
 		out = append(out, e)
 		if len(out) == MaxExamples {
 			break
 		}
 	}
 	return out
+}
+
+// Offered are the examples the Schedules page shows: those s can use, then,
+// for an admin, the others with no prompt, so a new install still shows
+// what schedules can do and what to connect for them; at most MaxExamples.
+func Offered(s State) []Example {
+	out := Examples(s)
+	if !s.Admin || len(s.Schedules) >= examplesUntil {
+		return out
+	}
+	for _, e := range examples {
+		if len(out) == MaxExamples {
+			break
+		}
+		if ready(s, e) || used(s.Schedules, e.Name) {
+			continue
+		}
+		e.Prompt = ""
+		out = append(out, e)
+	}
+	return out
+}
+
+func ready(s State, e Example) bool {
+	switch e.Needs {
+	case NeedsGitHub:
+		return oneLine(s.Repo) != "" && s.GitHub
+	case NeedsWebSearch:
+		return s.WebSearch
+	}
+	return true
 }
 
 func used(names []string, name string) bool {

@@ -99,9 +99,9 @@ func (s *Server) scheduleExamples(w http.ResponseWriter, r *http.Request, a core
 	}
 	out := dto.ScheduleExamples{Examples: []dto.ScheduleExample{},
 		Checkin: dto.CheckinSuggestions{Empty: strings.TrimSpace(list) == "", Lines: starters.CheckinLines(st)}}
-	for _, e := range starters.Examples(st) {
+	for _, e := range starters.Offered(st) {
 		out.Examples = append(out.Examples, dto.ScheduleExample{ID: e.ID, Name: e.Name, Kind: string(core.SchedCron), Spec: e.Spec,
-			Slot: e.Slot, Prompt: e.Prompt, Needs: e.Needs})
+			Slot: e.Slot, Prompt: e.Prompt, Needs: e.Needs, Ready: e.Ready})
 	}
 	return ok(w, out)
 }

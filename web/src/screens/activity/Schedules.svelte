@@ -180,14 +180,17 @@
         <ul class="mt-2">
           {#each ex.examples as e (e.id)}
             <li class="border-b border-border last:border-b-0">
+              <!-- One that can't run yet leads to what it needs, so a new install still shows what schedules do. -->
               <a
-                href="/activity/schedules/new?example={encodeURIComponent(e.id)}"
+                href={e.ready ? `/activity/schedules/new?example=${encodeURIComponent(e.id)}` : e.needs === 'github' ? '/settings/connections/github' : '/settings/connections'}
                 onclick={router.link}
                 class="-mx-2 flex min-h-14 items-center gap-3 rounded-md px-2 py-2 hover:bg-subtle focus-visible:outline-offset-[-2px]"
               >
                 <span class="min-w-0 flex-1">
                   <span class="block text-body font-medium text-text">{e.name}</span>
-                  <span class="block text-small text-muted">{when(e)} · Uses {e.needs === 'github' ? 'GitHub' : 'web search'}</span>
+                  <span class="block text-small text-muted"
+                    >{when(e)} · {e.ready ? `Uses ${e.needs === 'github' ? 'GitHub' : 'web search'}` : e.needs === 'github' ? 'Connect GitHub first' : 'Turn on web search first'}</span
+                  >
                 </span>
                 <Icon name="chevron-right" class="text-muted" />
               </a>
