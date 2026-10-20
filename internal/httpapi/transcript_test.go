@@ -354,7 +354,7 @@ func TestSessionListNamesUntitledChats(t *testing.T) {
 	if _, listed := titles[empty.ID]; listed || len(titles) != 2 {
 		t.Fatalf("listed %v", titles)
 	}
-	if got := titles[legacy.ID]; got != "Can you summarise the open pull requests in acme" {
+	if got := titles[legacy.ID]; got != "Can you summarise the open pull requests in…" {
 		t.Fatalf("untitled chat = %q", got)
 	}
 	if titles[titled.ID] != "Release checklist" {

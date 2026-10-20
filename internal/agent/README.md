@@ -112,7 +112,7 @@ and its team; the default persona is headed `# Bothy` (the agent's name) and
 names its tone ("Tone: Warm and brief").
 
 The first stored turn of an untitled session names it after its first message
-(`core.DraftTitle`, 48 characters) and publishes `session.updated`; after the
+(`core.DraftTitle`, 48 characters cut at a word, "…") and publishes `session.updated`; after the
 first run that is done (a parked, failed or stopped one leaves it to the next)
 a fast-slot call writes the title, which replaces only that draft, never a
 name someone chose. Notices (`notices.go`) follow the UI copy guide: a

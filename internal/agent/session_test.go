@@ -259,7 +259,7 @@ func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
 		for len(sub.C()) > 0 {
 			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
 		}
-		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+		if want := []string{"Help me plan the weekend with the whole family…", "Weekend plans"}; !slices.Equal(titles, want) {
 			t.Fatalf("titles %q, want the first message's start replacing Bothy's title, then the generated one %q", titles, want)
 		}
 		if got := h.session(); got.Title != "Weekend plans" || got.TitleAuto {
@@ -437,7 +437,7 @@ func TestTitleGeneratedAfterFirstRun(t *testing.T) {
 		for len(sub.C()) > 0 {
 			titles = append(titles, (<-sub.C()).Data.(core.SessionData).Title)
 		}
-		if want := []string{"Help me plan the weekend with the whole family,", "Weekend plans"}; !slices.Equal(titles, want) {
+		if want := []string{"Help me plan the weekend with the whole family…", "Weekend plans"}; !slices.Equal(titles, want) {
 			t.Fatalf("session titles %q, want the first message's start, then the generated title %q", titles, want)
 		}
 		var titled bool

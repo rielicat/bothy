@@ -1076,7 +1076,9 @@ func TestMiscReads(t *testing.T) {
 	if l := decodeAs[[]core.ModelInfo](t, h.do("GET", "/api/models", nil, h.member)); len(l) != 1 || l[0].Slot != core.SlotMain {
 		t.Fatalf("models with a main slot = %+v", l)
 	}
-	h.cfg.update(func(c *config.Config) { c.Models.Main, c.Models.Fast = []string{"other/model"}, []string{fakes.DefaultModel.Ref.String()} })
+	h.cfg.update(func(c *config.Config) {
+		c.Models.Main, c.Models.Fast = []string{"other/model"}, []string{fakes.DefaultModel.Ref.String()}
+	})
 	if l := decodeAs[[]core.ModelInfo](t, h.do("GET", "/api/models", nil, h.member)); len(l) != 1 || l[0].Slot != core.SlotFast {
 		t.Fatalf("models with a fast slot = %+v", l)
 	}

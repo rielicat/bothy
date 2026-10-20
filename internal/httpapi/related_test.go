@@ -437,7 +437,9 @@ func TestStartersNameTheDeployedRepository(t *testing.T) {
 	}}
 	h.srv.d.GitHub = gh
 	h.srv.d.Knowledge = newFakeKnowledge()
-	h.cfg.update(func(c *config.Config) { c.Releases.Environments = []config.ReleaseEnv{{Name: "production", Repo: "Acme/Web"}} })
+	h.cfg.update(func(c *config.Config) {
+		c.Releases.Environments = []config.ReleaseEnv{{Name: "production", Repo: "Acme/Web"}}
+	})
 	if rows := starterTexts(t, h, h.member); rows[0].Text != "Summarise the open pull requests in acme/web" {
 		t.Fatalf("member's starters = %+v", rows)
 	}
