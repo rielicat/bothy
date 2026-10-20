@@ -2,12 +2,13 @@
 // and the audit log. Rows carry the names and plain lines the server tracks
 // add (S8, S16, docs/design/ui.md §17) where the UI shows them; a few rows
 // leave them out so the client-side fallbacks show too.
-import type { Approval, AuditEntry, EgressRecord, Run, RunView, Schedule, TeamSchedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
+import type { Approval, AuditEntry, EgressRecord, Run, RunView, Schedule, ScheduleExample, TeamSchedule, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
 import { list as approvalList, state as approvalState } from './approvals.ts';
-import { breakdown } from './chat.ts';
+import { breakdown, sessions as chatSessions, state as chat } from './chat.ts';
 import { releaseEnvironments } from './connections.ts';
+import { state as knowledge } from './knowledge.ts';
 import { state as settings } from './settings.ts';
-import { ago, asMember, body, clone, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
+import { active, ago, asMember, body, clone, emit, fail, ids, json, member, newId, nowISO, on, onReset, owner, routes, scenario, viewer, type Req, type Res } from './core.ts';
 
 const limits = { max_steps: 0, max_tokens: 0, max_time: 0, max_cost_micros: 0 };
 const web = { channel: 'web', chat_id: '', kind: 'dm' };
@@ -402,8 +403,30 @@ const noReleases = scenario('releases-none', 'No deploy environments, so the Rel
 const noDeploys = scenario('releases-empty', 'Deploy environments exist but nothing was deployed yet.', 'activity');
 const deployWaiting = scenario('deploy-waiting', 'A two-approver deploy waits for one more approval; an earlier one was denied.', 'activity');
 const auditBroken = scenario('audit-broken', "The audit log's hash chain breaks at one entry.", 'activity');
+const blankList = scenario('checkin-empty', 'The check-in list is blank: turning the check-in on opens it, with suggested lines.', 'activity');
 
 const mine = (req: Req) => (asMember(req) ? member.id : undefined);
+
+// checkin-empty blanks the list until someone saves it.
+const listBlank = (req: Req) => (blankList(req) && knowledge.etags.HEARTBEAT === 'e1') || !knowledge.memory.HEARTBEAT?.trim();
+const getMemory = routes.find(([m, re]) => m === 'GET' && re.test('/api/memory/HEARTBEAT'));
+routes.unshift([
+  'GET',
+  /^\/api\/memory\/(HEARTBEAT)$/,
+  (req, res, m, q) => {
+    if (listBlank(req)) knowledge.memory.HEARTBEAT = '';
+    return getMemory?.[2](req, res, m, q);
+  },
+]);
+
+// Schedule examples as internal/starters offers them for acme/web, in order.
+const REPO = 'acme/web';
+const examples: (ScheduleExample & { needs: 'github' | 'web_search' })[] = [
+  { id: 'pr-summary', name: 'Monday pull request summary', kind: 'cron', spec: '0 9 * * 1', slot: 'fast', needs: 'github', prompt: `Summarise the pull requests in ${REPO} from the last 7 days: what was merged, what's still open, and anything that has waited more than 3 days for a review. Keep it short.` },
+  { id: 'build-check', name: 'Morning build check', kind: 'cron', spec: '30 8 * * 1-5', slot: 'fast', needs: 'github', prompt: `Check the latest builds on the default branch of ${REPO}. If any failed since yesterday, say which ones and why in a sentence or two. If they all passed, say so in one line.` },
+  { id: 'news', name: 'Morning news on a topic', kind: 'cron', spec: '0 8 * * 1-5', slot: 'fast', needs: 'web_search', prompt: 'Search the web for news from the last day about [your topic] and list the 5 most useful items, each with a one-line summary and a link.' },
+  { id: 'release-notes', name: 'Friday release notes draft', kind: 'cron', spec: '0 15 * * 5', slot: 'main', needs: 'github', prompt: `Draft release notes from the pull requests merged in ${REPO} in the last 7 days, grouped as New, Improved and Fixed, in plain words for customers. Don't publish anything.` },
+];
 
 const listApprovals = routes.find(([m, re]) => m === 'GET' && re.test('/api/approvals'));
 routes.unshift([
@@ -458,7 +481,26 @@ function nextRuns(kind: string, spec: string): string[] {
   return out;
 }
 
-on('GET', '/api/schedules', (req, res) => json(res, 200, empty(req) || asMember(req) ? [] : state.schedules));
+// activity-empty and members start without the seeded schedules; ones made in the UI still show.
+const listSchedules = (req: Req) => (empty(req) || asMember(req) ? state.schedules.filter((s) => !schedules.some((x) => x.id === s.id)) : state.schedules);
+on('GET', '/api/schedules', (req, res) => json(res, 200, listSchedules(req)));
+// Before {id}, as in the server's mux: the literal path wins.
+on('GET', '/api/schedules/examples', (req, res) => {
+  const own = listSchedules(req).filter((s) => s.kind !== 'heartbeat');
+  const github = !active(req).has('github-none') && !active(req).has('github-no-repos');
+  const search = settings.effective.entries.find((e) => e.path === 'search.provider')?.value !== 'none';
+  const fits = (e: (typeof examples)[number]) => (e.needs === 'github' ? github : search) && !own.some((s) => s.name.trim().toLowerCase() === e.name.toLowerCase());
+  const env = releaseEnvironments(req).find((e) => e.repo === REPO)?.name;
+  json(res, 200, {
+    examples: own.length >= 3 ? [] : examples.filter(fits).slice(0, 3),
+    checkin: {
+      empty: listBlank(req),
+      lines: github
+        ? [...(env ? [`Tell me if a deploy to ${env} failed.`] : []), `Tell me about pull requests in ${REPO} that have waited more than 2 days for a review.`, `Tell me if a build on the default branch of ${REPO} failed.`]
+        : [],
+    },
+  });
+});
 on('POST', '/api/schedules/preview', async (req, res) => {
   const b = JSON.parse(await body(req));
   if (b.kind === 'cron' && b.spec.trim().split(/\s+/).length !== 5) return fail(res, 400, 'bad_request', 'A cron expression has five fields: minute hour day month weekday.');
@@ -490,7 +532,24 @@ on('DELETE', '/api/schedules/{id}', (_q, res, m) => {
   state.team = state.team.filter((x) => x.id !== m[1]);
   json(res, 204);
 });
-on('POST', '/api/schedules/{id}/run', (_q, res) => json(res, 202, { run_id: 'run_01jstandup10000000000000' }));
+// Each run writes in a fresh chat filed under its schedule; a check-in's stays out of the list (SPEC §5.16).
+on('POST', '/api/schedules/{id}/run', (req, res, m) => {
+  const s = state.schedules.find((x) => x.id === m[1]);
+  if (!s) return fail(res, 404, 'not_found', 'No such schedule.');
+  const checkin = s.kind === 'heartbeat';
+  if (checkin && listBlank(req)) return fail(res, 400, 'bad_request', "The check-in list is empty, so there's nothing to check yet. Add something to it first.");
+  const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: s.tz }).format(new Date());
+  const id = newId('ses');
+  const at = nowISO();
+  chat.sessions.unshift({ ...clone(chatSessions[0]), id, title: `${checkin ? 'Check-in' : s.name} · ${day}`, origin: 'schedule', schedule_id: s.id, parent_id: undefined, root_id: undefined, hidden: checkin, taint: 0, created_at: at, updated_at: at, last_message_at: at });
+  const message = (seq: number, role: string, text: string, sender?: string) => ({ id: Date.now() + seq, session_id: id, seq, role, kind: 'normal', parts: [{ t: 'text', text }], provenance: role === 'user' ? 'user' : 'system', sender, tokens: 40, created_at: at });
+  chat.messages[id] = [
+    message(1, 'user', checkin ? knowledge.memory.HEARTBEAT : s.prompt, `schedule:${s.id}`),
+    message(2, 'assistant', checkin ? 'HEARTBEAT_OK' : 'Nothing new since the last run.'),
+  ];
+  emit('session.updated', {}, id);
+  json(res, 202, { run_id: 'run_01jstandup10000000000000', session_id: id });
+});
 on('GET', '/api/schedules/{id}/runs', (_q, res, m) => json(res, 200, { items: runs.filter((r) => r.schedule_id === m[1]) }));
 
 // Environments come from config (the connections domain) so edits in Settings show here; the approvals domain adds the deploys its approved cards started.

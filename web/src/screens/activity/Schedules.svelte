@@ -2,7 +2,8 @@
   import { untrack } from 'svelte';
   import { Button, EmptyState, IconButton, Menu, StatusLine, Switch, toast, type MenuItem } from '../../components/ui';
   import { api, ApiError, refusal } from '../../lib/api/client';
-  import type { List, Schedule, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
+  import type { List, RunScheduleResp, Schedule, ScheduleExamples, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
+  import Icon from '../../components/Icon.svelte';
   import { appName } from '../../lib/cardcopy';
   import { router } from '../../lib/router.svelte';
   import { clockLabel, describeWhen, fromSpec, localTimes, localZone, saveSchedule, scheduleGrants, zoneTime } from '../../lib/schedules';
@@ -16,6 +17,7 @@
   import { deliverTo } from './tasks';
 
   let list = $state<Schedule[] | null>(null);
+  let ex = $state<ScheduleExamples | null>(null);
   let custom = $state<Record<string, string>>({});
   let problems = $state<Record<string, string>>({});
   let failed = $state(false);
@@ -39,7 +41,9 @@
   async function load() {
     failed = false;
     try {
-      const l = await api.get<Schedule[]>('/api/schedules');
+      // Together, so the empty sentence never shows before the examples that replace it.
+      const [l, x] = await Promise.all([api.get<Schedule[]>('/api/schedules'), api.get<ScheduleExamples>('/api/schedules/examples').catch(() => null)]);
+      ex = x;
       list = l;
       if (session.isAdmin) void loadTeam();
       for (const s of l) {
@@ -67,6 +71,8 @@
 
   // Optimistic, so the switch moves at once and moves back if the save fails.
   async function toggle(s: Schedule | undefined, on: boolean) {
+    // A check-in with an empty list would check nothing, so turning it on opens the list instead.
+    if (on && ex?.checkin.empty && (!s || s.kind === 'heartbeat')) return router.navigate('/activity/schedules/checkin?on=1');
     const key = s?.id ?? 'checkin';
     errors[key] = '';
     if (s) s.enabled = on;
@@ -83,8 +89,8 @@
 
   async function runNow(s: Schedule) {
     try {
-      const r = await api.post<{ run_id: string }>(`/api/schedules/${encodeURIComponent(s.id)}/run`);
-      toast('Schedule started.', r?.run_id ? { action: { label: 'View', onclick: () => router.navigate(`/activity/tasks/${encodeURIComponent(r.run_id)}`) } } : {});
+      const chat = (await api.post<RunScheduleResp>(`/api/schedules/${encodeURIComponent(s.id)}/run`))?.session_id;
+      toast('Schedule started.', chat ? { action: { label: 'Open chat', onclick: () => router.navigate(`/chat/${encodeURIComponent(chat)}`) } } : {});
     } catch (e) {
       // An empty check-in list, or Bothy paused: trying again won't help.
       errors[s.id] = refusal(e) || (e instanceof ApiError && e.code === 'paused' ? 'Bothy is paused by an admin, so nothing new starts.' : "Couldn't start it. Try again.");
@@ -115,7 +121,7 @@
   }
 
   // Times read in the schedule's own zone, so another zone than the viewer's is named.
-  function when(s: Pick<Schedule, 'id' | 'kind' | 'spec' | 'tz'>): string {
+  function when(s: Pick<Schedule, 'id' | 'kind' | 'spec'> & { tz?: string }): string {
     const text = describeWhen(fromSpec(s.kind, s.spec, s.tz)) ?? custom[s.id] ?? 'On a custom repeat rule';
     return s.tz && s.tz !== (session.me?.user.timezone || localZone()) ? `${text}, ${zoneTime(s.tz)}` : text;
   }
@@ -143,9 +149,7 @@
   </li>
 {/snippet}
 
-{#snippet newButton()}
-  {#if others.length}<Button variant="primary" href="/activity/schedules/new">New schedule</Button>{/if}
-{/snippet}
+{#snippet newButton()}<Button variant="primary" href="/activity/schedules/new">New schedule</Button>{/snippet}
 
 <Activity tab="Schedules" actions={list ? newButton : undefined}>
   {#if list === null}
@@ -170,8 +174,29 @@
         ])}
       {/each}
     </ul>
-    {#if !others.length}
-      <EmptyState class="mt-6" text="Add your own, like a Monday summary of open pull requests." action={{ label: 'New schedule', href: '/activity/schedules/new' }} />
+    {#if ex?.examples.length}
+      <section class="mt-10" aria-labelledby="schedule-examples">
+        <h2 id="schedule-examples" class="section-title">Examples</h2>
+        <ul class="mt-2">
+          {#each ex.examples as e (e.id)}
+            <li class="border-b border-border last:border-b-0">
+              <a
+                href="/activity/schedules/new?example={encodeURIComponent(e.id)}"
+                onclick={router.link}
+                class="-mx-2 flex min-h-14 items-center gap-3 rounded-md px-2 py-2 hover:bg-subtle focus-visible:outline-offset-[-2px]"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block text-body font-medium text-text">{e.name}</span>
+                  <span class="block text-small text-muted">{when(e)} · Uses {e.needs === 'github' ? 'GitHub' : 'web search'}</span>
+                </span>
+                <Icon name="chevron-right" class="text-muted" />
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {:else if !others.length}
+      <EmptyState class="mt-6" text="Add your own, like a Monday summary of open pull requests." />
     {/if}
     {#if team.length || teamFailed}
       <section class="mt-10" aria-labelledby="team-schedules">

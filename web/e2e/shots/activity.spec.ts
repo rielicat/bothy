@@ -71,7 +71,15 @@ const states: ShotState[] = [
 
   // Schedules (§10.3)
   { name: 'schedules', route: '/activity/schedules', ready: 'Weekly PR digest', setup: frame },
-  { name: 'schedules-empty', route: '/activity/schedules', mock: 'activity-empty', ready: 'Add your own, like a Monday summary', setup: frame },
+  { name: 'schedules-examples', route: '/activity/schedules', mock: 'activity-empty', ready: 'Monday pull request summary', setup: frame },
+  { name: 'schedules-empty', route: '/activity/schedules', mock: 'activity-empty,github-none', ready: 'Add your own, like a Monday summary', setup: frame },
+  {
+    name: 'schedules-run-now',
+    route: '/activity/schedules',
+    ready: 'Weekly PR digest',
+    full: false,
+    setup: then(click('More for Daily standup summary'), (p) => p.getByRole('menuitem', { name: 'Run now' }).evaluate((el) => (el as HTMLElement).click()), (p) => p.getByText('Schedule started.').waitFor()),
+  },
   { name: 'schedules-menu', route: '/activity/schedules', ready: 'Weekly PR digest', full: false, setup: then(click('More for Weekly PR digest')) },
   {
     name: 'schedules-delete',
@@ -89,6 +97,7 @@ const states: ShotState[] = [
     setup: then(click('More actions for Ops handover'), (p) => p.getByRole('menuitem', { name: 'Delete…' }).evaluate((el) => (el as HTMLElement).click())),
   },
   { name: 'schedule-new', route: '/activity/schedules/new', ready: 'What should Bothy do?', setup: frame },
+  { name: 'schedule-example', route: '/activity/schedules/new?example=pr-summary', mock: 'activity-empty', ready: 'What should Bothy do?', setup: frame },
   { name: 'schedule-new-errors', route: '/activity/schedules/new', ready: 'What should Bothy do?', setup: then(click('Create schedule')) },
   {
     name: 'schedule-custom',
@@ -112,6 +121,8 @@ const states: ShotState[] = [
   { name: 'schedule-edit-custom', route: '/activity/schedules/sch_01jinvoices0000000000000', ready: 'Repeat rule', setup: frame },
   { name: 'schedule-once', route: '/activity/schedules/new', ready: 'What should Bothy do?', setup: then(pick('Repeat', 'once')) },
   { name: 'checkin', route: '/activity/schedules/checkin', ready: 'What to check', setup: frame },
+  { name: 'checkin-suggested', route: '/activity/schedules/checkin', mock: 'checkin-empty', ready: 'Use suggested lines', setup: frame },
+  { name: 'checkin-nothing-to-check', route: '/activity/schedules/checkin?on=1', mock: 'checkin-empty', ready: 'Use suggested lines', setup: then(click('Save')) },
 
   // Releases (§10.4)
   { name: 'releases', route: '/activity/releases', ready: 'History', setup: frame },

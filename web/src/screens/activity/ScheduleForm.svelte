@@ -2,7 +2,7 @@
   import { tick, untrack } from 'svelte';
   import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
   import { api, ApiError, refusal } from '../../lib/api/client';
-  import type { Grant, List, Schedule, SchedulePreviewResp } from '../../lib/api/types.gen';
+  import type { Grant, List, Schedule, ScheduleExamples, SchedulePreviewResp } from '../../lib/api/types.gen';
   import { clock, fullTime, money } from '../../lib/format';
   import { hostPort } from '../../lib/grants';
   import { router } from '../../lib/router.svelte';
@@ -38,6 +38,8 @@
   let missing = $state(false);
   let failed = $state(false);
   let removing = $state<Schedule | null>(null);
+  // An example's [placeholders], which have to be replaced before it can be saved.
+  let holes = $state<string[]>([]);
 
   // By city ("London (Europe)"); the IANA id stays the stored value.
   const zones = $derived(zoneOptions(s?.tz ?? ''));
@@ -47,7 +49,11 @@
     failed = missing = false;
     try {
       if (id === 'new') {
-        s = { ...blankSchedule(session.me?.user), deliver: { channel: 'web', chat_id: '', kind: 'dm' } };
+        const want = router.query.get('example');
+        const e = want ? (await api.get<ScheduleExamples>('/api/schedules/examples').catch(() => null))?.examples.find((x) => x.id === want) : undefined;
+        s = { ...blankSchedule(session.me?.user), deliver: { channel: 'web', chat_id: '', kind: 'dm' }, ...(e && { name: e.name, kind: e.kind, spec: e.spec, slot: e.slot, prompt: e.prompt }) };
+        holes = e?.prompt.match(/\[[^\]]+\]/g) ?? [];
+        named = !!e;
         saved = [];
         runs = [];
       } else {
@@ -112,17 +118,18 @@
   // Weekday names keep their capital: "Runs Mondays at 9:00", "Runs weekdays at 9:00".
   const lower = (t: string) => (w.kind === 'weekly' ? t : t[0].toLowerCase() + t.slice(1));
   const nextDays = $derived((shown?.next ?? []).slice(0, 3).map((t) => listDate(t, s?.tz)));
-  // Accounts have no chat app, so results always stay here: the preview says so instead of a field with nothing to choose.
+  // Accounts have no chat app, so results always come to their chat list: the preview says so instead of a field with nothing to choose.
   const previewLine = $derived.by(() => {
     if (!s) return '';
     const plain = describeWhen(w);
     const when = plain ? lower(plain) : shown ? lower(localTimes(shown.human)) : '';
-    const runsText = when ? `Runs ${when} ${zoneTime(s.tz)} and posts the result here.` : '';
+    const runsText = when ? `Runs ${when} ${zoneTime(s.tz)}. ${w.kind === 'once' ? 'The result' : 'Each result'} gets its own chat in your list.` : '';
     return runsText && w.kind !== 'once' && nextDays.length ? `${runsText} Next: ${nextDays.join(', ')}.` : runsText;
   });
   const today = $derived(s ? wallClock(new Date(), s.tz).slice(0, 10) : undefined);
 
-  const promptError = $derived(submitted && !s?.prompt.trim() ? 'Tell Bothy what to do.' : '');
+  const hole = $derived(holes.find((h) => s?.prompt.includes(h)));
+  const promptError = $derived(!submitted ? '' : !s?.prompt.trim() ? 'Tell Bothy what to do.' : hole ? `Replace ${hole} first.` : '');
   const ruleError = $derived(
     w.kind === 'custom' && ((submitted && !validRule(w.rule)) || ruleRejected) ? "That repeat rule isn't valid. Example: 0 9 * * 1-5 means weekdays at 9:00." : '',
   );
@@ -145,7 +152,11 @@
     submitted = true;
     if (!s || promptError || ruleError) {
       await tick();
-      document.querySelector<HTMLElement>('form [aria-invalid="true"]')?.focus();
+      const field = document.querySelector<HTMLTextAreaElement>('form [aria-invalid="true"]');
+      field?.focus();
+      // Selected, so typing replaces it.
+      const at = hole ? s!.prompt.indexOf(hole) : -1;
+      if (at >= 0) field?.setSelectionRange(at, at + hole!.length);
       return;
     }
     saving = true;
