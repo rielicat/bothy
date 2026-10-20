@@ -125,7 +125,7 @@
               <a
                 href={projectHref(r.repo)}
                 title={r.repo}
-                class="-my-0.5 block truncate py-0.5 text-body font-medium text-text after:absolute after:inset-0 focus-visible:outline-none pointer-coarse:-my-3 pointer-coarse:py-3"
+                class="stretch-link -my-0.5 block truncate py-0.5 text-body font-medium text-text pointer-coarse:-my-3 pointer-coarse:py-3"
                 onclick={router.link}>{r.repo}</a
               >
               <span class="flex items-center gap-1.5 text-small {st === 'failed' ? 'text-danger-text' : 'text-muted'} tabular-nums">

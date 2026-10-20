@@ -287,9 +287,13 @@
   .list-card .row-link {
     @apply -mx-4 rounded-none px-4;
   }
-  /* A row whose link is stretched over it (`after:absolute after:inset-0`), its own controls lifted above (`relative z-10`). */
+  /* A row whose `.stretch-link` covers it, its own controls lifted above (`relative z-10`). Only that link's
+     focus rings the row: a control of its own (Review, a GitHub link) draws its own ring, never two at once. */
   .row-stretch {
-    @apply relative hover:bg-subtle has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-focus;
+    @apply relative hover:bg-subtle has-[.stretch-link:focus-visible]:outline-2 has-[.stretch-link:focus-visible]:-outline-offset-2 has-[.stretch-link:focus-visible]:outline-focus;
+  }
+  .stretch-link {
+    @apply after:absolute after:inset-0 focus-visible:outline-none;
   }
 
   .tabs {

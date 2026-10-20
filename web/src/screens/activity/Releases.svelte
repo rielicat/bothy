@@ -224,7 +224,7 @@
                     <a
                       href={h.href}
                       onclick={router.link}
-                      class="-my-0.5 flex min-w-0 flex-1 items-center py-0.5 text-body font-medium text-text after:absolute after:inset-0 focus-visible:outline-none pointer-coarse:-my-3 pointer-coarse:py-3"
+                      class="stretch-link -my-0.5 flex min-w-0 flex-1 items-center py-0.5 text-body font-medium text-text pointer-coarse:-my-3 pointer-coarse:py-3"
                       title={h.title}><span class="[overflow-wrap:anywhere] sm:truncate">{h.title}</span></a
                     >
                   {:else}

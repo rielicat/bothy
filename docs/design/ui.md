@@ -285,7 +285,7 @@ Always use a named radius; bare `rounded` is not allowed.
 
 - Every focusable element: `:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px }`.
 - Text inputs, selects and textareas show focus on mouse focus too (`:focus`), because a field must show where typing goes.
-- Rows in lists (settings rows, list rows, sidebar rows) use `outline-offset: -2px`, so focus draws inside the row and never looks like a second card. Inbox rows are cards themselves, so their focus draws outside them (`outline-offset: 2px`).
+- Rows in lists (settings rows, list rows, sidebar rows) use `outline-offset: -2px`, so focus draws inside the row and never looks like a second card. Inbox rows are cards themselves, so their focus draws outside them (`outline-offset: 2px`). A row opened by a link stretched over it (`.row-stretch`) draws that ring around the whole row only while that link has focus; a control of its own on the row (a switch, Review, a GitHub link) shows only its own ring.
 - Inputs and the composer show focus as a `focus` border plus a 4 px halo (`shadow-focus`, accent at 14 % in light, 18 % in dark). A transparent 2 px outline stays underneath, so forced-colours mode, which drops shadows, still draws a ring.
 - Focus moves on purpose: a dialog focuses its first field, or Cancel in a destructive dialog; closing returns focus to the trigger; after an approval decision focus goes to the next waiting item or to the decided line, and a polite live region announces the result.
 
@@ -2872,9 +2872,13 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
   .list-card .row-link {
     @apply -mx-4 rounded-none px-4;
   }
-  /* A row whose link is stretched over it (`after:absolute after:inset-0`), its own controls lifted above (`relative z-10`). */
+  /* A row whose `.stretch-link` covers it, its own controls lifted above (`relative z-10`). Only that link's
+     focus rings the row: a control of its own (Review, a GitHub link) draws its own ring, never two at once. */
   .row-stretch {
-    @apply relative hover:bg-subtle has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-focus;
+    @apply relative hover:bg-subtle has-[.stretch-link:focus-visible]:outline-2 has-[.stretch-link:focus-visible]:-outline-offset-2 has-[.stretch-link:focus-visible]:outline-focus;
+  }
+  .stretch-link {
+    @apply after:absolute after:inset-0 focus-visible:outline-none;
   }
 
   .tabs {

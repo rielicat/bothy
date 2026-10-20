@@ -170,3 +170,18 @@ test('approving the last suggestion closes the review and the notice', async ({ 
   await expect(dialog).toHaveCount(0);
   await expect(page.getByText(/Bothy suggested/)).toHaveCount(0);
 });
+
+// A row's stretched link rings the whole row; a control of its own on that row rings only itself, so focus is never shown twice.
+test('tabbing along a skill row rings the row for its link and the Review button on its own', async ({ page }) => {
+  await open(page, '/knowledge/skills');
+  const link = page.getByRole('link', { name: /^Incident review/ });
+  const row = page.locator('.row-stretch', { has: link });
+  await link.focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(link).toBeFocused();
+  await expect(row).toHaveCSS('outline-style', 'solid');
+  await page.keyboard.press('Tab');
+  await expect(row.getByRole('link', { name: 'Review', exact: true })).toBeFocused();
+  await expect(row).toHaveCSS('outline-style', 'none');
+});

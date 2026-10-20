@@ -130,7 +130,7 @@
       <a
         {href}
         onclick={router.link}
-        class="-my-0.5 block py-0.5 text-body font-medium text-text [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none pointer-coarse:-my-3 pointer-coarse:py-3"
+        class="stretch-link -my-0.5 block py-0.5 text-body font-medium text-text [overflow-wrap:anywhere] pointer-coarse:-my-3 pointer-coarse:py-3"
         >{name}</a
       >
       <p class="text-small text-muted">

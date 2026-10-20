@@ -36,7 +36,7 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     await start();
     const row = screen.getByText('Morning briefing').closest('li')!;
     expect(row.classList.contains('row-stretch')).toBe(true);
-    expect(within(row).getByRole('link', { name: 'Morning briefing' }).className).toMatch(/after:absolute after:inset-0/);
+    expect(within(row).getByRole('link', { name: 'Morning briefing' }).classList.contains('stretch-link')).toBe(true);
     const controls = within(row).getByRole('switch', { name: 'Morning briefing' }).closest('.z-10');
     expect(controls?.contains(within(row).getByRole('button', { name: 'More for Morning briefing' }))).toBe(true);
   });
