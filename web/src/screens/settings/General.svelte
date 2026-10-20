@@ -75,12 +75,13 @@
     if (!(await toneSaver.run(() => settingsConfig.save({ 'agent.tone': tone })))) tone = toneSaved;
   }
 
-  // Today's spending against the limit, from the same numbers as Activity → Spending.
+  // Today's spending against the limit. The limit is the field below, which is what the server
+  // measures against, so the summary follows an edit at once rather than after a refresh.
   const spent = $derived(session.today?.global_spent_micros ?? 0);
-  const limit = $derived(session.today?.global_limit_micros ?? 0);
-  // Fresh numbers on open, and again when the limit changes here or elsewhere.
+  const limit = $derived(Math.round(Number(settingsConfig.value('budgets.daily_usd', 0)) * 1e6));
+  // Fresh spending on open, and again when the limit changes (the spend-limit banner reads it too).
   $effect(() => {
-    void settingsConfig.value('budgets.daily_usd');
+    void limit;
     untrack(() => void session.refreshToday());
   });
 
@@ -191,7 +192,7 @@
 
     {#if settingsConfig.has('agent.tone')}
       <SettingsSection title="Tone" bare>
-        <p id="tone-help" class="-mt-1 mb-3 text-small text-muted">How Bothy sounds when it replies. <span aria-live="polite">{rowStatus(toneSaver.status)}</span></p>
+        <p class="-mt-1 mb-3 flex justify-between gap-3 text-small text-muted"><span id="tone-help">How Bothy sounds when it replies.</span><span aria-live="polite">{rowStatus(toneSaver.status)}</span></p>
         <div role="radiogroup" aria-describedby="tone-help" aria-label="Tone" class="grid gap-3 sm:grid-cols-3">
           {#each tones as t (t.value)}
             <label class="flex cursor-pointer flex-col rounded-lg border border-border-strong bg-surface p-4 hover:bg-subtle has-checked:border-accent has-checked:bg-accent-subtle has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus">

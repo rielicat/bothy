@@ -97,10 +97,15 @@ describe('Settings → General', () => {
     await waitFor(() => expect((within(group).getByLabelText(/Warm and brief/) as HTMLInputElement).checked).toBe(true));
   });
 
-  it("shows today's spending against the limit above the limit", async () => {
+  it("shows today's spending against the limit above the limit, and follows the limit as it is saved", async () => {
     const meter = await screen.findByRole('progressbar', { name: "Today's spending" });
-    expect(meter.getAttribute('aria-valuetext')).toMatch(/^\$\d+\.\d\d of \$\d+\.\d\d$/);
+    expect(meter.getAttribute('aria-valuetext')).toMatch(/^\$\d+\.\d\d of \$3\.00$/);
     expect(screen.getByText('Resets at midnight')).toBeTruthy();
+    const limit = screen.getByLabelText('Daily limit') as HTMLInputElement;
+    await fireEvent.input(limit, { target: { value: '8' } });
+    await fireEvent.blur(limit);
+    await waitFor(() => expect(meter.getAttribute('aria-valuetext')).toMatch(/ of \$8\.00$/));
+    expect(screen.getByText('of $8.00 today')).toBeTruthy();
   });
 
   it('keeps an invalid value unsaved and says why under the field', async () => {
