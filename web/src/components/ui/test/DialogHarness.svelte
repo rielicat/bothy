@@ -6,14 +6,15 @@
     dirty = false,
     busy = false,
     cancel,
+    lockCancel = false,
     onclose,
-  }: { initialFocus?: 'first' | 'cancel'; dirty?: boolean; busy?: boolean; cancel?: boolean | string; onclose?: () => void } = $props();
+  }: { initialFocus?: 'first' | 'cancel'; dirty?: boolean; busy?: boolean; cancel?: boolean | string; lockCancel?: boolean; onclose?: () => void } = $props();
   let open = $state(false);
 </script>
 
 <button type="button" onclick={() => (open = true)}>Open dialog</button>
 <p data-testid="state">{open ? 'open' : 'closed'}</p>
-<Dialog bind:open title="Add person" {initialFocus} {dirty} {busy} {cancel} {onclose}>
+<Dialog bind:open title="Add person" {initialFocus} {dirty} {busy} {cancel} {lockCancel} {onclose}>
   <p>Fill in their details.</p>
   <label>Name <input /></label>
   {#snippet footer({ close })}

@@ -23,12 +23,11 @@
   } = $props();
 </script>
 
-<Dialog bind:open title="Always allow this?" {busy}>
+<Dialog bind:open title="Always allow this?" {busy} cancel lockCancel>
   <p class="text-body text-text">
     Bothy won't ask again before <Words segs={grant} />{who ? ` for ${who}` : ', in any chat'}. You can remove this in Settings → Security.
   </p>
-  {#snippet footer({ close })}
-    <Button data-cancel disabled={busy} onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={busy} loadingLabel="Allowing…" onclick={onconfirm}>Always allow</Button>
   {/snippet}
 </Dialog>

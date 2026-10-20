@@ -14,6 +14,7 @@
     onclose,
     children,
     cancel = false,
+    lockCancel = false,
     footer,
   }: {
     open?: boolean;
@@ -30,6 +31,8 @@
     children: Snippet;
     /** Starts the footer with a button that closes the dialog: "Cancel", or the label given ("Close"). */
     cancel?: boolean | string;
+    /** That Cancel greys out while busy too, though a busy dialog ignores it either way. */
+    lockCancel?: boolean;
     /** Cancel first, then the primary action; the footer right-aligns them. */
     footer?: Snippet<[{ close: () => void }]>;
   } = $props();
@@ -136,7 +139,7 @@
             ? 'max-sm:contents max-sm:[&>*]:row-start-1 max-sm:[&>*]:self-center max-sm:[&>*]:px-3 max-sm:[&>:first-child:not(:last-child)]:col-start-1 max-sm:[&>:first-child:not(:last-child)]:ml-3 max-sm:[&>:last-child]:col-start-3 max-sm:[&>:last-child]:mr-3'
             : 'max-sm:flex-col-reverse max-sm:[&>*]:w-full'}"
         >
-          {#if cancel}<Button data-cancel onclick={requestClose}>{cancel === true ? 'Cancel' : cancel}</Button>{/if}
+          {#if cancel}<Button data-cancel disabled={lockCancel && busy} onclick={requestClose}>{cancel === true ? 'Cancel' : cancel}</Button>{/if}
           {@render footer?.({ close: requestClose })}
         </div>
       {/if}

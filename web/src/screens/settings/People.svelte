@@ -225,7 +225,7 @@
 
 <AddPerson bind:open={addOpen} onadded={(u) => (users = [...users, u])} />
 
-<Dialog open={!!limitFor} title={limitFor ? `Daily limit for ${limitFor.name}` : ''} size="md" busy={limitBusy} onclose={() => (limitFor = null)}>
+<Dialog open={!!limitFor} title={limitFor ? `Daily limit for ${limitFor.name}` : ''} size="md" busy={limitBusy} onclose={() => (limitFor = null)} cancel lockCancel>
   {#if limitFor}
     {@const t = limitFor}
     <form id="limit-form" class="grid gap-3" onsubmit={saveLimit} novalidate>
@@ -237,8 +237,7 @@
       {#if limitError}<Notice tone="danger" text={limitError} role="alert" />{/if}
     </form>
   {/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close} disabled={limitBusy}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="limit-form" loading={limitBusy} loadingLabel="Saving…">Save</Button>
   {/snippet}
 </Dialog>
@@ -249,6 +248,8 @@
   busy={resetBusy}
   initialFocus="cancel"
   onclose={() => (resetFor = null)}
+  cancel={!resetPassword}
+  lockCancel
 >
   {#if resetFor && resetPassword}
     <p class="text-body text-text">Send {displayName(resetFor)} these details:</p>
@@ -262,7 +263,6 @@
     {#if resetPassword}
       <Button variant="primary" onclick={close}>Done</Button>
     {:else}
-      <Button data-cancel onclick={close} disabled={resetBusy}>Cancel</Button>
       <Button variant="primary" loading={resetBusy} loadingLabel="Resetting…" onclick={reset}>Reset password</Button>
     {/if}
   {/snippet}

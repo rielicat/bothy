@@ -65,7 +65,7 @@
   }
 </script>
 
-<Dialog bind:open title="Change password" size="md" {busy} dirty={!!(current || next)}>
+<Dialog bind:open title="Change password" size="md" {busy} dirty={!!(current || next)} cancel lockCancel>
   <form id={formId} class="grid gap-5" onsubmit={save} novalidate>
     <TextField label="Current password" type="password" autocomplete="current-password" bind:value={current} error={currentError} />
     <TextField id="{formId}-new" label="New password" type={show ? 'text' : 'password'} autocomplete="new-password" bind:value={next} error={nextError}>
@@ -76,8 +76,7 @@
     <!-- For password managers, which file the new password under this username. -->
     <input type="text" class="hidden" autocomplete="username" value={session.me?.user.username ?? ''} readonly tabindex="-1" aria-hidden="true" />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close} disabled={busy}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form={formId} loading={busy} loadingLabel="Saving…">Save password</Button>
   {/snippet}
 </Dialog>

@@ -69,7 +69,7 @@
     `curl ${origin}/v1/chat/completions \\\n  -H "Authorization: Bearer ${tok}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"bothy","messages":[{"role":"user","content":"Hello"}]}'`;
 </script>
 
-<Dialog bind:open title={created ? 'Copy your token' : 'Create token'} size="md" {busy} dirty={!created && !!name}>
+<Dialog bind:open title={created ? 'Copy your token' : 'Create token'} size="md" {busy} dirty={!created && !!name} cancel={!created} lockCancel>
   {#if created}
     <p class="text-body text-text">Copy this token now. It won't be shown again.</p>
     <CodeBlock class="mt-3" code={created} wrap />
@@ -100,7 +100,6 @@
     {#if created}
       <Button variant="primary" onclick={close}>Done</Button>
     {:else}
-      <Button data-cancel onclick={close} disabled={busy}>Cancel</Button>
       <Button variant="primary" type="submit" form={formId} loading={busy} loadingLabel="Creating…">Create token</Button>
     {/if}
   {/snippet}
