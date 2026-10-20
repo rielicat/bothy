@@ -81,7 +81,10 @@ func dockerShellApproval(t *testing.T, s *dockerSuite) {
 		t.Fatal("no box container for the session")
 	}
 	var spec struct {
-		Config     struct{ User string }
+		Config struct {
+			User   string
+			Labels map[string]string
+		}
 		HostConfig struct {
 			NetworkMode    string
 			ReadonlyRootfs bool
@@ -94,6 +97,10 @@ func dockerShellApproval(t *testing.T, s *dockerSuite) {
 	if spec.Config.User != "10001:10001" || spec.HostConfig.NetworkMode != "none" || !spec.HostConfig.ReadonlyRootfs ||
 		!slices.Contains(spec.HostConfig.CapDrop, "ALL") {
 		t.Fatalf("box %s is not the hardened box: %+v", box, spec)
+	}
+	// This sandboxd has only the base image, which the default profile (auto) falls back to.
+	if p := spec.Config.Labels["bothy.profile"]; p != "base" {
+		t.Fatalf("box profile = %q, want base", p)
 	}
 	if !strings.Contains(string(st.LLM.Requests()[0]), "- Sandbox: available") {
 		t.Error("the facts block does not say the sandbox is available")

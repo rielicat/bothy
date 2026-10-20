@@ -40,6 +40,15 @@ func TestShellConformance(t *testing.T) {
 	})
 }
 
+// Workspaces get the node image when sandboxd has it, and a model told the
+// box has only Python won't try a JavaScript project's tests.
+func TestShellSaysNodeMayBeThere(t *testing.T) {
+	shell, _ := testTools()
+	if d := shell.Spec().Def.Description; !strings.Contains(d, "Node.js and npm") || !strings.Contains(d, "node --version") {
+		t.Fatalf("description = %q", d)
+	}
+}
+
 func TestPythonConformance(t *testing.T) {
 	_, python := testTools()
 	conformance.Tool(t, python, []conformance.ToolCase{
