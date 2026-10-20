@@ -159,7 +159,7 @@
   {:else if !total && !sections.length}
     <EmptyState text="Nothing spent in this period." />
   {:else}
-    <p class="text-title text-text tabular-nums">{money(total)} {range === 'today' ? 'today' : `in the last ${days} days`}</p>
+    <p class="text-figure text-text tabular-nums">{money(total)} {range === 'today' ? 'today' : `in the last ${days} days`}</p>
     {#if today}
       {#if range !== 'today'}
         <p class="mt-1 text-body text-muted tabular-nums">Today: {money(spent)}{limit ? ` of the ${money(limit)} daily limit` : ''}</p>
@@ -197,7 +197,7 @@
       {@const all = lines(g)}
       <section class="mt-10">
         <h2 class="section-title">{title}</h2>
-        <ul class="mt-2">
+        <ul class="list-card mt-2">
           {#each open[g] ? all : all.slice(0, 5) as l (l.key)}
             <li class="flex min-h-10 items-center gap-4 border-b border-border last:border-b-0 pointer-coarse:min-h-12">
               {#if l.href}

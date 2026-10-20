@@ -48,7 +48,7 @@
   }
 </script>
 
-<SettingsSection title="Rules">
+<SettingsSection title="Rules" bare>
   <p class="text-small text-muted">The first rule that matches decides.</p>
   {#if rules.length}
     <table class="mt-3 w-full text-left text-body max-sm:block">

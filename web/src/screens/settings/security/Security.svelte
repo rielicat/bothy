@@ -3,6 +3,7 @@
   import Icon from '../../../components/Icon.svelte';
   import PauseDialog from '../../../components/shell/PauseDialog.svelte';
   import { Button, CodeBlock, Disclosure, FieldError, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
+  import { markSaved, rowStatus } from '../../../components/ui/saved.svelte';
   import { api } from '../../../lib/api/client';
   import type { DoctorReport, Finding, Grant, SandboxInfo, SecretMeta, SignInAdmin, VaultStatus } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
@@ -179,8 +180,11 @@
     clearTimeout(savedTimers[key]);
     const r = await config.save(changes);
     rows[key] = r.ok ? { status: 'saved' } : { status: null, error: saveErrorText(r) };
-    // "Saved" is shown for 2 s (§11.1). SettingsRow times its own; the preset's label lives on this page.
-    if (r.ok) savedTimers[key] = setTimeout(() => rows[key]?.status === 'saved' && (rows[key] = { status: null }), 2000);
+    // The preset's label lives on this page, not in a SettingsRow, so this page marks the save (§11.1).
+    if (r.ok) {
+      markSaved();
+      savedTimers[key] = setTimeout(() => rows[key]?.status === 'saved' && (rows[key] = { status: null }), 2000);
+    }
   }
 
   async function fix(i: number) {
@@ -252,7 +256,7 @@
         {#if auditFailed}
           <p class="py-3 text-body text-muted">Couldn't check for problems. <LinkButton onclick={() => runAudit()}>Try again</LinkButton></p>
         {/if}
-        <div bind:this={attentionList}>
+        <div bind:this={attentionList} class="contents">
           {#each attention as f, i (i)}
             {@const c = describeFinding(f, keyFile)}
             <div class="border-b border-border py-3 last:border-b-0">
@@ -290,11 +294,12 @@
       </SettingsSection>
     {/if}
 
-    <SettingsSection title="Approvals">
-      <div class="py-3">
+    <!-- The presets are option cards of their own, so they sit on the page and the rows below get the group card. -->
+    <SettingsSection title="Approvals" bare>
+      <div class="pt-1">
         <div class="flex flex-wrap items-baseline gap-x-2">
           <p id="{uid}-ask" class="text-body font-medium text-text">When should Bothy ask?</p>
-          <span class="text-small text-muted" aria-live="polite">{rows.preset?.status === 'saving' ? 'Saving…' : rows.preset?.status === 'saved' ? 'Saved' : ''}</span>
+          <span class="text-small text-muted" aria-live="polite">{rowStatus(rows.preset?.status)}</span>
         </div>
         {#if presetFixed}<p class="mt-0.5 text-small text-muted">{FIXED_HELP}</p>{/if}
         <OptionList
@@ -307,31 +312,33 @@
         />
         <FieldError text={rows.preset?.error} />
       </div>
-      <SettingsRow label="If nobody answers a chat request" help={chatFixed ? FIXED_HELP : undefined} status={rows.chat?.status} error={rows.chat?.error}>
-        {#snippet children(c)}
-          <Select
-            id={c.id}
-            aria-describedby={c.describedBy}
-            disabled={chatFixed}
-            options={chat.options}
-            value={chat.value}
-            onchange={(e) => save('chat', chatChanges(e.currentTarget.value))}
-          />
-        {/snippet}
-      </SettingsRow>
-      <SettingsRow label="If nobody answers a scheduled request" help={scheduledFixed ? FIXED_HELP : undefined} status={rows.scheduled?.status} error={rows.scheduled?.error}>
-        {#snippet children(c)}
-          <Select
-            id={c.id}
-            aria-describedby={c.describedBy}
-            disabled={scheduledFixed}
-            options={scheduled.options}
-            value={scheduled.value}
-            onchange={(e) => save('scheduled', scheduledChanges(e.currentTarget.value))}
-          />
-        {/snippet}
-      </SettingsRow>
-      <LinkRow label="Allowed without asking" value={grants === null ? '' : grants.length ? plural(grants.length, 'permission') : 'None'} href="/settings/security/permissions" />
+      <div class="list-card mt-4">
+        <SettingsRow label="If nobody answers a chat request" help={chatFixed ? FIXED_HELP : undefined} status={rows.chat?.status} error={rows.chat?.error}>
+          {#snippet children(c)}
+            <Select
+              id={c.id}
+              aria-describedby={c.describedBy}
+              disabled={chatFixed}
+              options={chat.options}
+              value={chat.value}
+              onchange={(e) => save('chat', chatChanges(e.currentTarget.value))}
+            />
+          {/snippet}
+        </SettingsRow>
+        <SettingsRow label="If nobody answers a scheduled request" help={scheduledFixed ? FIXED_HELP : undefined} status={rows.scheduled?.status} error={rows.scheduled?.error}>
+          {#snippet children(c)}
+            <Select
+              id={c.id}
+              aria-describedby={c.describedBy}
+              disabled={scheduledFixed}
+              options={scheduled.options}
+              value={scheduled.value}
+              onchange={(e) => save('scheduled', scheduledChanges(e.currentTarget.value))}
+            />
+          {/snippet}
+        </SettingsRow>
+        <LinkRow label="Allowed without asking" value={grants === null ? '' : grants.length ? plural(grants.length, 'permission') : 'None'} href="/settings/security/permissions" />
+      </div>
     </SettingsSection>
 
     {#if signIn}
@@ -443,7 +450,7 @@
       </a>
     </section>
 
-    <SettingsSection title="Pause Bothy">
+    <SettingsSection title="Pause Bothy" bare>
       {#if session.paused}
         <p class="text-body text-text">{pausedText}</p>
         <Button variant="primary" class="mt-3" loading={resuming} loadingLabel="Resuming…" onclick={resume}>Resume</Button>

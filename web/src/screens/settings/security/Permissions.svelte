@@ -74,7 +74,7 @@
   {:else if !grants.length}
     <EmptyState text="Nothing is allowed without asking yet." more="When someone always allows an action on a request, it shows up here." />
   {:else}
-    <div bind:this={list}>
+    <div bind:this={list} class="list-card">
       {#each grants as g, i (g.id)}
         {@const d = describeGrant(g)}
         {@const meta = grantMeta(g, { titles, when: '' })}

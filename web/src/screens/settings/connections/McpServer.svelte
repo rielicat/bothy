@@ -337,7 +337,7 @@
           </div>
         </div>
       {:else}
-        <p class="text-body text-muted">
+        <p class="py-3 text-body text-muted">
           {off
             ? 'Turn it on to see what it can do.'
             : pending.length

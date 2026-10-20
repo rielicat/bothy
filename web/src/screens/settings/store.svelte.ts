@@ -4,6 +4,7 @@ import { api, ApiError } from '../../lib/api/client';
 import type { ConfigPatchResp, ConfigView, Entry } from '../../lib/api/types.gen';
 import { config } from '../../lib/config.svelte';
 import { events } from '../../lib/sse.svelte';
+import { markSaved } from '../../components/ui/saved.svelte';
 
 // Reads lib/config's copy, so these pages and the ones that need the schema fetch the config once.
 class SettingsConfig {
@@ -113,6 +114,7 @@ export class Saver {
     clearTimeout(this.#timer);
     this.error = '';
     this.status = 'saved';
+    markSaved();
     this.#timer = setTimeout(() => {
       if (this.status === 'saved') this.status = null;
     }, 2000);

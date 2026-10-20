@@ -145,7 +145,7 @@
   {#if list === null}
     <Loading {failed} retry={load} />
   {:else}
-    <ul>
+    <ul class="list-card">
       {@render row('Check-in', '/activity/schedules/checkin', checkin, checkin ? checkin.enabled : checkinOn, [
         { text: `${every(checkin?.spec ?? '30m')}, ${hours(checkin)}` },
         { text: 'Looks through your list and tells you only when something needs attention' },
@@ -167,7 +167,7 @@
     {#if ex?.examples.length}
       <section class="mt-10" aria-labelledby="schedule-examples">
         <h2 id="schedule-examples" class="section-title">Examples</h2>
-        <ul class="mt-2">
+        <ul class="list-card mt-2">
           {#each ex.examples as e (e.id)}
             <li class="border-b border-border last:border-b-0">
               <!-- One that can't run yet leads to what it needs, so a new install still shows what schedules do. -->
@@ -198,7 +198,7 @@
         {#if teamFailed}
           <StatusLine class="mt-3" tone="danger" text="These schedules didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadTeam }} />
         {:else}
-          <ul class="mt-2">
+          <ul class="list-card mt-2">
             {#each team as t (t.id)}
               <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
                 <div class="min-w-0 flex-1">

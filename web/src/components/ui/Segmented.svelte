@@ -30,7 +30,7 @@
 </script>
 
 <!-- A radio group: arrow keys move the choice, one tab stop for the whole control. -->
-<div role="radiogroup" aria-label={label} class="inline-flex h-9 items-stretch gap-0.5 rounded-md border border-border p-0.5 pointer-coarse:h-auto {cls}">
+<div role="radiogroup" aria-label={label} class="inline-flex h-10 items-stretch gap-0.5 rounded-lg bg-subtle p-1 pointer-coarse:h-auto {cls}">
   {#each options as o, i (o.value)}
     <button
       bind:this={buttons[i]}
@@ -38,7 +38,7 @@
       role="radio"
       aria-checked={o.value === value}
       tabindex={i === (selected < 0 ? 0 : selected) ? 0 : -1}
-      class="inline-flex cursor-pointer items-center rounded-sm px-3 text-small font-medium whitespace-nowrap text-muted transition-colors duration-120 hover:text-text aria-checked:bg-selected aria-checked:text-text focus-visible:outline-offset-0 pointer-coarse:min-h-11"
+      class="inline-flex cursor-pointer items-center rounded-md px-3 text-small font-medium whitespace-nowrap text-muted transition-colors duration-120 hover:text-text aria-checked:bg-raised aria-checked:text-text aria-checked:shadow-raised focus-visible:outline-offset-0 pointer-coarse:min-h-11"
       onclick={() => select(i)}
       onkeydown={(e) => key(e, i)}>{o.label}</button
     >

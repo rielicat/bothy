@@ -295,7 +295,7 @@
       <section id="recent" class="mt-10">
         <h2 class="section-title">Recent runs</h2>
         {#if runs.length}
-          <ul class="mt-2">
+          <ul class="list-card mt-2">
             <!-- The page names the schedule, so each run is named by when it ran and says how it went. -->
             {#each runs as r (r.id)}
               <TaskRow

@@ -183,7 +183,7 @@
         {#each groupByDay(shown, (e) => e.at) as g (g.label)}
           <section class="mt-6">
             <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
-            <ul>
+            <ul class="list-card">
               {#each g.items as e (e.id)}
                 {@const word = resultWord(e)}
                 {@const actor = actorName(e.actor, names, e.actor_name)}
@@ -226,7 +226,7 @@
       {#each groupByDay(web, (e) => e.at) as g (g.label)}
         <section class="mt-6">
           <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
-          <ul>
+          <ul class="list-card">
             {#each g.items as e (e.id)}
               <!-- The sentence names the site in full, so there's no host column. On phones it leads and the time and task link fold under it. -->
               <li class="flex min-h-10 items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">

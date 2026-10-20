@@ -159,7 +159,7 @@
   {#if settingsConfig.failed}
     <StatusLine tone="danger" text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => settingsConfig.load(true) }} />
   {:else if settingsConfig.view}
-    <div>
+    <div class="list-card">
       {@render slotRow('models.main', 'Main model', 'Used for chats and most work.')}
       {@render slotRow('models.fast', 'Quick tasks model', 'Used for titles, summaries and check-ins. A cheaper model works well.')}
     </div>
@@ -170,7 +170,7 @@
         <h2 id="{uid}-providers" class="section-title">Providers</h2>
         <Button size="sm" onclick={add}>Add a provider</Button>
       </div>
-      <div class="mt-2">
+      <div class="mt-2 list-card">
         {#each ids as id (id)}
           {@const st = providerStatus({
             kind: kinds[id],
@@ -192,7 +192,7 @@
             {/snippet}
           </ItemRow>
         {:else}
-          <p class="py-2 text-body text-muted">No providers yet. Add one so Bothy can answer chats.</p>
+          <p class="py-3 text-body text-muted">No providers yet. Add one so Bothy can answer chats.</p>
         {/each}
       </div>
     </section>

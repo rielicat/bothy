@@ -210,8 +210,8 @@
         {/snippet}
       </SettingsRow>
     {/if}
-    <div class="pt-3">
-      <Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
+    <div class="py-2">
+      <Button variant="danger-text" class="-ml-3" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
     </div>
   </SettingsSection>
 
@@ -260,12 +260,12 @@
         {/if}
       </div>
     {:else}
-      <p class="text-body text-muted">Bothy isn't in any {name} group chats yet. Add it to one and it shows up here.</p>
+      <p class="py-3 text-body text-muted">Bothy isn't in any {name} group chats yet. Add it to one and it shows up here.</p>
     {/each}
     {#if groupError}<StatusLine class="mt-2" tone="danger" alert text={groupError} />{/if}
   </SettingsSection>
 
-  <SettingsSection title="Who can use Bothy">
+  <SettingsSection title="Who can use Bothy" bare>
     {#if app === 'slack'}
       <p class="text-body text-text">
         {status.org ? 'Everyone in your Slack organization, across all its workspaces,' : `Everyone in ${status.team || 'your workspace'}`} can message Bothy and use what it can
@@ -287,25 +287,27 @@
       <p class="text-body text-text">People you let in from Approvals.</p>
     {/if}
     {#if app !== 'slack'}
-      <SettingsRow
-        label="When someone new messages Bothy"
-        help="Either way, they're listed in Approvals. Applies to Telegram and Discord."
-        status={unknownStatus}
-        error={unknownError}
-      >
-        {#snippet children(c)}
-          <Select
-            id={c.id}
-            aria-describedby={c.describedBy}
-            bind:value={unknown}
-            onchange={() => setUnknown(unknown)}
-            options={[
-              { value: 'pair', label: 'Ask an admin (recommended)' },
-              { value: 'ignore', label: "Don't reply or notify anyone" },
-            ]}
-          />
-        {/snippet}
-      </SettingsRow>
+      <div class="list-card mt-3">
+        <SettingsRow
+          label="When someone new messages Bothy"
+          help="Either way, they're listed in Approvals. Applies to Telegram and Discord."
+          status={unknownStatus}
+          error={unknownError}
+        >
+          {#snippet children(c)}
+            <Select
+              id={c.id}
+              aria-describedby={c.describedBy}
+              bind:value={unknown}
+              onchange={() => setUnknown(unknown)}
+              options={[
+                { value: 'pair', label: 'Ask an admin (recommended)' },
+                { value: 'ignore', label: "Don't reply or notify anyone" },
+              ]}
+            />
+          {/snippet}
+        </SettingsRow>
+      </div>
     {/if}
     <Button class="mt-4" href="/settings/people">Manage people</Button>
   </SettingsSection>

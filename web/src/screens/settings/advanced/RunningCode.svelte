@@ -15,7 +15,7 @@
 
 <SettingsSection title="Running code">
   {#if st}
-    <dl class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-x-6 border-b border-border pb-3 text-body sm:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
+    <dl class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-x-6 border-b border-border py-3 text-body sm:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
       <dt class="py-1 text-muted">Status</dt>
       <dd class="py-1 {st.available ? 'text-text' : 'text-danger-text'}">{st.available ? 'Isolated workspaces are on' : `Off: ${st.reason || 'no isolated workspace'}`}</dd>
       <dt class="py-1 text-muted">Backend</dt>

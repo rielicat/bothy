@@ -113,7 +113,7 @@
 
 {#if info}
   {@const current = info}
-  <SettingsRow label="Picture" help="Bothy uses it in the chat apps." {error} note={lines.length || slack || slackTodo ? note : undefined}>
+  <SettingsRow label="Picture" help="Shown on Bothy's replies here and in the chat apps." {error} note={lines.length || slack || slackTodo ? note : undefined}>
     {#snippet children(c)}
       <!-- gap-2: with 3 the ghost button wraps onto a line of its own in the 320 px column. -->
       <div class="flex flex-wrap items-center gap-2">
@@ -127,7 +127,7 @@
           tabindex="-1"
           onchange={(e) => change(e.currentTarget.files)}
         />
-        <Button id="{uid}-change" loading={busy === 'change'} loadingLabel="Saving…" disabled={busy === 'reset'} aria-describedby={describedBy(c)} onclick={() => picker?.click()}>Change…</Button>
+        <Button id="{uid}-change" loading={busy === 'change'} loadingLabel="Saving…" disabled={busy === 'reset'} aria-describedby={describedBy(c)} icon="upload" onclick={() => picker?.click()}>Change…</Button>
         <!-- With the default in use, sending it again reaches a bot that wears an older one. -->
         {#if current.custom || resetAgain || sendable}
           <Button

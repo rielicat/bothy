@@ -97,7 +97,7 @@
     {#each groups as g (g.label)}
       <section class="mt-6">
         <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
-        <ul>
+        <ul class="list-card">
           {#each g.items as r (r.id)}
             <TaskRow
               href="/activity/tasks/{encodeURIComponent(r.id)}"

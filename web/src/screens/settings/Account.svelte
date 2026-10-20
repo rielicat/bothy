@@ -256,10 +256,10 @@
   </SettingsSection>
 
   {#if signInRows.length}
-    <SettingsSection title="Sign-in methods">
-      <div>
+    <SettingsSection title="Sign-in methods" bare>
+      <div class="list-card">
         {#each signInRows as r (r.p)}
-          <ItemRow name={r.name} status={r.status}>
+          <ItemRow name={r.name} icon={r.p} status={r.status}>
             {#snippet trailing()}
               {#if r.link}
                 <Button size="sm" aria-label="Disconnect {r.name}" loading={disconnecting === r.p} loadingLabel="Disconnecting…" onclick={() => disconnect(r.p)}>Disconnect</Button>
@@ -282,17 +282,17 @@
     </SettingsRow>
   </SettingsSection>
 
-  <SettingsSection title="Saved keys">
+  <SettingsSection title="Saved keys" bare>
     <p class="py-2 text-body text-muted">Your own keys for connected tools, used instead of the shared ones when Bothy works for you.</p>
     <Button class="mt-2" href="/settings/account/keys">Manage your keys</Button>
   </SettingsSection>
 
-  <SettingsSection title="API access">
+  <SettingsSection title="API access" bare>
     {#if tokensFailed}
       <StatusLine tone="danger" text="Your tokens didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadTokens }} />
     {:else}
       {#if activeTokens.length}
-        <div>
+        <div class="list-card">
           {#each activeTokens as t (t.id)}
             {@const old = expired(t)}
             <ItemRow name={t.name} stacked tone={old ? 'warning' : 'muted'} status="{scopeSummary(t.scopes)} · {old ? `Expired ${relTime(t.expires_at)}` : lastUsed(t)}">

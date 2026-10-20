@@ -189,7 +189,7 @@
     />
 
     <form class="mt-10" novalidate onsubmit={save}>
-      <SettingsSection title={github ? 'GitHub OAuth app' : 'Google Cloud'}>
+      <SettingsSection title={github ? 'GitHub OAuth app' : 'Google Cloud'} bare>
         <div class="space-y-5 pt-2">
           <div>
             <p class="field-label">{github ? 'Callback URL' : 'Redirect URI'}</p>

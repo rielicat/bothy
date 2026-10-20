@@ -60,7 +60,7 @@
   });
 </script>
 
-<SettingsSection title="Health check">
+<SettingsSection title="Health check" bare>
   <div bind:this={box}>
     {#if failed}
       <StatusLine tone="danger" text="The health check didn't run." details={failed} />

@@ -100,8 +100,8 @@
       {@render row('GitHub', githubStatus(github[0], repos.length, githubApps.find((a) => a.state === 'pending')), '/settings/connections/github')}
     </SettingsSection>
 
-    <SettingsSection title="Tools">
-      <div>
+    <SettingsSection title="Tools" bare>
+      <div class="list-card">
         {#each servers as name (name)}
           {@const st = toolStatus(mcp.find((s) => s.name === name))}
           {@render row(serverTitle(name), st, `/settings/connections/mcp-${name}${st.action === 'Review' ? '?review=1' : ''}`)}
