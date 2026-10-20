@@ -30,10 +30,9 @@
 
   const twoLine = $derived(!!description);
   const titleText = $derived(typeof title === 'string' ? title : undefined);
+  // A link stretches over the whole row, so the row hovers edge to edge (in a group card) and its trailing control sits above the link.
   const inner = $derived(
-    `flex min-w-0 flex-1 items-center gap-3 py-2 ${twoLine ? 'min-h-14' : 'min-h-10'} pointer-coarse:min-h-12 ${href || selected ? '-mx-2 rounded-md px-2' : ''} ${
-      href ? 'hover:bg-subtle focus-visible:outline-offset-[-2px]' : ''
-    } ${selected ? 'bg-selected hover:bg-selected' : ''}`,
+    `flex min-w-0 flex-1 items-center gap-3 py-2 ${twoLine ? 'min-h-14' : 'min-h-10'} pointer-coarse:min-h-12 ${href ? 'stretch-link' : ''}`,
   );
 
   function click(e: MouseEvent) {
@@ -64,11 +63,11 @@
   {/if}
 {/snippet}
 
-<div class="flex items-center gap-3 border-b border-border last:border-b-0 {cls}">
+<div class="flex items-center gap-3 border-b border-border last:border-b-0 {href ? 'row-stretch' : ''} {selected ? 'bg-selected hover:bg-selected' : ''} {cls}">
   {#if href}
     <a {href} class={inner} aria-current={selected ? 'true' : undefined} onclick={click}>{@render content()}</a>
   {:else}
     <div class={inner}>{@render content()}</div>
   {/if}
-  {#if trailing}<div class="flex shrink-0 items-center">{@render trailing()}</div>{/if}
+  {#if trailing}<div class="relative z-10 flex shrink-0 items-center">{@render trailing()}</div>{/if}
 </div>

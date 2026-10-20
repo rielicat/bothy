@@ -107,19 +107,17 @@
       action={admin ? { label: 'Add skill', onclick: () => picker?.click() } : undefined}
     />
   {:else}
-    <div class="list-card">
+    <div class="list-card overflow-hidden">
       {#each skills as s (s.name)}
         <ListRow href={href(s)} title={skillName(s.name)} description={s.description}>
           {#snippet trailing()}
             <!-- A skill waiting for review is off: admins get the one way to act on it, members see it as off. -->
             {#if needsReview(s) && admin}
               <Button size="sm" href={href(s)}>Review</Button>
-            {:else if needsReview(s)}
-              <span class="text-small text-muted">Off</span>
             {:else if admin}
               <Switch label={skillName(s.name)} hideLabel bind:checked={() => s.status === 'enabled', (on) => setOn(s, on)} />
             {:else}
-              <span class="text-small text-muted">{s.status === 'enabled' ? 'On' : 'Off'}</span>
+              <span class="pointer-events-none flex items-center gap-3 text-small text-muted">{!needsReview(s) && s.status === 'enabled' ? 'On' : 'Off'}<Icon name="chevron-right" /></span>
             {/if}
           {/snippet}
         </ListRow>

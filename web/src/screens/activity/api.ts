@@ -1,6 +1,6 @@
 // Activity's API types and shared lookups. The generated server types,
 // plus the few fields some records were stored without.
-import { api } from '../../lib/api/client';
+import { api, ApiError } from '../../lib/api/client';
 import type {
   Approval,
   AuditEntry,
@@ -68,8 +68,16 @@ export async function sessionsById(): Promise<Map<string, Session>> {
 
 // The Releases tab shows once an environment exists (§10), so every Activity
 // page asks once; servers without releases answer 404 and the tab stays hidden.
+// A fresh load (the Releases page's) rejects on any other failure, so the page
+// says it didn't load instead of claiming there are no environments.
 let releases: Promise<Releases> | null = null;
 export function loadReleases(fresh = false): Promise<Releases> {
-  if (fresh || !releases) releases = api.get<Releases>('/api/releases').catch(() => ({ environments: [], deploys: [] }));
-  return releases;
+  if (!fresh && releases) return releases;
+  const none = (): Releases => ({ environments: [], deploys: [] });
+  const req = api.get<Releases>('/api/releases').catch((e: unknown) => {
+    if (e instanceof ApiError && e.status === 404) return none();
+    throw e;
+  });
+  releases = req.catch(none);
+  return fresh ? req : releases;
 }

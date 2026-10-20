@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, TextArea, TextField, toast } from '../../components/ui';
+  import { Button, Checkbox, Combobox, Disclosure, IconButton, Menu, Page, Select, SettingsRow, TextArea, TextField, toast } from '../../components/ui';
   import { api, ApiError, refusal } from '../../lib/api/client';
   import type { Grant, List, Schedule, ScheduleExamples, SchedulePreviewResp } from '../../lib/api/types.gen';
   import { clock, fullTime, money } from '../../lib/format';
@@ -216,72 +216,93 @@
 {:else}
   <Page title={isNew ? 'New schedule' : s.name} back={{ href: '/activity/schedules', label: 'Schedules' }} actions={isNew ? undefined : pageMenu}>
     <form novalidate onsubmit={save}>
-      <TextArea
-        label="What should Bothy do?"
-        bind:value={s.prompt}
-        rows={3}
-        maxRows={12}
-        error={promptError}
-        placeholder="Summarise yesterday's merged pull requests and post them to the team."
-        oninput={() => !named && s && (s.name = nameFrom(s.prompt))}
-      />
+      <div class="list-card">
+        <div class="border-b border-border py-4">
+          <TextArea
+            label="What should Bothy do?"
+            bind:value={s.prompt}
+            rows={3}
+            maxRows={12}
+            error={promptError}
+            placeholder="Summarise yesterday's merged pull requests and post them to the team."
+            oninput={() => !named && s && (s.name = nameFrom(s.prompt))}
+          />
+        </div>
+        <div class="border-b border-border py-4">
+          <fieldset>
+            <legend class="field-label">When</legend>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <Select label="Repeat" hideLabel options={whenOptions} bind:value={w.kind} />
+              {#if w.kind === 'weekly'}
+                <Select label="Day of the week" hideLabel options={dayOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
+              {:else if w.kind === 'monthly'}
+                <Select label="Day of the month" hideLabel options={dateOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
+              {:else if w.kind === 'once'}
+                <input type="date" class="input w-auto" aria-label="Date" min={today} bind:value={w.date} />
+              {/if}
+              {#if w.kind !== 'custom'}
+                <span class="flex items-center gap-2">
+                  <span class="text-body text-text">at</span>
+                  <Select label="Time" hideLabel options={timeOptions(w.time)} bind:value={w.time} />
+                </span>
+              {/if}
+            </div>
+            {#if w.kind === 'custom'}
+              <TextField
+                class="mt-3 [&_input]:font-mono"
+                label="Repeat rule"
+                bind:value={w.rule}
+                error={ruleError}
+                help="Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."
+                autocomplete="off"
+                spellcheck="false"
+                inputmode="text"
+              />
+            {/if}
+            <p class="field-help" aria-live="polite">{previewLine}</p>
+          </fieldset>
+        </div>
+        <SettingsRow label="Name">
+          {#snippet children(c)}<TextField id={c.id} bind:value={s!.name} maxlength={80} oninput={() => (named = true)} />{/snippet}
+        </SettingsRow>
+      </div>
 
-      <fieldset class="mt-6">
-        <legend class="field-label">When</legend>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
-          <Select label="Repeat" hideLabel options={whenOptions} bind:value={w.kind} />
-          {#if w.kind === 'weekly'}
-            <Select label="Day of the week" hideLabel options={dayOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
-          {:else if w.kind === 'monthly'}
-            <Select label="Day of the month" hideLabel options={dateOptions} value={String(w.day)} onchange={(e) => (w.day = Number(e.currentTarget.value))} />
-          {:else if w.kind === 'once'}
-            <input type="date" class="input w-auto" aria-label="Date" min={today} bind:value={w.date} />
-          {/if}
-          {#if w.kind !== 'custom'}
-            <span class="flex items-center gap-2">
-              <span class="text-body text-text">at</span>
-              <Select label="Time" hideLabel options={timeOptions(w.time)} bind:value={w.time} />
-            </span>
+      <Disclosure variant="section" label="More options" class="mt-6">
+        <div class="list-card">
+          <SettingsRow label="Model">
+            {#snippet children(c)}<Select id={c.id} options={[{ value: 'main', label: 'Main model' }, { value: 'fast', label: 'Quick tasks model' }]} bind:value={s!.slot} />{/snippet}
+          </SettingsRow>
+          <SettingsRow label="Stop a run above">
+            {#snippet children(c)}<TextField id={c.id} prefix="$" inputmode="decimal" placeholder="0.50" bind:value={cost} />{/snippet}
+          </SettingsRow>
+          <SettingsRow label="Only run between">
+            {#snippet children(c)}
+              <div role="group" aria-labelledby={c.labelId} class="flex items-center gap-2">
+                <Select class="min-w-0 flex-1" label="From" hideLabel options={[{ value: '', label: 'Any time' }, ...timeOptions(from)]} bind:value={from} />
+                {#if from}<span class="text-body text-text">and</span><Select class="min-w-0 flex-1" label="Until" hideLabel options={timeOptions(to)} bind:value={to} />{/if}
+              </div>
+            {/snippet}
+          </SettingsRow>
+          <SettingsRow label="If Bothy was off">
+            {#snippet children(c)}<Select id={c.id} options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s!.missed_run} />{/snippet}
+          </SettingsRow>
+          <SettingsRow label="Time zone">
+            {#snippet children()}
+              <!-- The row's label is the visible one; the combobox keeps its own for screen readers, as on General. -->
+              <Combobox label="Time zone" class="[&>div]:mt-0 [&>label]:sr-only" options={zones} bind:value={s!.tz} />
+            {/snippet}
+          </SettingsRow>
+          {#if saved.length || suggested.length}
+            <div class="border-b border-border py-3">
+              <fieldset>
+                <legend class="field-label">Allowed without asking</legend>
+                {#each [...saved, ...suggested] as g (g.id)}
+                  <Checkbox label={grantSentence(g)} checked={kept(g)} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
+                {/each}
+              </fieldset>
+            </div>
           {/if}
         </div>
-        {#if w.kind === 'custom'}
-          <TextField
-            class="mt-3 [&_input]:font-mono"
-            label="Repeat rule"
-            bind:value={w.rule}
-            error={ruleError}
-            help="Five fields: minute, hour, day, month, weekday. Example: 0 9 * * 1-5 means weekdays at 9:00."
-            autocomplete="off"
-            spellcheck="false"
-            inputmode="text"
-          />
-        {/if}
-        <p class="field-help" aria-live="polite">{previewLine}</p>
-      </fieldset>
-
-      <TextField class="mt-6" label="Name" bind:value={s.name} maxlength={80} oninput={() => (named = true)} />
-
-      <!-- Each label sits above its control, as in the rest of the form. -->
-      <Disclosure variant="section" label="More options" class="mt-6">
-        <Select class="sm:max-w-64" label="Model" options={[{ value: 'main', label: 'Main model' }, { value: 'fast', label: 'Quick tasks model' }]} bind:value={s.slot} />
-        <TextField class="mt-6 sm:max-w-32" label="Stop a run above" prefix="$" inputmode="decimal" placeholder="0.50" bind:value={cost} />
-        <fieldset class="mt-6">
-          <legend class="field-label">Only run between</legend>
-          <div class="mt-2 flex items-center gap-2">
-            <Select label="From" hideLabel options={[{ value: '', label: 'Any time' }, ...timeOptions(from)]} bind:value={from} />
-            {#if from}<span class="text-body text-text">and</span><Select label="Until" hideLabel options={timeOptions(to)} bind:value={to} />{/if}
-          </div>
-        </fieldset>
-        <Select class="mt-6 sm:max-w-64" label="If Bothy was off" options={[{ value: 'once', label: "Run when it's back" }, { value: 'skip', label: 'Skip that run' }]} bind:value={s.missed_run} />
-        <Combobox class="mt-6 sm:max-w-64" label="Time zone" options={zones} bind:value={s.tz} />
-        {#if saved.length || suggested.length}
-          <fieldset class="mt-6">
-            <legend class="field-label">Allowed without asking</legend>
-            {#each [...saved, ...suggested] as g (g.id)}
-              <Checkbox label={grantSentence(g)} checked={kept(g)} onchange={(e) => (keep[g.id] = e.currentTarget.checked)} />
-            {/each}
-          </fieldset>
-        {/if}
       </Disclosure>
 
       <div class="mt-8 flex flex-wrap gap-2 max-sm:flex-col">
@@ -295,7 +316,7 @@
       <section id="recent" class="mt-10">
         <h2 class="section-title">Recent runs</h2>
         {#if runs.length}
-          <ul class="list-card mt-2">
+          <ul class="list-card mt-2 overflow-hidden">
             <!-- The page names the schedule, so each run is named by when it ran and says how it went. -->
             {#each runs as r (r.id)}
               <TaskRow

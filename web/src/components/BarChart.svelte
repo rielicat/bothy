@@ -30,7 +30,8 @@
     axis = format,
     summary,
     height = 160,
-  }: { data: Bar[]; format: (v: number) => string; axis?: (v: number) => string; summary: string; height?: number } = $props();
+    class: cls = '',
+  }: { data: Bar[]; format: (v: number) => string; axis?: (v: number) => string; summary: string; height?: number; class?: string } = $props();
 
   const max = $derived(Math.max(0, ...data.map((d) => d.value)));
   const few = $derived(data.length <= 7);
@@ -39,7 +40,7 @@
   const top = $derived(max > 0 ? max * (few ? 1.15 : 1) : 1);
 </script>
 
-<figure class="mt-6">
+<figure class={cls}>
   <div role="group" aria-label={summary} class="relative pl-12" style:height="{height}px">
     {#each lines as g (g)}
       <div class="absolute right-0 left-12 border-t border-border" style:bottom="{(g / top) * 100}%" aria-hidden="true">

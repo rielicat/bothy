@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from '../../components/Icon.svelte';
   import { router } from '../../lib/router.svelte';
   import { toneClass } from '../../lib/taskStatus';
   import type { TaskView } from './tasks';
@@ -10,16 +11,19 @@
 </script>
 
 <li class="border-b border-border last:border-b-0">
-  <a {href} onclick={router.link} class="row-link flex min-h-14 flex-col justify-center py-2 pointer-coarse:min-h-14">
-    <span class="flex items-baseline gap-4">
-      <span class="min-w-0 flex-1 truncate text-body font-medium text-text" title={time ? view.title : fullTime}>{view.title}</span>
-      <span class="meta">{cost}</span>
-      {#if time}<time class="meta min-w-16 text-right whitespace-nowrap max-sm:hidden" title={fullTime}>{time}</time>{/if}
+  <a {href} onclick={router.link} class="row-link flex min-h-14 items-center gap-3 py-2">
+    <span class="min-w-0 flex-1">
+      <span class="flex items-baseline gap-4">
+        <span class="min-w-0 flex-1 truncate text-body font-medium text-text" title={time ? view.title : fullTime}>{view.title}</span>
+        <span class="meta">{cost}</span>
+        {#if time}<time class="meta min-w-16 text-right whitespace-nowrap max-sm:hidden" title={fullTime}>{time}</time>{/if}
+      </span>
+      <span class="block text-small text-muted sm:truncate">
+        {#if view.lead.length}{view.lead.join(' · ')}{' · '}{/if}<span class={toneClass[view.outcome.tone]}>{view.outcome.text}</span>{#if time}<span class="sm:hidden"
+            >{' · '}<span class="whitespace-nowrap">{time}</span></span
+          >{/if}
+      </span>
     </span>
-    <span class="text-small text-muted sm:truncate">
-      {#if view.lead.length}{view.lead.join(' · ')}{' · '}{/if}<span class={toneClass[view.outcome.tone]}>{view.outcome.text}</span>{#if time}<span class="sm:hidden"
-          >{' · '}<span class="whitespace-nowrap">{time}</span></span
-        >{/if}
-    </span>
+    <Icon name="chevron-right" class="shrink-0 text-muted" />
   </a>
 </li>

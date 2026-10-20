@@ -575,8 +575,13 @@ on('GET', '/api/releases', (req, res) => {
   json(res, 200, { environments: releaseEnvironments(req), deploys: noDeploys(req) || empty(req) ? [] : deployWaiting(req) ? deploys : [...deploys, ...started] });
 });
 
-// Today's bar on the chart matches the meter in every spending scenario.
-const spentToday = (req: Req) => (empty(req) ? 0 : spendLimit(req) ? 5_000_000 : spend80(req) ? 4_100_000 : spend50(req) ? 2_500_000 : 1_200_000);
+// The daily limit is the config's, as on the server, so General and Spending measure against the same amount.
+const dailyLimit = () => Math.round(Number(settings.effective.entries.find((e) => e.path === 'budgets.daily_usd')?.value ?? 5) * 1e6);
+// Today's bar on the chart matches the meter in every spending scenario, and each scenario's share holds whatever the limit is.
+const spentToday = (req: Req) => {
+  const limit = dailyLimit();
+  return empty(req) ? 0 : spendLimit(req) ? limit : spend80(req) ? Math.round(limit * 0.82) : spend50(req) ? Math.round(limit / 2) : 1_200_000;
+};
 
 on('GET', '/api/usage', (req, res, _m, q) => {
   // from is a UTC midnight and to is now, so whole days are floored: rounding counted an extra day after 12:00 UTC.
@@ -590,7 +595,7 @@ on('GET', '/api/usage', (req, res, _m, q) => {
   json(res, 200, { rows, totals: empty(req) ? { ...totals, cost_micros: 0 } : totals });
 });
 on('GET', '/api/usage/today', (req, res) => {
-  const limit = 5_000_000;
+  const limit = dailyLimit();
   const spent = spentToday(req);
   const setting = (path: string) => settings.effective.entries.find((e) => e.path === path)?.value;
   const timezone = String(setting('timezone') ?? 'UTC');

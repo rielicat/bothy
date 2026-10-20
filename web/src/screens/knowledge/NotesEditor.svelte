@@ -78,12 +78,13 @@
   <Notice tone="warning" class="mb-3" text={conflictText} />
 {/if}
 <label for="{uid}-text" class="sr-only">{label}</label>
+<!-- The box takes the document card's place with the card's corners and padding, so the text stays where it was. -->
 <textarea
   bind:this={area}
   bind:value
   id="{uid}-text"
-  class="input min-h-[var(--rows-h)] resize-none py-2 text-reading [field-sizing:content]"
-  style:--rows-h="{rows * 24 + 18}px"
+  class="input min-h-[var(--rows-h)] resize-none rounded-lg p-5 text-reading [field-sizing:content] max-sm:p-4"
+  style:--rows-h="{rows * 24 + 42}px"
   spellcheck="true"
   aria-invalid={error ? 'true' : undefined}
   aria-describedby={error ? (errorId ?? `${uid}-error`) : undefined}

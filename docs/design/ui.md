@@ -285,7 +285,7 @@ Always use a named radius; bare `rounded` is not allowed.
 
 - Every focusable element: `:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px }`.
 - Text inputs, selects and textareas show focus on mouse focus too (`:focus`), because a field must show where typing goes.
-- Rows in lists (settings rows, list rows, sidebar rows) use `outline-offset: -2px`, so focus draws inside the row and never looks like a second card. Inbox rows are cards themselves, so their focus draws outside them (`outline-offset: 2px`).
+- Rows in lists (settings rows, list rows, sidebar rows) use `outline-offset: -2px`, so focus draws inside the row and never looks like a second card. Inbox rows are cards themselves, so their focus draws outside them (`outline-offset: 2px`). A row opened by a link stretched over it (`.row-stretch`) draws that ring around the whole row only while that link has focus; a control of its own on the row (a switch, Review, a GitHub link) shows only its own ring.
 - Inputs and the composer show focus as a `focus` border plus a 4 px halo (`shadow-focus`, accent at 14 % in light, 18 % in dark). A transparent 2 px outline stays underneath, so forced-colours mode, which drops shadows, still draws a ring. The composer takes focus by itself (§7.1), so it adds the halo only when the keyboard brought focus there (`ui/modality.ts`, the way browsers decide `:focus-visible`); focus from a click, a route change or a starter is the `focus` border alone.
 - Focus moves on purpose: a dialog focuses its first field, or Cancel in a destructive dialog; closing returns focus to the trigger; after an approval decision focus goes to the next waiting item or to the decided line, and a polite live region announces the result.
 
@@ -337,6 +337,7 @@ Always use a named radius; bare `rounded` is not allowed.
 | Loading (§13.2) and "Reconnecting…" | `spinner` | 16 / 12 |
 | Approval card, review card and inbox row type | `pull-request` (repo_open_pr, github_comment), `deploy` (release_deploy), `terminal` (shell, python), `file` (fs_*, notes, memory, skill_*; skill reviews), `mail` (message), `globe` (web_fetch, net_allow), `calendar` (schedule_*), `plug` (MCP actions and reviews), `users` (someone new, a new group chat), else `approvals` | 18, `text-muted`; hidden on cards under 640 px |
 | "Waiting for others" row status | `clock` | 16, muted |
+| A row that opens a page or expands in place, with no control of its own at its end (inbox rows, Examples, Tasks, Projects, a member's Skills, Spending and release-history rows that link, the audit log) | `chevron-right` at the end; turned down while an audit row is open | 16, muted |
 | Sign-in | provider buttons `google` / `github`; password field `eye` / `eye-off` | 18 / 16 |
 | Account → Sign-in methods rows | `google` / `github` | 16 |
 | General → Picture "Change…" | `upload` | 16 |
@@ -1758,7 +1759,7 @@ Deploy environments are configured in Settings → Connections → GitHub (§12.
 
 ## 9. Knowledge
 
-`/knowledge` has three tabs: **Projects · Memory · Skills**. Projects and Skills are row lists in one group card (`list-card`, §11.1); Memory's sections are documents, not rows, and stay on the panel. The "Search code and notes" field sits on the Projects tab only, under the tabs and above the list, and only once at least one repository has been read: it searches neither Memory nor Skills, and ⌘K Search covers everything else.
+`/knowledge` has three tabs: **Projects · Memory · Skills**. Projects and Skills are row lists in one group card (`list-card`, §11.1). Documents (each Memory section, a project's notes, a skill's instructions) sit on a `Card` of their own, so every tab reads as the Settings groups do; a row that opens something hovers edge to edge in its card and ends in a muted `chevron-right` unless a control of its own sits there (§3.7). The "Search code and notes" field sits on the Projects tab only, under the tabs and above the list, and only once at least one repository has been read: it searches neither Memory nor Skills, and ⌘K Search covers everything else.
 
 ### 9.1 Projects (`/knowledge`)
 
@@ -1767,17 +1768,19 @@ Knowledge                                                    [ Add repositories 
 [Projects]  [Memory]  [Skills]
 [ ⌕ Search code and notes                                                      ]   once a repository was read
 
-acme/web                                                              Up to date
-Customer web app built with Next.js. Notes updated 2 days ago.
-──────────────────────────────────────────────────────────────────────────────────
-acme/api                                                           ◌ Reading… 40%
-Go API behind the web app.
-──────────────────────────────────────────────────────────────────────────────────
-acme/infra                                                        Couldn't read
-Too large to read (more than 50,000 files).
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ acme/web                                                          Up to date  › │   one group card
+│ Customer web app built with Next.js. Notes updated 2 days ago.                  │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ acme/api                                                       ◌ Reading… 40% › │
+│ Go API behind the web app.                                                      │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ acme/infra                                                    Couldn't read   › │
+│ Too large to read (more than 50,000 files).                                     │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Rows are 56 px `ListRow`s linking to the project page. Line 1: `owner/repo`, `text-body` 500, sans (a name here). Line 2 (`text-small muted`): the first sentence of the notes, then "Notes updated {relative time}." Before notes exist: "Bothy is writing notes for this project." Under 640 px line 2 takes up to two lines (`line-clamp-2`): with notes, the summary is cut to the first and "Notes updated …" takes the second, so the date is never cut off however long the summary.
+- Rows are 56 px and link to the project page: the link stretches over the row, which hovers `bg-subtle` edge to edge, with Read now, Read again and Details above it and a muted › at the end. Line 1: `owner/repo`, `text-body` 500, sans (a name here). Line 2 (`text-small muted`): the first sentence of the notes, then "Notes updated {relative time}." Before notes exist: "Bothy is writing notes for this project." Under 640 px line 2 takes up to two lines (`line-clamp-2`): with notes, the summary is cut to the first and "Notes updated …" takes the second, so the date is never cut off however long the summary.
 - Status at the right (`text-small`): "Up to date" (muted); "◌ Reading… {n}%" (muted); "Out of date" (muted) + "Read again" link (admins); "Couldn't read" (`danger-text`) + "Details" (muted, like every Details, since it opens the raw message) with a plain reason ("GitHub says Bothy no longer has access to this repository."). A repository too big to read ("Too large to read (more than 50,000 files).") fails the same way every time, so it gets neither Details nor "Read again"; "Read again" is offered only for temporary reasons (GitHub limiting requests, or out of reach).
 - "Add repositories" opens Settings → Connections → GitHub at the repository picker.
 - Empty, no GitHub (admin): "Connect GitHub to give Bothy your code. It reads your repositories, keeps notes on each project and can answer questions about them." + primary "Connect GitHub". Member: "Ask an admin to connect GitHub so Bothy can read your code." (no button).
@@ -1793,26 +1796,23 @@ acme/web                                                        [ Edit ]  ⋯
 │ Bothy suggested 2 changes to these notes.                Review  │  Notice (bg-subtle), only when present
 └──────────────────────────────────────────────────────────────────┘
 
-What this is                                                          rendered NOTES.md, text-reading,
-Customer-facing web app, deployed from main.                          same Markdown styles as chat
-
-How to build and test
-Run `pnpm install`, then `pnpm test`. …
-
-Conventions
-…
-
-Important decisions
-…
-
-Written by Bothy on Oct 13 · Edited by Priya Rao on Oct 15 · History          text-small muted, one date form
+┌──────────────────────────────────────────────────────────────────┐
+│ What this is                                                     │  rendered NOTES.md on a Card (20 px padding),
+│ Customer-facing web app, deployed from main.                     │  text-reading, same Markdown styles as chat
+│                                                                  │
+│ How to build and test                                            │
+│ Run `pnpm install`, then `pnpm test`. …                          │
+│                                                                  │
+│ Conventions …   Important decisions …                            │
+└──────────────────────────────────────────────────────────────────┘
+Written by Bothy on Oct 13 · Edited by Priya Rao on Oct 15 · History          12 px under the card, text-small muted, one date form
 ```
 
 - `⋯` menu: "Ask Bothy about this project" (new chat with the repository in context), "Read the repository again" (admins), "View on GitHub ↗", "Technical details" (dialog: commit read `4f2c1a9`, the one the last finished read used (`indexed_sha`), files indexed 1,204, last read today 09:12, notes size 3.1 KB of 8 KB), "Stop reading this repository…" (admins; confirm "Stop reading {name}?", body "Bothy won't use {name} to answer questions, and its project notes and their history will be deleted. This can't be undone.", [Stop reading] (danger) [Cancel]; removes it from the allowlist; the project notes and their history are deleted with the index, SPEC §8.3).
-- **Edit in place:** the rendered document becomes a sans `TextArea` (`text-reading`, auto-grow, Markdown source) in the same position; header actions become [Save] (primary) [Cancel]. Under 640 px [Save] [Cancel] sit under the text box instead of in the header (moved, not duplicated), since focusing the box scrolls the header away. ⌘S / Ctrl S saves. Esc cancels, after "Discard your changes?" if anything changed: body "This can't be undone.", buttons [Keep editing] and [Discard changes] (danger). Saved: toast "Saved."
+- **Edit in place:** the rendered document becomes a sans `TextArea` in the card's place (never a box on a card), with the card's 14 px corners and 20 px padding (16 under 640 px) so the text stays where it was (`text-reading`, auto-grow, Markdown source) in the same position; header actions become [Save] (primary) [Cancel]. Under 640 px [Save] [Cancel] sit under the text box instead of in the header (moved, not duplicated), since focusing the box scrolls the header away. ⌘S / Ctrl S saves. Esc cancels, after "Discard your changes?" if anything changed: body "This can't be undone.", buttons [Keep editing] and [Discard changes] (danger). Saved: toast "Saved."
 - **Conflict** (`If-Match` failed): warning `Notice` above the editor, only "Someone else changed these notes while you were editing." While it is unresolved the primary becomes [Compare versions] (saving again would meet the same conflict), opening a 720 dialog with the prose diff, a secondary [Use their version] under it, and the footer [Cancel] [Keep mine]: on phones Cancel takes the left slot and only closes. The memory sections work the same way.
 - **Size:** above 80 % of the cap a `text-small warning-text` line under the header: "These notes are almost full. Shorten them so Bothy has room to add more." At the cap Save shows "These notes are too long to save. Remove something first."
-- **History** (720 dialog): changes listed as "Bothy · added 3 lines · 2 days ago · from “Login bug”" and "Maya Chen · edited · last week"; each opens a prose `DiffView` and links its source chat.
+- **History** (720 dialog): one entry per change, read as the Approvals Done tab reads a decision: the change as a sentence in ink ("**Bothy** added 3 lines", "**Maya Chen** edited", the name 500), then a muted meta line, "2 days ago · From “Login bug” · Show"; Show opens its prose `DiffView` under it.
 - **Prose diffs** (History, Compare versions, Suggested changes) diff the raw text but show each line cleaned: a leading `#`, `-` or `*` goes (headings in medium weight, list items with "•"; a numbered item keeps its "1." since the order is part of it), code ticks go as in search snippets, link addresses stay. Only the changed lines and one line around them show, with "…" between groups, however long the document.
 - **Suggested changes:** "Review" opens a 720 dialog listing the pending `notes` approvals as standard approval cards (question "Update the notes for acme/web?", the Change field already open so the prose diff shows straight away, "{n} lines changed · Hide", warning for outside content, [Update notes] [Deny]). The same items appear in the Approvals inbox. When the last one is decided the dialog closes and the notice disappears.
 - **First read in progress:** in place of the notes: "Bothy is reading acme/web and writing notes. This usually takes a few minutes." with a muted line "Read 340 of about 1,200 files".
@@ -1836,7 +1836,7 @@ Run pnpm install, then pnpm test. End-to-end tests need a running API…       p
 [ Ask Bothy about “login redirect” ]                                         secondary; new chat with the query
 ```
 
-- Filters are a `Segmented` control and a repository select. Results grouped per file, at most 20, then "Show more". Line numbers in `faint`. The path line reads "lines a–b", never `#L10-L42`; the full citation `owner/repo@sha:path#L10-L42` is in each result's Details.
+- Filters are a `Segmented` control and a repository select. Results grouped per file, at most 20, then "Show more". Each file (or notes section) is a card of its own (`rounded-lg border bg-surface px-4 py-3 shadow-card`, 8 px apart, like the Approvals rows), its excerpts tinted inside it. Line numbers in `faint`. The path line reads "lines a–b", never `#L10-L42`; the full citation `owner/repo@sha:path#L10-L42` is in each result's Details.
 - No results: "Nothing in your projects or notes matches “{q}”."
 
 ### 9.4 Memory (`/knowledge/memory`)
@@ -1849,13 +1849,19 @@ Bothy reads this at the start of every chat. Change anything that's wrong or out
 
 Remembered for everyone                                                [ Edit ]   admins only
 Bothy uses this in every chat, for everyone, including chat apps.     text-small muted
-Our deploy day is Thursday.
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Our deploy day is Thursday.                                                │   each document on a Card
+└────────────────────────────────────────────────────────────────────────────┘
 
 About you                                                              [ Edit ]
-Maya is the CTO at Acme. Prefers short answers with links to the code.
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Maya is the CTO at Acme. Prefers short answers with links to the code.     │
+└────────────────────────────────────────────────────────────────────────────┘
 
 Things Bothy remembers                                                 [ Write ]
-Bothy adds things here as you work together.                           empty: text-body muted
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Bothy adds things here as you work together.                               │   empty: text-body muted
+└────────────────────────────────────────────────────────────────────────────┘
 
 History ›                                                              only once there is history
 ```
@@ -1865,19 +1871,20 @@ History ›                                                              only on
   - Members: read-only, no Edit or Write and no "almost full" line (they can't remove anything); the note "Bothy uses this in every chat, for everyone. Only admins can change it."; empty: "Nothing yet. Ask Bothy to remember something for everyone, and an admin can approve it."
   - Bothy never writes it on its own: someone asks Bothy to remember something for the team, and an admin approves the card "Remember this for everyone?" (§8.2). Signed-out visitors see nothing (sign-in first, as for every page).
   - Live updates: admins follow `memory.updated` with file `TEAM` (an admin broadcast); members see changes when they open the page.
-- "Edit" turns a section the reader may change into a sans `TextArea` with [Save] [Cancel] (under the box on phones, §9.2). No monospace, no byte meter.
+- Each section's document sits on a `Card` 8 px under its heading (and note), its empty line inside it, so the page reads as the Settings groups do.
+- "Edit" turns a section the reader may change into a sans `TextArea` in its card's place, with [Save] [Cancel] (under the box on phones, §9.2). No monospace, no byte meter.
 - Near the cap (> 80 %): `text-small warning-text` under the section: "This is almost full. Remove anything Bothy no longer needs." At the cap Save shows "This is too long to save. Remove something first."
 - Saved: "Saved" next to the button for 2 s, then "Changes apply from your next message." (for everyone's section: "Changes apply from everyone's next message.") stays in `text-small muted` until the page is left.
-- History (720 dialog): prose diffs with actor names ("You", "Bothy in “Fix login redirect”", "Maya Chen (admin)") and chat links; changes to what's remembered for everyone are listed under that section's name (`/api/memory/team/history`), with a chat link only for a chat the reader can open.
+- History (720 dialog): the same entries as the notes' History (§9.2), with actor names ("You", "Bothy", "Maya Chen (admin)"): "**Bothy** added 1 line", then "Things Bothy remembers · 3 h ago · In “Fix login redirect” · Show". The meta line leads with the section's name, so changes to what's remembered for everyone read "Remembered for everyone · …" (`/api/memory/team/history`), with a chat link only for a chat the reader can open.
 - Empty section: one muted line saying what it is for, About you "Tell Bothy about your role and how you like answers.", Things Bothy remembers "Bothy adds things here as you work together.", with "Write" in the heading spot where Edit sits. "History ›" is hidden while the history is empty.
 - Personal memory is per account here. People in chat apps have notes of their own that Bothy keeps for them, private to them like their chats; channels have none of their own (SPEC). What's remembered for everyone reaches all of them, and someone in a channel with standard tools can ask for it too (an admin approves).
 
 ### 9.5 Skills (`/knowledge/skills`)
 
 - A skill is named for people everywhere (list, page heading and `<title>`, switch label, inbox, activity lines): the SKILL.md front matter's title or first heading, else the folder id in words, sentence case ("Release notes", "Incident review"). The id stays in Files paths and Details.
-- Rows: name (`text-body` 500), one-line description (`text-small muted`), right: a `Switch` (admins) or the word "On"/"Off" (members). A changed skill shows admins only a small "Review" button instead of the switch, with no "Needs review" word; members see "Off" in muted text, like any skill that's off.
+- Rows: name (`text-body` 500), one-line description (`text-small muted`), right: a `Switch` (admins) or the word "On"/"Off" and a muted › (members). A changed skill shows admins only a small "Review" button instead of the switch, with no "Needs review" word; members see "Off" in muted text, like any skill that's off. The row's link stretches over it and the switch sits above it.
 - Admin page actions: [Add skill] (upload a zip; only once there is a skill, since the empty state offers it) and `⋯` → "Check for changes".
-- Skill page (`/knowledge/skills/:name`): back link, title, rendered SKILL.md (read-only `Markdown`), then a "Files" disclosure listing files that open in a `CodeBlock` (one that didn't load offers "Try again", and is asked for again when reopened). A changed skill shows "This skill changed, so it's off until an admin approves the changes below." with "Approve" (toast "Approved."), and its Files disclosure starts open.
+- Skill page (`/knowledge/skills/:name`): back link, title, rendered SKILL.md (read-only `Markdown`) on a `Card`, then a "Files" disclosure whose files are rows of one group card, each opening a `CodeBlock` inside its row (one that didn't load offers "Try again", and is asked for again when reopened). A changed skill shows "This skill changed, so it's off until an admin approves the changes below." with "Approve" (toast "Approved."), and its Files disclosure starts open.
 - Empty: "No skills yet. Skills teach Bothy how your team does specific things, like writing release notes." + "Add skill" (admins).
 
 ---
@@ -1889,28 +1896,29 @@ Activity
 [Tasks]  [Schedules]  [Releases]  [Spending]  [Audit log]
 ```
 
-Tabs are route links on a track (§6.2). Every row list here (tasks per day, schedules and their examples, schedules in chat apps, a schedule's recent runs, environments and release history, the spending breakdown, the audit log per day) sits in one group card (`list-card`, §11.1). "Releases" appears once an environment exists; "Audit log" for admins only. Under 640 px the tabs scroll sideways with no wrap and no visible scrollbar; the current tab is scrolled into view on every route change, and while more tabs sit past the right edge a 24 px fade there says so. The page heading is always "Activity", for members too; each tab keeps its own actions (New schedule, Set up environments ›, the range picker, Check the log) and names itself in the browser tab's title ("Spending · Activity").
+Tabs are route links on a track (§6.2). Every row list here (tasks per day, schedules and their examples, schedules in chat apps, a schedule's recent runs, environments and release history, the spending breakdown, the audit log per day) sits in one group card (`list-card`, §11.1) under a `section-title` label (a day's name, "Examples", "Environments", "History", "By person"), as the Approvals Done tab and the Settings groups are. A row that opens something hovers `bg-subtle` edge to edge in its card (the card's `overflow-hidden` rounds the first and last) and ends in a muted 16 px `chevron-right`, unless a control of its own (a switch, ⋯) sits there; a row that expands in place turns its chevron down. The forms (a schedule, the check-in) sit on group cards too, with `SettingsRow`s for the short choices. "Releases" appears once an environment exists; "Audit log" for admins only. Under 640 px the tabs scroll sideways with no wrap and no visible scrollbar; the current tab is scrolled into view on every route change, and while more tabs sit past the right edge a 24 px fade there says so. The page heading is always "Activity", for members too; each tab keeps its own actions (New schedule, Set up environments ›, the range picker, Check the log) and names itself in the browser tab's title ("Spending · Activity").
 
 ### 10.1 Tasks (`/activity`)
 
 ```
 [ Everyone ⌄ ]  [ Anywhere ⌄ ]  [ Any result ⌄ ]                          admins see "Everyone"
 
-Today                                                                     text-caption muted
-Fix login redirect                                              $0.12    10:42
-Maya Chen · Web · 6 steps
-──────────────────────────────────────────────────────────────────────────────────
-Daily standup summary                                           $0.03    09:00
-Schedule · Posted to #standup on Slack
-──────────────────────────────────────────────────────────────────────────────────
-Deploy acme/web to production                                     —      08:55
-Sam Patel · Slack · Waiting for approval (1 of 2)
-──────────────────────────────────────────────────────────────────────────────────
-Weekly PR digest                                                $0.08    08:00
-Schedule · Failed: the GitHub token was rejected
+Today                                                                     section-title
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Fix login redirect                                           $0.12    10:42  › │
+│ Maya Chen · Web · 6 steps                                                      │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Daily standup summary                                        $0.03    09:00  › │
+│ Schedule · Posted to #standup on Slack                                         │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Deploy acme/web to production                                  —      08:55  › │
+│ Sam Patel · Slack · Waiting for approval (1 of 2)                              │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+Yesterday                                                                 40 px above each later day
 ```
 
-- 56 px `ListRow`s linking to task detail. Line 1: title (chat title or schedule name) `text-body` 500; cost and time right-aligned, `text-small muted tabular-nums`. Line 2 `text-small muted`: who (person's name, or "Schedule") · where (Web, Slack, Telegram, Discord, API) · outcome.
+- 56 px rows linking to task detail, a muted › at the end. Line 1: title (chat title or schedule name) `text-body` 500; cost and time right-aligned, `text-small muted tabular-nums`. Line 2 `text-small muted`: who (person's name, or "Schedule") · where (Web, Slack, Telegram, Discord, API) · outcome.
 - Outcome words: nothing extra when done ("{n} steps"); "Stopped" (muted); "Waiting for approval" / "Waiting for approval (1 of 2)" (`warning-text`); "Failed: {plain reason}" (`danger-text`); "Hit the spending limit" (`warning-text`); "Interrupted", "Skipped" (muted). A refined answer adds "Refined".
 - Filters (`Select`s): "Everyone / {person}" (admins), "Anywhere / Chats / Schedules / Chat apps / API", "Any result / Needs attention / Failed".
 - Grouped by day, "Show earlier" at the bottom.
@@ -1958,64 +1966,65 @@ Answer
 ```
 Schedules                                                        [ New schedule ]
 
-Check-in                                                          (off)    ⋯
-Every 30 min, 8:00–22:00 · Looks through your list and tells you only when something needs attention
-──────────────────────────────────────────────────────────────────────────────────
-Daily standup summary                                             (on)     ⋯
-Weekdays at 9:00 · Posts to your chats · Next: tomorrow at 9:00
-──────────────────────────────────────────────────────────────────────────────────
-Weekly PR digest                                                  (on)     ⋯
-Mondays at 8:00 · Posts to your chats · Last run failed: the GitHub token was rejected · Next: Monday at 8:00
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Check-in                                                          (off)    ⋯   │   one group card
+│ Every 30 min, 8:00–22:00 · Looks through your list and tells you only when …   │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Daily standup summary                                             (on)     ⋯   │
+│ Weekdays at 9:00 · Posts to your chats · Next: tomorrow at 9:00                │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Weekly PR digest                                                  (on)     ⋯   │
+│ Mondays at 8:00 · Posts to your chats · Last run failed: the GitHub token …    │
+└────────────────────────────────────────────────────────────────────────────────┘
 
 Examples                                     with fewer than 3 schedules of their own
-Monday pull request summary                                                      ›
-Mondays at 9:00 · Uses GitHub
-──────────────────────────────────────────────────────────────────────────────────
-Morning news on a topic                                                          ›
-Weekdays at 8:00 · Uses web search
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Monday pull request summary                                                  › │
+│ Mondays at 9:00 · Uses GitHub                                                  │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Morning news on a topic                                                      › │
+│ Weekdays at 8:00 · Uses web search                                             │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- Row: line 1 the name (`text-body` 500) across the full width minus the switch and `⋯` (72 px); line 2 `text-small muted`, wrapping freely: when · where · next run or last problem (problems in `danger-text`). Times read in the schedule's own zone, so one in another zone than the viewer's names it after the repeat text: "Every day at 6:00 AM, Tokyo time". The name never shares a column with the meta, so it never wraps one word per line at 360 px (fixes `44`).
+- Row: the whole row opens the schedule (its name's link stretches over it; the switch and `⋯` sit above it). Line 1 the name (`text-body` 500) across the full width minus the switch and `⋯` (72 px); line 2 `text-small muted`, wrapping freely: when · where · next run or last problem (problems in `danger-text`). Times read in the schedule's own zone, so one in another zone than the viewer's names it after the repeat text: "Every day at 6:00 AM, Tokyo time". The name never shares a column with the meta, so it never wraps one word per line at 360 px (fixes `44`).
 - Where: "Posts to your chats". Accounts have no chat app (SPEC §5.16), so each result of their schedules gets its own chat in their list, grouped under the schedule (§4.2).
 - `⋯`: Run now · Edit · History · Delete… (`danger-text`, confirm dialog "Delete the schedule “{name}”?", body "It stops running. Its past results stay in your chats. This can't be undone."). Run now is audited with who pressed it ("Started the schedule “{name}” by hand"); its toast "Schedule started." carries "Open chat", which opens the chat the run writes in (`RunScheduleResp.session_id`), and no action when the server names none.
 - "New schedule" (primary) is always in the header.
 - A result posted to a chat opens with an italic line "From the schedule “{name}” · change it under Schedules" (a check-in: "From your check-in · change it under Schedules"), since nobody asked for it there.
-- **Check-in** is always listed first (the heartbeat). While its list is empty (`checkin.empty` from `GET /api/schedules/examples`), turning its switch on saves nothing and opens `/activity/schedules/checkin?on=1` instead, since a check-in with nothing to check would do nothing; Save there turns it on. Edit opens `/activity/schedules/checkin`: "How often" (Every 15 min / 30 min / hour), "Between" (active hours, two time selects), "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose), help "Bothy looks through this list regularly and messages you only when something needs attention.", placeholder "One thing per line, for example: Tell me if a deploy to production failed overnight". When every non-empty line of the file is a list item, the box shows plain lines (the leading `- [ ] `, `- [x] ` or `- ` stripped) and saves each line back as `- [ ] {line}`, since the scheduler reads the text as it is; a file with any other line is shown verbatim so nothing is rewritten. Cost line "About $0.05 a day with {Quick tasks model}." [Save] [Cancel]. While the box is empty and the server suggests lines (`checkin.lines`: a failed deploy to one of the repository's environments, pull requests waiting more than 2 days for review, a failed build on the default branch), a `LinkButton` "Use suggested lines" sits under the help; it fills the box, one line each, and moves focus to it. Nothing is saved until Save. Save with an empty box while the check-in is on, or being turned on, saves nothing and shows "Add something to check first." under the box, since the scheduler skips an empty list.
+- **Check-in** is always listed first (the heartbeat). While its list is empty (`checkin.empty` from `GET /api/schedules/examples`), turning its switch on saves nothing and opens `/activity/schedules/checkin?on=1` instead, since a check-in with nothing to check would do nothing; Save there turns it on. Edit opens `/activity/schedules/checkin`: one group card: "How often" (Every 15 min / 30 min / hour) and "Between" (active hours, two time selects) as `SettingsRow`s, then "What to check" (sans `TextArea` editing the HEARTBEAT.md checklist as prose) stacked in the card's last row, help "Bothy looks through this list regularly and messages you only when something needs attention.", placeholder "One thing per line, for example: Tell me if a deploy to production failed overnight". When every non-empty line of the file is a list item, the box shows plain lines (the leading `- [ ] `, `- [x] ` or `- ` stripped) and saves each line back as `- [ ] {line}`, since the scheduler reads the text as it is; a file with any other line is shown verbatim so nothing is rewritten. Cost line under the card, `text-small muted`: "About $0.05 a day with {Quick tasks model}." [Save] [Cancel]. While the box is empty and the server suggests lines (`checkin.lines`: a failed deploy to one of the repository's environments, pull requests waiting more than 2 days for review, a failed build on the default branch), a `LinkButton` "Use suggested lines" sits under the help; it fills the box, one line each, and moves focus to it. Nothing is saved until Save. Save with an empty box while the check-in is on, or being turned on, saves nothing and shows "Add something to check first." under the box, since the scheduler skips an empty list.
 - **Examples** (`GET /api/schedules/examples`, D45): a section titled "Examples" under the list, only when the server offers any (at most three that fit what is connected and whose name the person doesn't already use, none once they have three schedules of their own; SPEC §14.10). Each row is one link (`hover:bg-subtle`, like a settings row that opens a page): the name (500), `text-small muted` "{repeat text} · Uses GitHub" or "· Uses web search", and a muted › at the right. It opens `/activity/schedules/new?example={id}`. Nothing is created until the form is saved. For admins, examples that can't run yet follow (`ready: false`), so a new install still shows what schedules do: their second line reads "{repeat text} · Connect GitHub first" or "· Turn on web search first", and the row opens `/settings/connections/github` or `/settings/connections`; the form ignores such an id.
 - Empty (only Check-in exists and no examples): under it, "Add your own, like a Monday summary of open pull requests." The header's "New schedule" is the action. A failed examples call counts as none.
 - **In chat apps** (admins, only when there are any, or when they failed to load): a section under the list for the schedules people and channels set up in chat apps (`GET /api/team/schedules`). Help `text-small muted`: "Schedules people set up in chat apps. Their results go to that chat." Rows: the name (500); `text-small muted` "{owner} · {App} · {repeat text} · Next: {time}" (the repeat text names the schedule's zone when it isn't the viewer's, as in the rows above: "Weekdays at 9:00 AM, Tokyo time"), "… · Off" when it is off, or "… · Not scheduled" when it is on with no next run; a `Switch` named after the schedule (`aria-label` "{name}", like the rows above) that only turns it on or off; the same `⋯` as the rows above (`aria-label` "More actions for {name}"), so the switches line up with the list above, holding one danger item "Delete…" → confirm: title "Delete “{name}”?", body "It stops running. Past results stay in that chat. This can't be undone.", buttons "Delete schedule" (danger) and "Cancel". Editing them happens in their chat. If the list doesn't load, the section shows "These schedules didn't load. Check your connection and try again." with "Try again" instead of going missing.
 
-**New or edit schedule** (`/activity/schedules/new`, `/activity/schedules/:id`), one column, no cards:
+**New or edit schedule** (`/activity/schedules/new`, `/activity/schedules/:id`), one column on two group cards, as a settings page:
 
 ```
 ← Schedules
 New schedule
 
-What should Bothy do?
-[ Summarise yesterday's merged pull requests in acme/web.                        ]
-[                                                                                ]
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ What should Bothy do?                                                          │   stacked rows, 16 px padding
+│ [ Summarise yesterday's merged pull requests in acme/web.                    ] │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ When                                                                           │
+│ [ Every weekday ⌄ ]  at  [ 09:00 ⌄ ]                                           │
+│ Runs weekdays at 9:00 AM London time. Each result gets its own chat in your    │
+│ list. Next: Mon Oct 19, Tue Oct 20, Wed Oct 21.                                │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Name                         [ Summarise yesterday's merged pull requests ]    │   SettingsRow; filled from the first words
+└────────────────────────────────────────────────────────────────────────────────┘
 
-When
-[ Every weekday ⌄ ]  at  [ 09:00 ⌄ ]
-Runs weekdays at 9:00 AM London time. Each result gets its own chat in your list.
-Next: Mon Oct 19, Tue Oct 20, Wed Oct 21.
-
-Name
-[ Summarise yesterday's merged pull requests ]    filled from the first words; editable
-
-› More options                                    each label above its control, as above
-   Model
-   [ Quick tasks model ⌄ ]                        sm:max-w-64
-   Stop a run above
-   [ $ 0.50 ]                                     sm:max-w-32
-   Only run between
-   [ 08:00 ] and [ 20:00 ]
-   If Bothy was off
-   [ Run when it's back ⌄ ]                       / Skip that run
-   Time zone
-   [ London (Europe) ⌄ ]                          by city; the IANA id is the stored value
-   Allowed without asking
-     [ ] Read websites on api.example.com
+› More options
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Model                                          [ Quick tasks model ⌄ ]         │   SettingsRows (§11.1), stacked on phones
+│ Stop a run above                               [ $ 0.50 ]                      │
+│ Only run between                               [ 08:00 ⌄ ] and [ 20:00 ⌄ ]     │
+│ If Bothy was off                               [ Run when it's back ⌄ ]        │   / Skip that run
+│ Time zone                                      [ London (Europe) ⌄ ]           │   by city; the IANA id is the stored value
+│ Allowed without asking                                                         │   stacked
+│   [ ] Read websites on api.example.com                                         │
+└────────────────────────────────────────────────────────────────────────────────┘
 
 [ Create schedule ]  [ Cancel ]
 ```
@@ -2035,49 +2044,53 @@ Name
 ```
 Releases
 
-production · acme/web                                                     Deployed
-main · 4f2c1a9 · Fix login redirect loop · 2 days ago · approved by Sam Patel and Alex Kim
-──────────────────────────────────────────────────────────────────────────────────
-staging · acme/web                                                     ◌ Deploying…
-main · 9e1b3c0 · Add audit export · started 2 min ago · View on GitHub ↗
-
+Environments                                                              section-title
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ production · acme/web                                                 Deployed │
+│ main · 4f2c1a9 · Fix login redirect loop · 2 days ago · approved by Sam Patel  │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ staging · acme/web                                                ◌ Deploying… │
+│ main · 9e1b3c0 · Add audit export · started 2 min ago · View on GitHub ↗       │
+└────────────────────────────────────────────────────────────────────────────────┘
 To deploy, ask Bothy in a chat, for example “Deploy acme/web to staging”.       text-small muted
 
-History                                                                   text-heading
-Deploy acme/web to production · main at 4f2c1a9                    Deployed   2 days ago
-Sam Patel asked · Sam Patel and Alex Kim approved · took 3 min
-──────────────────────────────────────────────────────────────────────────────────
-Deploy acme/web to production · main at 77de012                      Denied   3 days ago
-Jordan Lee asked · Alex Kim denied: “Not before the freeze ends”
-──────────────────────────────────────────────────────────────────────────────────
-Deploy acme/web to staging · main at 1b2c3d4                          Failed   last week
-Maya Chen asked · Sam Patel approved · View logs on GitHub ↗
+History                                                                   section-title
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Deploy acme/web to production · main at 4f2c1a9          Deployed  2 days ago › │   your own: opens the task
+│ Sam Patel asked · Sam Patel and Alex Kim approved · took 3 min                 │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ Deploy acme/web to production · main at 77de012            Denied  3 days ago   │   another person's: no ›, room kept
+│ Jordan Lee asked · Alex Kim denied: “Not before the freeze ends”               │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - Environment rows: name · repository, status word at the right ("Deployed" muted, "◌ Deploying…" muted, "Waiting for approval (1 of 2) ›" `warning-text`, a link to `/approvals/{id}`, "Failed" `danger-text`, "Last request denied" muted, never a bare "Denied", which beside the last deploy would read as the environment's own state, "Not tracked" muted), line 2 the last-deploy facts. When the status is a waiting or denied request, line 2 starts with "Last deployed": "Last deployed Oct 15 · main · 4f2c1a9 · “Fix login redirect loop” · approved by Alex and Maya Chen", so it never reads as if that request was approved. A request its requester cancelled leaves the row on the last deploy.
 - The environment row describes the environment whoever deployed (members included): its newest deploy, and with two or more running "◌ 2 deploys running". The newest running deploy shows in its environment row only and joins History when it ends; the others running beside it are History rows ("Deploying…").
 - "Not tracked" is a deploy whose status is `unknown` (Bothy lost the run or stopped following it): never "Failed", no "took", and "Check on GitHub ↗" when the run is known. The page stops refreshing once no deploy is running.
-- History rows link to task detail, only for the viewer's own deploys and requests (another person's task can't be opened, even by an admin). A request its requester withdrew reads "Cancelled" (muted) with "{requester} asked · Cancelled by {requester}"; one stopped while it waited "Cancelled", "{requester} asked · stopped before it was decided"; one nobody decided in time "Expired", "{requester} asked · only 1 of 2 approvals came in time" or "… · nobody answered in time". Under 640 px the status word leads the meta line ("Deploying… · You asked · Alex approved · 4 min ago") and the title wraps, since rows differ at its end. External links keep their label and ↗ together.
+- History rows link to task detail, only for the viewer's own deploys and requests (another person's task can't be opened, even by an admin): such a row is a link stretched over it, its GitHub link above it, with a muted › at the end; the others keep the ›'s room so the times line up. A request its requester withdrew reads "Cancelled" (muted) with "{requester} asked · Cancelled by {requester}"; one stopped while it waited "Cancelled", "{requester} asked · stopped before it was decided"; one nobody decided in time "Expired", "{requester} asked · only 1 of 2 approvals came in time" or "… · nobody answered in time". Under 640 px the status word leads the meta line ("Deploying… · You asked · Alex approved · 4 min ago") and the title wraps, since rows differ at its end. External links keep their label and ↗ together.
 - Everyone can read this page. Admins see "Set up environments ›" in the page actions (to §12.2).
-- The tab is hidden until an environment exists. With environments but no deploys yet: "No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”."
+- The tab is hidden until an environment exists. A server without releases answers 404, which reads as no environments; any other failure shows "This page didn't load." with "Try again" (§13.2), never "No deploy environments yet". With environments but no deploys yet: "No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”."
 
 ### 10.5 Spending (`/activity/spending`)
 
 ```
 Spending                                          [ Today | 7 days | 30 days ]   Segmented in the header
 
-$42.10 in the last 30 days                                          text-title tabular-nums
-Today: $1.20 of the $5.00 daily limit                               text-body muted
-▃▃▃▃▃▃▃▃░░░░░░░░░░░░░░░░░░░░░░░░░░░                                  ProgressBar 4 px, 320 px
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ $42.10 in the last 30 days                     figure text-figure, the rest muted │   one group card, as General's
+│ Today: $1.20 of the $3.00 daily limit                              text-body muted │   Spending group
+│ ▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃▃░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ProgressBar 4 px │
+├────────────────────────────────────────────────────────────────────────────────┤
+│ (bar chart, 160 px tall, one bar per day, neutral bars, two gridlines labelled  │
+│  $2 and $4, three date labels: first, middle, last)                            │
+└────────────────────────────────────────────────────────────────────────────────┘
 
-(bar chart, 160 px tall, one bar per day, neutral bars, two gridlines labelled $2 and $4,
- three date labels: first, middle, last)
-
-By person                                                           text-heading
-Maya Chen                                                  $18.20
-Sam Patel                                                  $12.05
-Alex Kim · Slack                                            $3.40   someone in a chat app
-#eng · Slack                                                $2.10   a channel
+By person                                                           section-title
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ Maya Chen                                                           $18.20  › │   opens Tasks for them
+│ Alex Kim · Slack                                                     $3.40    │   someone in a chat app
+│ #eng · Slack                                                         $2.10    │   a channel
+└────────────────────────────────────────────────────────────────────────────────┘
 Show all
 
 By model
@@ -2093,10 +2106,10 @@ Fix login redirect                                          $0.42
 › Technical details                                                 tokens in / out, cached share, calls per model
 ```
 
-- Headline: one sentence, never KPI cards. The meter fills with `accent`; at 80 % it turns `warning-text` with the line "Bothy will stop starting new work at $5.00."; at 100 % `danger` with "Bothy reached today's limit. New work waits until midnight." + "Change limit" (admins).
-- Chat apps' share (admins, when chat apps have one: `chat_limit_micros` from `/api/usage/today`): a line under the meter, `muted` "Chat apps today: $0.65 of their $3.00 share"; at 80 % `warning-text` "Chat apps have used 85% of their $3.00 share of today's limit."; at 100 % `danger-text` "Chat apps used their $3.00 share of today's limit. Their new work waits until midnight." + "Change share" (→ People, where the share is set). This line replaces the `chat_budget_80` banner (§4.9).
+- Headline: one sentence, never KPI cards: the amount in `text-figure`, the period after it in muted `text-body`, as General's spending summary reads. It, today's line, the meter (the card's full width) and the chat apps' line share one group card with the chart under a hairline. The meter fills with `accent`; at 80 % it turns `warning-text` with the line "Bothy will stop starting new work at $3.00."; at 100 % `danger` with "Bothy reached today's limit. New work waits until midnight." + "Change limit" (admins).
+- Chat apps' share (admins, when chat apps have one: `chat_limit_micros` from `/api/usage/today`): a line under the meter, `muted` "Chat apps today: $0.65 of their $1.80 share"; at 80 % `warning-text` "Chat apps have used 85% of their $1.80 share of today's limit."; at 100 % `danger-text` "Chat apps used their $1.80 share of today's limit. Their new work waits until midnight." + "Change share" (→ People, where the share is set). This line replaces the `chat_budget_80` banner (§4.9).
 - Chart: `chart` bars, hovered or focused bar `text`, gridlines `border`, axis labels `text-caption muted`. With 7 bars or fewer, the amount is printed above each bar. Every bar is focusable with a tooltip "Tue 14 Oct: $1.20". `role="img"` with a summary label ("Spending by day, 15 September to 14 October, highest $4.10 on 9 October") plus a visually hidden table. Days follow the workspace time zone.
-- Lists: 40 px rows, name left, money right `tabular-nums`, top 5 then "Show all" (expands in place). Names only (S8). In "By person", people in chat apps and channels pay from lines of their own: their name, then " · {App}" in `muted`; they link nowhere (their tasks and chats aren't on the web). "By model" names the provider the same way, " · Anthropic" in `muted`. Rows link where possible: a person to Tasks filtered by them, a chat to the chat. Local models show "Free". Unknown prices: "Price not set" (muted) with "Set price" for admins (Advanced → Model prices).
+- Lists: 40 px rows, name left, money right `tabular-nums`, top 5 then "Show all" (expands in place). Names only (S8). In "By person", people in chat apps and channels pay from lines of their own: their name, then " · {App}" in `muted`; they link nowhere (their tasks and chats aren't on the web). "By model" names the provider the same way, " · Anthropic" in `muted`. Rows link where possible: a person to Tasks filtered by them, a chat to the chat; those end in a muted › and the others keep its room, so the amounts line up. Local models show "Free". Unknown prices: "Price not set" (muted) with "Set price" for admins (Advanced → Model prices).
 - Members: their own total, their limit if any, no By person; the heading still reads "Activity".
 - Under 640 px: 7 bars with day initials; the 30-day view labels only the 1st and 15th. Nothing is clipped (fixes `46`).
 - Empty: "Nothing spent in this period."
@@ -2108,17 +2121,18 @@ Audit log                                              [ Check the log ]   ⋯ (
 [ Actions | Website access ]                                               Segmented
 [ Anyone ⌄ ]  [ Any action ⌄ ]  [ Last 7 days ⌄ ]
 
-Today
-10:42   Maya Chen    Approved deleting notes/staging.md
-10:41   Bothy        Asked to delete notes/staging.md
-10:12   Sam Patel    Signed in
-09:00   Schedule     Ran “Daily standup summary”
-08:57   Bothy        Blocked from sending to paste.example.net
+Today                                                                     section-title
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ 10:42   Maya Chen    Approved deleting notes/staging.md                      › │   one group card per day
+│ 10:41   Bothy        Asked to delete notes/staging.md                        › │
+│ 10:12   Sam Patel    Signed in                                               › │
+│ 08:57   Bothy        Blocked from sending to paste.example.net               › │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - Rows 40 px: time (`tabular-nums muted`, 56 px), actor name (120 px), one-line summary (S16). A result word appears only when not a success and the summary doesn't already say it: "Blocked" (left out after "Blocked from sending …"), "Failed" in `danger-text`. Reaching the spending limit gets no word: it needs attention but isn't a failure, as in Tasks. No "ok" pills (fixes `47`).
 - Memory rows say what changed, never the note itself: "Remembered something", "Updated a saved note", "Forgot something" (the same for Bothy's memory steps); for what's remembered for everyone "Remembered something for everyone", "Updated a note for everyone", "Forgot something for everyone", and an admin's edit "Edited what Bothy remembers for everyone".
-- Clicking a row expands it in place: Who, When, Where (chat link), Task (link), and a "Raw record" disclosure with the redacted JSON in a `CodeBlock`.
+- Clicking a row expands it in place (its › turns down): Who, When, Where (chat link), Task (link) as the approval card's plain key/value grid (labels `text-small muted`, values `text-body`), and a "Raw record" disclosure with the redacted JSON in a `CodeBlock`. Website access rows open nothing, so they have no ›.
 - "Check the log" runs the hash-chain check and shows a `StatusLine` under the header: "The log is intact. 1,284 entries checked." or (danger) "The entry from 12 Oct at 10:42 doesn't match the ones before it. Entries from there on may have been changed." with Details and "Export".
 - **Website access** rows: time · what happened (the sentence names the site in full, so there is no host column) · "Open task". Outcomes (S16): "Reached api.github.com"; "Allowed, but api.example.com didn't answer"; "Blocked: example.com isn't on the allowed list" (in `text`, like "Blocked from sending …" in Actions: the allowed list working is not a failure) with "Allow this site…" → dialog "Allow Bothy to send data to {host}? This applies to everyone's tasks until you remove it in Settings → Security." [Allow site] [Cancel] (creates the same narrow grant as v0.1).
 - Under 640 px: time and actor move into a meta line under the summary.
@@ -2866,6 +2880,19 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
   .row-link {
     @apply -mx-2 rounded-md px-2 hover:bg-subtle focus-visible:outline-offset-[-2px];
   }
+  /* In a group card a row that opens something hovers edge to edge, as the empty chat's starters do;
+     the card is `overflow-hidden`, so its corners round the first and last row. */
+  .list-card .row-link {
+    @apply -mx-4 rounded-none px-4;
+  }
+  /* A row whose `.stretch-link` covers it, its own controls lifted above (`relative z-10`). Only that link's
+     focus rings the row: a control of its own (Review, a GitHub link) draws its own ring, never two at once. */
+  .row-stretch {
+    @apply relative hover:bg-subtle has-[.stretch-link:focus-visible]:outline-2 has-[.stretch-link:focus-visible]:-outline-offset-2 has-[.stretch-link:focus-visible]:outline-focus;
+  }
+  .stretch-link {
+    @apply after:absolute after:inset-0 focus-visible:outline-none;
+  }
 
   .tabs {
     @apply inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-subtle p-1 [scrollbar-width:none];
@@ -2929,8 +2956,8 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
 | 21 | `Banner` | banner markup | `tone: 'warning'\|'danger'\|'neutral'`, `text`, `action?`, `dismissible?` | §4.9; `role="status"`, danger uses `role="alert"` on first appearance only; chosen by the banner store |
 | 22 | `Notice` | `.alert-*` | `tone: 'neutral'\|'warning'\|'danger'`, `text`, `action?` | inline block `rounded-md px-3 py-2 text-body`, `bg-subtle` / `bg-warning-subtle` / `bg-danger-subtle`, glyph for warning and danger; no success notice |
 | 23 | `StatusLine` | test results | `tone: 'progress'\|'success'\|'warning'\|'danger'`, `text`, `details?`, `action?` | 16 px glyph column (spinner, check `accent-text`, alert), text `text-body` (`text` / `warning-text` / `danger-text`), action as LinkButton, Details with a CodeBlock; `role="status"` for progress and success, `role="alert"` for danger only after a person's action |
-| 24 | `Card` | `.card` | `padding: 'md'\|'lg'`, `children` | 14 px, `border`, 20 px padding (16 under 640 px), `shadow-card`. The raised things on a page are approval and review cards, inbox rows, `OptionList`, group cards (`.list-card`), tone cards and the composer, nothing else; never nested; nothing bordered inside it (CodeBlock and DiffView use tints) |
-| 25 | `ListRow` | ad hoc rows, stat cards | `href?`, `title: string\|Snippet`, `description?`, `meta?: (string\|Snippet)[]`, `trailing?: Snippet`, `avatar?: string`, `selected?` | title `text-body` (500 when it links), description muted, meta `text-small muted tabular-nums` right-aligned, trailing control; hairline; whole row clickable when `href` (trailing controls stop propagation); meta folds under 640 px; titles truncate with `title` |
+| 24 | `Card` | `.card` | `padding: 'md'\|'lg'`, `children` | 14 px, `border`, 20 px padding (16 under 640 px), `shadow-card`. The raised things on a page are approval and review cards, inbox rows, `OptionList`, group cards (`.list-card`), documents (a Memory section, project notes, a skill's instructions), Knowledge search results, tone cards and the composer, nothing else; never nested; nothing bordered inside it (CodeBlock and DiffView use tints) |
+| 25 | `ListRow` | ad hoc rows, stat cards | `href?`, `title: string\|Snippet`, `description?`, `meta?: (string\|Snippet)[]`, `trailing?: Snippet`, `avatar?: string`, `selected?` | title `text-body` (500 when it links), description muted, meta `text-small muted tabular-nums` right-aligned, trailing control; hairline; whole row clickable when `href` (the link stretches over the row, `.row-stretch`, and the trailing control sits above it); meta folds under 640 px; titles truncate with `title` |
 | 26 | `SettingsSection`, `SettingsRow` | `Section.svelte`, `ConfigField.svelte` | `title`, `bare = false`; `label`, `help?`, `for?`, `status?: 'saving'\|'saved'\|null`, `error?`, `children` | §11.1: the section's rows on one group card unless `bare`; a row says "Saving…", marks the page's "Changes saved" when it saves, and says "Saved" for 2 s only while no header shows it (`ui/saved.svelte.ts`) |
 | 27 | `AdvancedField` | `ConfigField` + `SourceChip` | `path`, `label`, `type`, `options?` | SettingsRow + "Changed · Reset to default" or "Set by the server environment ({NAME}). Change it there." (read-only) |
 | 28 | `Count`, `Dot` | chip counts, bell badge | `n`; `label` | Count: muted `tabular-nums`, hidden at 0, no background. Dot: `size: 6 \| 8 = 8`, ember `bg-warning rounded-full` + visually hidden label; 6 px only beside the Approvals count (D23) |

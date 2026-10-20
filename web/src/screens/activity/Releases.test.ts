@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { cleanup, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { member } from '../../../mock/fixtures';
 import { resetMock } from '../../../mock/server';
@@ -13,7 +13,7 @@ async function open(override?: (m: string, url: string) => unknown, mock = '') {
   if (mock) resetMock({ mock });
   session.ready = false;
   await session.init();
-  await loadReleases(true);
+  await loadReleases(true).catch(() => {});
   router.navigate('/activity/releases');
   render(Releases);
 }
@@ -30,6 +30,22 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     // A running deploy is its environment's status, not a History row as well.
     const history = screen.getByText('History').closest('section')!;
     expect(history.textContent).not.toContain('9e1b3c0');
+    // Both lists are labelled groups, as the Settings groups are.
+    expect(screen.getByRole('heading', { level: 2, name: 'Environments' })).toBeTruthy();
+  });
+
+  it('opens only the rows it can, each ending in ›, keeping the GitHub link its own', async () => {
+    await open();
+    await screen.findByText('History');
+    const rows = [...screen.getByText('History').closest('section')!.querySelectorAll('li')];
+    // A row that opens something is a link stretched over it, to the task or else the chat.
+    const linked = rows.filter((li) => li.classList.contains('row-stretch'));
+    expect(linked.length).toBeGreaterThan(0);
+    expect(linked.length).toBeLessThan(rows.length);
+    for (const li of rows) expect(!!li.querySelector('use[href="#i-chevron-right"]')).toBe(linked.includes(li));
+    for (const li of linked) expect(li.querySelector('a:not([target])')!.getAttribute('href')).toMatch(/^\/(activity\/tasks|chat)\//);
+    const github = rows.flatMap((li) => [...li.querySelectorAll<HTMLAnchorElement>('a[target="_blank"]')]);
+    for (const a of github) expect(a.className).toMatch(/\brelative\b.*\bz-10\b/);
   });
 
   it('links a waiting request from its environment, whose line 2 is about the last deploy', async () => {
@@ -214,5 +230,18 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     expect(document.querySelector('img')).toBeNull();
     expect(q.textContent).toContain('<img src=x onerror=alert(1)>');
     expect(q.textContent).toContain('⟨');
+  });
+
+  // A server without releases answers 404, which is "none"; any other failure is the page not loading, never "no environments".
+  it("says the page didn't load when the server fails, and that there are no environments only on a 404", async () => {
+    let status = 503;
+    const fail = (_m: string, url: string) => (url === '/api/releases' ? new Response('{}', { status }) : undefined);
+    await open(fail);
+    expect(await screen.findByText("This page didn't load. Check your connection and try again.")).toBeTruthy();
+    expect(screen.queryByText(/No deploy environments yet/)).toBeNull();
+    cleanup();
+    status = 404;
+    await open(fail);
+    expect(await screen.findByText(/^No deploy environments yet\./)).toBeTruthy();
   });
 });

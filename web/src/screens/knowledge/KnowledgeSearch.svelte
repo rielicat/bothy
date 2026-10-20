@@ -132,10 +132,10 @@
     {:else if !groups.length}
       <EmptyState text="Nothing in your projects or notes matches “{q}”." />
     {:else}
-      <ul class="space-y-6" aria-label="Results">
+      <ul class="space-y-2" aria-label="Results">
         {#each groups as g (g.key)}
           {@const h0 = g.hits[0]}
-          <li>
+          <li class="rounded-lg border border-border bg-surface px-4 py-3 shadow-card">
             {#if g.notes}
               <p class="text-body text-text">
                 {g.repo} · Project notes · <a class="link" href={projectHref(g.repo)} onclick={router.link}>{h0.title}</a>

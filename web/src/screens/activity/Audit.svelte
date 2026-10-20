@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import Icon from '../../components/Icon.svelte';
   import { Button, CodeBlock, Dialog, Disclosure, EmptyState, IconButton, LinkButton, Menu, Segmented, Select, StatusLine, toast } from '../../components/ui';
   import { api, qs } from '../../lib/api/client';
   import type { List } from '../../lib/api/types.gen';
@@ -180,36 +181,45 @@
       {:else if !shown.length}
         <EmptyState class="mt-6" text="Nothing matches these filters." action={filtered ? { label: 'Clear filters', variant: 'secondary', onclick: clear } : undefined} />
       {:else}
-        {#each groupByDay(shown, (e) => e.at) as g (g.label)}
-          <section class="mt-6">
-            <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
-            <ul class="list-card">
+        {#each groupByDay(shown, (e) => e.at) as g, i (g.label)}
+          <section class={i ? 'mt-10' : 'mt-6'}>
+            <h2 class="section-title">{g.label}</h2>
+            <ul class="list-card mt-2 overflow-hidden">
               {#each g.items as e (e.id)}
                 {@const word = resultWord(e)}
                 {@const actor = actorName(e.actor, names, e.actor_name)}
                 <li class="border-b border-border last:border-b-0">
                   <button
                     type="button"
-                    class="row-link flex min-h-10 w-[calc(100%+1rem)] cursor-pointer items-center gap-3 py-2 text-left text-body max-sm:flex-col max-sm:items-start max-sm:gap-0 pointer-coarse:min-h-12"
+                    class="row-link flex min-h-10 w-[calc(100%+2rem)] cursor-pointer items-center gap-3 py-2 text-left text-body pointer-coarse:min-h-12"
                     aria-expanded={expanded === e.id}
                     aria-controls="audit-{e.id}"
                     onclick={() => (expanded = expanded === e.id ? null : e.id)}
                   >
-                    <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
-                    <span class="w-30 shrink-0 truncate text-text max-sm:hidden">{actor}</span>
-                    <span class="min-w-0 flex-1 text-text [overflow-wrap:anywhere]">{summarize(e)}</span>
-                    <span class="text-small text-muted sm:hidden"
-                      ><span class="whitespace-nowrap">{time(e.at)}</span> · {actor}{#if word}{' · '}<span class="text-danger-text">{word}</span>{/if}</span
-                    >
-                    {#if word}<span class="shrink-0 text-small text-danger-text max-sm:hidden">{word}</span>{/if}
+                    <span class="flex min-w-0 flex-1 items-center gap-3 max-sm:flex-col max-sm:items-start max-sm:gap-0">
+                      <time class="w-16 shrink-0 whitespace-nowrap text-muted tabular-nums max-sm:hidden" title={fullTime(e.at)}>{time(e.at)}</time>
+                      <span class="w-30 shrink-0 truncate text-text max-sm:hidden">{actor}</span>
+                      <span class="min-w-0 flex-1 text-text [overflow-wrap:anywhere]">{summarize(e)}</span>
+                      <span class="text-small text-muted sm:hidden"
+                        ><span class="whitespace-nowrap">{time(e.at)}</span> · {actor}{#if word}{' · '}<span class="text-danger-text">{word}</span>{/if}</span
+                      >
+                      {#if word}<span class="shrink-0 text-small text-danger-text max-sm:hidden">{word}</span>{/if}
+                    </span>
+                    <Icon name="chevron-right" class="shrink-0 text-muted transition-transform duration-160 {expanded === e.id ? 'rotate-90' : ''}" />
                   </button>
-                  <div id="audit-{e.id}" class="pb-3 text-small text-muted sm:pl-52" hidden={expanded !== e.id}>
+                  <div id="audit-{e.id}" class="pb-3 sm:pl-52" hidden={expanded !== e.id}>
                     {#if expanded === e.id}
-                      <p>Who: <span class="text-text">{actor}</span></p>
-                      <p>When: <span class="text-text">{fullTime(e.at)}</span></p>
-                      {#if e.session_id}<p>Where: <a class="link" href="/chat/{encodeURIComponent(e.session_id)}" onclick={router.link}>Open the chat</a></p>{/if}
-                      {#if e.run_id}<p>Task: <a class="link" href="/activity/tasks/{encodeURIComponent(e.run_id)}" onclick={router.link}>Open the task</a></p>{/if}
-                      <Disclosure class="mt-1" label="Raw record"><CodeBlock code={JSON.stringify(e, null, 2)} wrap maxLines={16} /></Disclosure>
+                      <dl class="grid grid-cols-[4rem_minmax(0,1fr)] gap-x-4 gap-y-1 text-body">
+                        <dt class="text-small text-muted sm:pt-px">Who</dt>
+                        <dd class="text-text">{actor}</dd>
+                        <dt class="text-small text-muted sm:pt-px">When</dt>
+                        <dd class="text-text">{fullTime(e.at)}</dd>
+                        {#if e.session_id}<dt class="text-small text-muted sm:pt-px">Where</dt>
+                          <dd><a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href="/chat/{encodeURIComponent(e.session_id)}" onclick={router.link}>Open the chat</a></dd>{/if}
+                        {#if e.run_id}<dt class="text-small text-muted sm:pt-px">Task</dt>
+                          <dd><a class="link -my-0.5 inline-flex min-h-6 items-center pointer-coarse:-my-3 pointer-coarse:min-h-11" href="/activity/tasks/{encodeURIComponent(e.run_id)}" onclick={router.link}>Open the task</a></dd>{/if}
+                      </dl>
+                      <Disclosure class="mt-2" label="Raw record"><CodeBlock code={JSON.stringify(e, null, 2)} wrap maxLines={16} /></Disclosure>
                     {/if}
                   </div>
                 </li>
@@ -223,10 +233,10 @@
     {:else if !web.length}
       <EmptyState class="mt-6" text="Bothy hasn't reached any websites yet." />
     {:else}
-      {#each groupByDay(web, (e) => e.at) as g (g.label)}
-        <section class="mt-6">
-          <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
-          <ul class="list-card">
+      {#each groupByDay(web, (e) => e.at) as g, i (g.label)}
+        <section class={i ? 'mt-10' : 'mt-6'}>
+          <h2 class="section-title">{g.label}</h2>
+          <ul class="list-card mt-2">
             {#each g.items as e (e.id)}
               <!-- The sentence names the site in full, so there's no host column. On phones it leads and the time and task link fold under it. -->
               <li class="flex min-h-10 items-center gap-x-3 border-b border-border py-2 text-body last:border-b-0 max-sm:flex-col max-sm:items-start">
