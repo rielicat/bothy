@@ -198,6 +198,8 @@
   ];
 </script>
 
+{#snippet createToken()}<Button size="sm" onclick={() => (tokenOpen = true)}>Create token</Button>{/snippet}
+
 {#snippet browserZoneNote()}
   This browser uses {zoneLabel(browserZone)}. <LinkButton onclick={() => saveZone(browserZone)}>Use it</LinkButton>
 {/snippet}
@@ -282,27 +284,25 @@
     </SettingsRow>
   </SettingsSection>
 
-  <SettingsSection title="Saved keys" bare>
-    <p class="py-2 text-body text-muted">Your own keys for connected tools, used instead of the shared ones when Bothy works for you.</p>
-    <Button class="mt-2" href="/settings/account/keys">Manage your keys</Button>
+  <SettingsSection title="Saved keys">
+    <div class="action-row">
+      <p class="text-body text-muted">Your own keys for connected tools, used instead of the shared ones when Bothy works for you.</p>
+      <Button size="sm" href="/settings/account/keys">Manage your keys</Button>
+    </div>
   </SettingsSection>
 
-  <SettingsSection title="API access" bare>
+  <SettingsSection title="API access" bare={!activeTokens.length} action={activeTokens.length && !tokensFailed ? createToken : undefined}>
     {#if tokensFailed}
       <StatusLine tone="danger" text="Your tokens didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: loadTokens }} />
+    {:else if activeTokens.length}
+      {#each activeTokens as t (t.id)}
+        {@const old = expired(t)}
+        <ItemRow name={t.name} stacked tone={old ? 'warning' : 'muted'} status="{scopeSummary(t.scopes)} · {old ? `Expired ${relTime(t.expires_at)}` : lastUsed(t)}">
+          {#snippet trailing()}<Button size="sm" aria-label="Revoke {t.name}…" onclick={() => (revoking = t)}>Revoke…</Button>{/snippet}
+        </ItemRow>
+      {/each}
     {:else}
-      {#if activeTokens.length}
-        <div class="list-card">
-          {#each activeTokens as t (t.id)}
-            {@const old = expired(t)}
-            <ItemRow name={t.name} stacked tone={old ? 'warning' : 'muted'} status="{scopeSummary(t.scopes)} · {old ? `Expired ${relTime(t.expires_at)}` : lastUsed(t)}">
-              {#snippet trailing()}<Button size="sm" aria-label="Revoke {t.name}…" onclick={() => (revoking = t)}>Revoke…</Button>{/snippet}
-            </ItemRow>
-          {/each}
-        </div>
-      {:else}
-        <p class="py-2 text-body text-muted">No tokens yet. A token lets a script or another app use Bothy as you.</p>
-      {/if}
+      <p class="py-2 text-body text-muted">No tokens yet. A token lets a script or another app use Bothy as you.</p>
       <Button class="mt-4" onclick={() => (tokenOpen = true)}>Create token</Button>
     {/if}
   </SettingsSection>

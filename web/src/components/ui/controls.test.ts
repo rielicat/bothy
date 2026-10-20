@@ -230,6 +230,14 @@ describe('Friendly primitives', () => {
     expect(screen.getByText('cards').parentElement!.classList.contains('list-card')).toBe(false);
   });
 
+  it("puts a section's one button on its heading line, outside the card", () => {
+    render(SettingsSection, { props: { title: 'API access', action: text('Create token'), children: text('token row') } });
+    const heading = screen.getByRole('heading', { name: 'API access' });
+    expect(heading.parentElement!.textContent).toContain('Create token');
+    expect(screen.getByText('Create token').closest('.list-card')).toBeNull();
+    expect(screen.getByRole('region', { name: 'API access' })).toBeTruthy();
+  });
+
   it('draws the needs-you dot in ember at 8 px alone and 6 px beside a number', () => {
     render(Dot, { props: {} });
     render(Dot, { props: { size: 6, label: '' } });

@@ -282,6 +282,10 @@
   .row-link {
     @apply -mx-2 rounded-md px-2 hover:bg-subtle focus-visible:outline-offset-[-2px];
   }
+  /* A card row that is a sentence and its one button (§11.1); the button drops under it on phones. */
+  .action-row {
+    @apply flex min-h-14 items-center justify-between gap-x-6 gap-y-3 border-b border-border py-3 max-sm:flex-col max-sm:items-start;
+  }
 
   .tabs {
     @apply inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-subtle p-1 [scrollbar-width:none];

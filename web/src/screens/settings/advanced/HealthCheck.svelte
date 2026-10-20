@@ -60,21 +60,23 @@
   });
 </script>
 
-<SettingsSection title="Health check" bare>
-  <div bind:this={box}>
+{#snippet again()}<Button size="sm" data-run-again loading={running && !!report} loadingLabel="Checking…" onclick={run}>Run again</Button>{/snippet}
+
+<div bind:this={box}>
+  <SettingsSection title="Health check" action={again}>
     {#if failed}
-      <StatusLine tone="danger" text="The health check didn't run." details={failed} />
+      <StatusLine class="py-3" tone="danger" text="The health check didn't run." details={failed} />
     {:else if !report}
-      <StatusLine tone="progress" text="Checking…" />
+      <StatusLine class="py-3" tone="progress" text="Checking…" />
     {:else}
       {#if !problems}
-        <p class="text-body text-text" role="status">
+        <p class="border-b border-border py-3 text-body text-text" role="status">
           No problems found. <span class="text-muted">Last checked <time datetime={checkedAt} title={fullTime(checkedAt)}>{since}</time>.</span>
         </p>
       {/if}
       {#each findings as f, i (i)}
         {@const c = describeFinding(f)}
-        <div class="flex items-start gap-3 border-b border-border py-3 last:border-b-0">
+        <div class="flex items-start gap-3 border-b border-border py-3">
           <!-- Info findings are notes, not problems: no glyph, same indent. -->
           <span class="flex h-5 w-4 shrink-0 items-center">{#if f.severity !== 'info'}<Icon name="alert" class={tone(f)} />{/if}</span>
           <div class="min-w-0 flex-1">
@@ -100,9 +102,8 @@
           {#if f.auto_fix}<Button size="sm" loading={fixing} loadingLabel="Fixing…" onclick={fix}>Fix</Button>{/if}
         </div>
       {/each}
-      {#if fixError}<StatusLine class="mt-2" tone="danger" text="Bothy couldn't fix this." details={fixError} alert />{/if}
-      {#if problems}<p class="mt-2 text-small text-muted">Last checked <time datetime={checkedAt} title={fullTime(checkedAt)}>{since}</time>.</p>{/if}
     {/if}
-    <Button class="mt-3" data-run-again loading={running && !!report} loadingLabel="Checking…" onclick={run}>Run again</Button>
-  </div>
-</SettingsSection>
+  </SettingsSection>
+  {#if fixError}<StatusLine class="mt-2" tone="danger" text="Bothy couldn't fix this." details={fixError} alert />{/if}
+  {#if report && problems}<p class="mt-2 text-small text-muted">Last checked <time datetime={checkedAt} title={fullTime(checkedAt)}>{since}</time>.</p>{/if}
+</div>
