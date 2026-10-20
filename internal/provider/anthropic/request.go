@@ -110,13 +110,18 @@ func buildRequest(r *core.Request) request {
 	case "required":
 		out.ToolChoice = &toolChoice{Type: "any"}
 	}
-	out.Messages = buildMessages(r.Messages)
+	shared := r.Messages
+	if r.CacheTailSkipLast && len(shared) > 0 {
+		shared = shared[:len(shared)-1]
+	}
+	out.Messages = appendMessages(nil, shared)
 	if r.CacheTail && len(out.Messages) > 0 {
 		last := &out.Messages[len(out.Messages)-1]
 		if n := len(last.Content); n > 0 {
 			last.Content[n-1].CacheControl = ephemeral
 		}
 	}
+	out.Messages = appendMessages(out.Messages, r.Messages[len(shared):])
 	limitBreakpoints(&out)
 	return out
 }
@@ -151,8 +156,10 @@ func limitBreakpoints(r *request) {
 	}
 }
 
-func buildMessages(msgs []core.Message) []message {
-	var out []message
+// appendMessages adds msgs to out, merging consecutive same-role messages
+// into one turn. Building in two passes gives the same turns as one, so the
+// rolling breakpoint can go on the shared messages before a call's own.
+func appendMessages(out []message, msgs []core.Message) []message {
 	for _, m := range msgs {
 		role := "user"
 		if m.Role == core.MsgAssistant {

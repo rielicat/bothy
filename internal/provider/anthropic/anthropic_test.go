@@ -324,6 +324,55 @@ func TestBreakpointLimit(t *testing.T) {
 	}
 }
 
+// TestCacheTailSkipLast: a refine role call's own message merges into the
+// conversation's last user turn, yet the rolling breakpoint stays on the
+// block before it, where the step and the other calls cached.
+func TestCacheTailSkipLast(t *testing.T) {
+	role := userText("[Bothy refine · critic]")
+	call := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: "toolu_1", Name: "a"}}}}
+	result := core.Message{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "toolu_1", Content: "ok"}}}}
+	cc := `,"cache_control":{"type":"ephemeral"}`
+	for _, tc := range []struct {
+		name string
+		skip bool
+		msgs []core.Message
+		want string
+	}{
+		{"user turn", true, []core.Message{userText("question"), role},
+			`[{"role":"user","content":[{"type":"text","text":"question"` + cc + `},{"type":"text","text":"[Bothy refine · critic]"}]}]`},
+		{"tool result", true, []core.Message{userText("question"), call, result, role},
+			`[{"role":"user","content":[{"type":"text","text":"question"}]},` +
+				`{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"a","input":{}}]},` +
+				`{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"` + cc + `},{"type":"text","text":"[Bothy refine · critic]"}]}]`},
+		{"nothing before", true, []core.Message{role},
+			`[{"role":"user","content":[{"type":"text","text":"[Bothy refine · critic]"}]}]`},
+		{"flag off", false, []core.Message{userText("question"), role},
+			`[{"role":"user","content":[{"type":"text","text":"question"},{"type":"text","text":"[Bothy refine · critic]"` + cc + `}]}]`},
+	} {
+		r := buildRequest(&core.Request{Model: "m", CacheTail: true, CacheTailSkipLast: tc.skip, Messages: tc.msgs})
+		var buf strings.Builder
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(r.Messages); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.TrimSpace(buf.String()); got != tc.want {
+			t.Errorf("%s\n got %s\nwant %s", tc.name, got, tc.want)
+		}
+	}
+
+	// The skipped message counts for nothing against the limit of four.
+	var sys []core.SystemBlock
+	for i := range 4 {
+		sys = append(sys, core.SystemBlock{Text: fmt.Sprint(i), CacheBreak: true})
+	}
+	r := buildRequest(&core.Request{Model: "m", System: sys, Tools: []core.ToolDef{{Name: "t"}}, ToolsCache: true,
+		CacheTail: true, CacheTailSkipLast: true, Messages: []core.Message{userText("question"), role}})
+	if r.System[1].CacheControl != nil || r.System[2].CacheControl == nil || r.Messages[0].Content[0].CacheControl == nil || r.Messages[0].Content[1].CacheControl != nil {
+		t.Fatalf("breakpoints after limiting: %+v %+v", r.System, r.Messages)
+	}
+}
+
 func TestDiscover(t *testing.T) {
 	srv := wiretest.NewServer(t, wiretest.JSON(200, []byte(`{"data":[{"type":"model","id":"claude-sonnet-4-6","display_name":"Claude Sonnet 4.6","created_at":"2026-02-17T00:00:00Z"}],"has_more":false}`)))
 	o := wiretest.Options(srv, "anthropic")

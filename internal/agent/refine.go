@@ -287,6 +287,9 @@ func (c *refineCaller) roleRequest(call refine.Call, m core.ModelInfo, load bool
 	req := *base.req
 	req.Messages = append(slices.Clone(base.req.Messages), core.Message{Role: core.MsgUser, Kind: core.KindNormal,
 		Provenance: core.ProvSystem, Parts: []core.Part{{Type: core.PartText, Text: text}}})
+	// No later call shares the role message, so caching through it would
+	// be written and never read.
+	req.CacheTailSkipLast = true
 	withoutToolUse(&req)
 	return &req, base.est + extra, abridged
 }

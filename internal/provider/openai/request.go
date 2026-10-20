@@ -119,11 +119,17 @@ func (c *Client) buildRequest(r *core.Request) request {
 	} else if sys := wire.SystemText(r.System); sys != "" {
 		out.Messages = append(out.Messages, message{Role: "system", Content: sys})
 	}
-	out.Messages = append(out.Messages, buildMessages(r.Messages, c.echoSig(), explicit)...)
+	echo := c.echoSig()
+	shared := r.Messages
+	if r.CacheTailSkipLast && len(shared) > 0 {
+		shared = shared[:len(shared)-1]
+	}
+	out.Messages = appendMessages(out.Messages, shared, echo, explicit)
+	if explicit && r.CacheTail {
+		markTail(out.Messages)
+	}
+	out.Messages = appendMessages(out.Messages, r.Messages[len(shared):], echo, explicit)
 	if explicit {
-		if r.CacheTail {
-			markTail(out.Messages)
-		}
 		limitBreakpoints(out.Messages)
 	}
 	return out
@@ -193,14 +199,15 @@ func limitBreakpoints(msgs []message) {
 	}
 }
 
-// buildMessages converts the history; thinking parts signed with echo
-// ("" for none) go back as the assistant turn's reasoning_content. With
+// appendMessages converts the history onto out; thinking parts signed with
+// echo ("" for none) go back as the assistant turn's reasoning_content. With
 // keep, user content and a non-empty tool result always stay a list of
 // parts and a merged user turn appends its own, so neither a message added
 // after a user turn (a refine call's) nor the rolling marker moving on
-// changes an earlier block, and so the cached prefix.
-func buildMessages(msgs []core.Message, echo string, keep bool) []message {
-	var out []message
+// changes an earlier block, and so the cached prefix. Building in two passes
+// gives the same messages as one, so the marker can go on the shared
+// messages before a call's own.
+func appendMessages(out []message, msgs []core.Message, echo string, keep bool) []message {
 	for _, m := range msgs {
 		switch m.Role {
 		case core.MsgTool:

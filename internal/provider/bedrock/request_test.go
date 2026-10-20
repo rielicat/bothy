@@ -132,6 +132,45 @@ func TestBuildRequestCachePoints(t *testing.T) {
 	}
 }
 
+// TestBuildRequestCacheTailSkipLast: a refine role call's own message
+// merges into the conversation's last user turn, yet the tail point stays
+// before it, where the step and the other calls cached; Nova's point still
+// follows text only, and never the skipped message's.
+func TestBuildRequestCacheTailSkipLast(t *testing.T) {
+	const claude, nova = "global.anthropic.claude-opus-4-5-20251101-v1:0", "us.amazon.nova-lite-v1:0"
+	tools := []core.ToolDef{{Name: "a", Schema: json.RawMessage(`{"type":"object"}`)}}
+	role := userText("[Bothy refine · critic]")
+	call := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: "t1", Name: "a", Args: json.RawMessage(`{}`)}}}}
+	result := core.Message{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "t1", Name: "a", Content: "rain"}}}}
+	const cp = `{"cachePoint":{"type":"default"}}`
+	for _, tc := range []struct {
+		name, model, choice string
+		skip                bool
+		msgs                []core.Message
+		want                string
+	}{
+		{"user turn", claude, "none", true, []core.Message{userText("weather?"), role},
+			`[{"role":"user","content":[{"text":"weather?"},` + cp + `,{"text":"[Bothy refine · critic]"}]}]`},
+		{"tool result", claude, "auto", true, []core.Message{userText("weather?"), call, result, role},
+			`[{"role":"user","content":[{"text":"weather?"}]},` +
+				`{"role":"assistant","content":[{"toolUse":{"toolUseId":"t1","name":"a","input":{}}}]},` +
+				`{"role":"user","content":[{"toolResult":{"toolUseId":"t1","content":[{"text":"rain"}]}},` + cp + `,{"text":"[Bothy refine · critic]"}]}]`},
+		{"nova tool result", nova, "auto", true, []core.Message{userText("weather?"), call, result, role},
+			`[{"role":"user","content":[{"text":"weather?"},` + cp + `]},` +
+				`{"role":"assistant","content":[{"toolUse":{"toolUseId":"t1","name":"a","input":{}}}]},` +
+				`{"role":"user","content":[{"toolResult":{"toolUseId":"t1","content":[{"text":"rain"}]}},{"text":"[Bothy refine · critic]"}]}]`},
+		{"nothing before", claude, "none", true, []core.Message{role},
+			`[{"role":"user","content":[{"text":"[Bothy refine · critic]"}]}]`},
+		{"flag off", claude, "none", false, []core.Message{userText("weather?"), role},
+			`[{"role":"user","content":[{"text":"weather?"},{"text":"[Bothy refine · critic]"},` + cp + `]}]`},
+	} {
+		req := core.Request{Model: tc.model, Tools: tools, ToolChoice: tc.choice, CacheTail: true, CacheTailSkipLast: tc.skip, Messages: tc.msgs}
+		if got := toJSON(t, buildRequest(&req).Messages); got != tc.want {
+			t.Errorf("%s\n got %s\nwant %s", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestBuildRequestToolChoice(t *testing.T) {
 	tools := []core.ToolDef{{Name: "probe_echo", Schema: json.RawMessage(`{"type":"object"}`)}}
 	call := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: "t1", Name: "probe_echo", Args: json.RawMessage(`{"value":"ok"}`)}}}}
@@ -192,7 +231,7 @@ func TestBuildMessages(t *testing.T) {
 		{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "t2", Name: "fs_read", Content: "data"}}}},
 		{Role: core.MsgUser, Parts: []core.Part{{Type: core.PartText, Text: "and?"}}},
 	}
-	got := toJSON(t, buildMessages(msgs, true, true))
+	got := toJSON(t, appendMessages(nil, msgs, true, true))
 	want := `[{"role":"user","content":[{"text":"look"},{"image":{"format":"png","source":{"bytes":"iVBORw0KGgpmYWtl"}}},` +
 		`{"text":"<turn-context/>"},{"text":"[attached file b.bmp (image/bmp, 4 bytes) at in/b.bmp]"},{"text":"[attached file c.pdf (application/pdf, 9 bytes) at in/c.pdf]"}]},` +
 		`{"role":"assistant","content":[{"text":"calling"},{"toolUse":{"toolUseId":"t1","name":"shell","input":{}}},{"toolUse":{"toolUseId":"t2","name":"fs_read","input":{"path":"a"}}}]},` +
@@ -202,7 +241,7 @@ func TestBuildMessages(t *testing.T) {
 	}
 	// Images go only in user messages.
 	asst := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartImage, Blob: &core.Blob{MIME: "image/png", Data: png, Ref: "x.png", Size: 1}}}}
-	if s := toJSON(t, buildMessages([]core.Message{asst}, true, true)); strings.Contains(s, `"image"`) {
+	if s := toJSON(t, appendMessages(nil, []core.Message{asst}, true, true)); strings.Contains(s, `"image"`) {
 		t.Fatalf("assistant image %s", s)
 	}
 }

@@ -86,7 +86,10 @@ the upstream provider holding its cache. Its Anthropic models (`anthropic/…`,
 (`ExplicitCache`) the system prompt goes out as one text part per block with
 `{"type":"ephemeral"}` on each `CacheBreak` block, and `CacheTail` marks the
 last non-empty user or tool text (on the tool result's content part:
-OpenRouter ignores a marker on the message itself). `ToolsCache` is not
+OpenRouter ignores a marker on the message itself), or with
+`CacheTailSkipLast` the last such text before the request's last message,
+even when that message merges into the same user turn (none if there is
+none). `ToolsCache` is not
 sent: the system marker covers the tools, which precede it in Claude's cache
 order. At most four markers go out, the earliest system ones dropped first.
 User content and non-empty tool results stay lists of parts and merged user

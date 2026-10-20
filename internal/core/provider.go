@@ -139,17 +139,21 @@ type SystemBlock struct {
 }
 
 type Request struct {
-	Model       string
-	System      []SystemBlock
-	Tools       []ToolDef
-	ToolsCache  bool // breakpoint after the last tool (Anthropic)
-	Messages    []Message
-	CacheTail   bool // rolling breakpoint on the last message (Anthropic)
-	MaxTokens   int
-	Temperature *float64
-	ToolChoice  string // "auto" | "none" | "required" (force some tool call)
-	Stop        []string
-	NumCtx      int // Ollama native only
+	Model      string
+	System     []SystemBlock
+	Tools      []ToolDef
+	ToolsCache bool // breakpoint after the last tool (Anthropic)
+	Messages   []Message
+	CacheTail  bool // rolling breakpoint on the last message (Anthropic)
+	// CacheTailSkipLast says the last message is this call's own (a refine
+	// role call's): the rolling breakpoint goes on the end of the messages
+	// before it, which later calls share, or nowhere when there are none.
+	CacheTailSkipLast bool
+	MaxTokens         int
+	Temperature       *float64
+	ToolChoice        string // "auto" | "none" | "required" (force some tool call)
+	Stop              []string
+	NumCtx            int // Ollama native only
 	// CacheKey is stable for every call of one session and opaque (a hash,
 	// never an id); the OpenAI Responses client sends it as
 	// prompt_cache_key, the Chat Completions client to OpenRouter as
