@@ -587,7 +587,8 @@
 
       <p class="mt-8 mb-2 text-small text-muted">Counts, dots, people and keys</p>
       <div class="flex flex-wrap items-center gap-x-6 gap-y-3 text-body">
-        <span class="inline-flex items-center gap-2">Approvals <Count n={2} /></span>
+        <span class="inline-flex items-center gap-2">For you <Count n={2} /></span>
+        <span class="inline-flex items-center gap-2">Approvals <span class="inline-flex items-center gap-1.5 text-small font-medium text-warning-text tabular-nums"><Dot size={6} label="" />2</span></span>
         <span class="inline-flex items-center gap-2">Releases <Count n={0} /><span class="text-small text-muted">(nothing at 0)</span></span>
         <span class="inline-flex items-center gap-2">Settings <Dot /></span>
         <span class="inline-flex items-center gap-2"><Avatar name="Alex Kim" /> Alex Kim</span>

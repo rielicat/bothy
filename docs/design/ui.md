@@ -3116,7 +3116,7 @@ Acceptance: G1, G5, G7, G8 on the gallery; gallery shots at 1280 and 360 in both
 
 Owns: `web/src/App.svelte`, `web/src/App.test.ts`, `web/src/session.test.ts`, `web/src/lib/routes.ts` + test, `web/src/lib/router.svelte.ts` + test, `web/src/lib/stores/ui.svelte.ts`, `web/src/lib/stores/session.svelte.ts`, `web/src/components/shell/**`; deletes `web/src/components/Shell.svelte`, `web/src/components/Toasts.svelte`, `web/src/screens/chat/Sidebar.svelte`; `web/mock/domains/shell.ts`; `web/e2e/shell.spec.ts`, `web/e2e/shots/shell.spec.ts`.
 
-- [ ] Sidebar §4.2: wordmark, New chat, Search, nav with Count, chat list grouped (Today, Previous 7 days, Older), running spinner, waiting dot, hover `⋯` (Rename, Delete chat…), Show more, footer Settings (admins) with attention dot, account row and menu.
+- [ ] Sidebar §4.2: wordmark, New chat, Search, nav with icons and the Approvals count, chat list grouped (Today, Previous 7 days, Older), running spinner, waiting dot, hover `⋯` (Rename, Delete chat…), Show more, footer Settings (admins) with attention dot, account row and menu.
 - [ ] Settings mode §4.3 (admin and member variants); phone `/settings` list.
 - [ ] Phone and tablet top bar and drawer §4.4, "{n} waiting" button.
 - [ ] Banner store and host §4.9 with priorities and roles; attention dot store §4.10 (fed by security findings and connection status; hidden if unavailable).
