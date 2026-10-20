@@ -1256,7 +1256,7 @@ Opened by the sidebar Search item, ⌘K / Ctrl K, or "/" when focus is not in a 
 - Before typing: "Recent chats" (5 rows). Results: up to 5 chats, 3 notes, 3 code results. Notes and Code groups appear only when Knowledge has a repository.
 - Snippets are plain text with `<mark>` (`bg-warning-subtle text-text rounded-sm`) on matches (S15). Chat titles follow the sidebar rule, never "Untitled chat".
 - Keyboard: ↑ ↓ move, Enter opens, Esc closes. `role="combobox"` + `listbox`.
-- No results: "No results for “{q}”." No chats at all, before typing: "No chats yet. The ones you start show up here."
+- No results: "No results for “{q}”." No chats at all, before typing: "No chats yet. The ones you start show up here.", only once the list has loaded (a list that didn't load says nothing here).
 
 ### 6.4 Keyboard shortcuts dialog
 

@@ -171,29 +171,33 @@
       <span class="hidden text-caption text-faint pointer-fine:inline" aria-hidden="true">Esc</span>
       <IconButton icon="close" label="Close" variant="quiet" class="pointer-fine:hidden" onclick={close} />
     </div>
-    <div id="{uid}-list" role="listbox" aria-label={term ? 'Chats' : 'Recent chats'} class="min-h-0 flex-1 overflow-y-auto p-2">
-      {#if rows.length}
-        <p class="px-2 pt-1 pb-1 text-caption text-muted" aria-hidden="true">{term ? 'Chats' : 'Recent chats'}</p>
-        {#each rows as r, i (r.id)}
-          <div
-            id="{uid}-o{i}"
-            role="option"
-            aria-selected={i === active}
-            tabindex="-1"
-            class="flex min-h-10 cursor-pointer flex-col justify-center rounded-md px-2 py-1.5 aria-selected:bg-hover pointer-coarse:min-h-12"
-            onclick={() => go(r)}
-            onpointermove={() => (active = i)}
-          >
-            <span class="flex items-baseline gap-3">
-              <span class="min-w-0 flex-1 truncate text-body text-text">{@render marked(r.title)}</span>
-              <span class="shrink-0 text-small text-muted">{dayLabel(r.at, clock.now)}</span>
-            </span>
-            {#if r.snippet}<span class="truncate text-small text-muted">{@render marked(r.snippet)}</span>{/if}
-          </div>
-        {/each}
-      {:else if term && hits}
+    <div class="min-h-0 flex-1 overflow-y-auto p-2">
+      <div id="{uid}-list" role="listbox" aria-label={term ? 'Chats' : 'Recent chats'}>
+        {#if rows.length}
+          <p class="px-2 pt-1 pb-1 text-caption text-muted" aria-hidden="true">{term ? 'Chats' : 'Recent chats'}</p>
+          {#each rows as r, i (r.id)}
+            <div
+              id="{uid}-o{i}"
+              role="option"
+              aria-selected={i === active}
+              tabindex="-1"
+              class="flex min-h-10 cursor-pointer flex-col justify-center rounded-md px-2 py-1.5 aria-selected:bg-hover pointer-coarse:min-h-12"
+              onclick={() => go(r)}
+              onpointermove={() => (active = i)}
+            >
+              <span class="flex items-baseline gap-3">
+                <span class="min-w-0 flex-1 truncate text-body text-text">{@render marked(r.title)}</span>
+                <span class="shrink-0 text-small text-muted">{dayLabel(r.at, clock.now)}</span>
+              </span>
+              {#if r.snippet}<span class="truncate text-small text-muted">{@render marked(r.snippet)}</span>{/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
+      <!-- Beside the listbox, not in it: a listbox holds only options. -->
+      {#if !rows.length && term && hits}
         <p class="px-2 py-2 text-body text-muted">No results for “{term}”.</p>
-      {:else if !term && chats.loaded}
+      {:else if !rows.length && !term && chats.loaded && !chats.failed}
         <p class="px-2 py-2 text-body text-muted">No chats yet. The ones you start show up here.</p>
       {/if}
     </div>

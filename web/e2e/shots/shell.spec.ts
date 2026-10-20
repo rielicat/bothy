@@ -212,7 +212,7 @@ const states: ShotState[] = [
     setup: async (page) => {
       await page.keyboard.press('/');
       await page.getByRole('combobox', { name: 'Search chats' }).fill('zebra crossing');
-      await page.getByRole('listbox').getByText('No results for “zebra crossing”.').waitFor();
+      await page.getByRole('dialog').getByText('No results for “zebra crossing”.').waitFor();
     },
   },
 

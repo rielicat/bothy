@@ -436,7 +436,9 @@ describe('search dialog (§6.3)', () => {
     shell.search = true;
     const box = await waitFor(() => screen.getByRole('combobox'));
     await fireEvent.input(box, { target: { value: 'zebra' } });
-    await waitFor(() => expect(screen.getByText('No results for “zebra”.')).toBeTruthy());
+    const none = await waitFor(() => screen.getByText('No results for “zebra”.'));
+    // Beside the listbox, which may hold only options.
+    expect(none.closest('[role=listbox]')).toBeNull();
   });
 
   it('says there are no chats yet instead of an empty list', async () => {
@@ -444,7 +446,18 @@ describe('search dialog (§6.3)', () => {
     await waitFor(() => expect(chats.loaded).toBe(true));
     shell.search = true;
     await waitFor(() => screen.getByRole('combobox', { name: 'Search chats' }));
-    expect(within(screen.getByRole('listbox')).getByText('No chats yet. The ones you start show up here.')).toBeTruthy();
+    const none = screen.getByText('No chats yet. The ones you start show up here.');
+    expect(none.closest('dialog')).toBeTruthy();
+    expect(none.closest('[role=listbox]')).toBeNull();
+  });
+
+  // The list ends loading when it fails too; "No chats yet" would then be untrue.
+  it("doesn't say there are no chats when the list didn't load", async () => {
+    await start('/activity', { override: (m, url) => (m === 'GET' && url.startsWith('/api/sessions?') ? new Response('{"error":"internal"}', { status: 500 }) : undefined) });
+    await waitFor(() => expect(chats.failed).toBe(true));
+    shell.search = true;
+    await waitFor(() => screen.getByRole('combobox', { name: 'Search chats' }));
+    expect(screen.queryByText(/^No chats yet/)).toBeNull();
   });
 });
 
