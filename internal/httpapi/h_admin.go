@@ -625,6 +625,9 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request, _ core.Act
 	if req.SecretRef != "" && !strings.HasPrefix(req.SecretRef, "secret:") && !strings.HasPrefix(req.SecretRef, config.AWSSecretPrefix) {
 		return badRequest("secret_ref must be secret:<name> or aws-sm:<secret>")
 	}
+	if err := s.refuseSystemKey(r.Context(), req.SecretRef); err != nil {
+		return err
+	}
 	if req.APIKey != "" && s.d.Vault != nil {
 		// The key is write-only: keep it out of logs and probe errors.
 		id := "probe:" + requestID()
@@ -749,6 +752,32 @@ func (s *Server) configCtx(r *http.Request, a core.Actor) (context.Context, erro
 
 // githubSecretRefs lists the GitHub connections' own key references; none
 // without the GitHub service.
+// systemKeys are Bothy's own keys, which nothing an admin points at another
+// address may send: MCP servers and model providers alike.
+func (s *Server) systemKeys(ctx context.Context) (config.SystemKeys, error) {
+	refs, err := s.githubSecretRefs(ctx)
+	if err != nil {
+		return config.SystemKeys{}, err
+	}
+	return config.NewSystemKeys(append(s.cfg().SystemSecretRefs(), refs...)...), nil
+}
+
+// refuseSystemKey is the provider forms' check: a model provider is any
+// address, so it may not be handed a chat app token or a sign-in secret.
+func (s *Server) refuseSystemKey(ctx context.Context, ref string) error {
+	if ref == "" {
+		return nil
+	}
+	keys, err := s.systemKeys(ctx)
+	if err != nil {
+		return err
+	}
+	if keys.Sends(ref) {
+		return badRequest("%s", config.SystemKeyMessage)
+	}
+	return nil
+}
+
 func (s *Server) githubSecretRefs(ctx context.Context) ([]string, error) {
 	if s.d.GitHub == nil {
 		return nil, nil
@@ -936,11 +965,10 @@ func (s *Server) vaultList(w http.ResponseWriter, r *http.Request, a core.Actor)
 		return err
 	}
 	if sc == core.GlobalScope {
-		refs, err := s.githubSecretRefs(r.Context())
+		keys, err := s.systemKeys(r.Context())
 		if err != nil {
 			return err
 		}
-		keys := config.NewSystemKeys(append(s.d.Config.Current().SystemSecretRefs(), refs...)...)
 		for i, m := range metas {
 			ref := "secret:" + m.Name
 			if m.Source == "aws-sm" {

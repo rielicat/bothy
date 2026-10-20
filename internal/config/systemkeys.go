@@ -8,7 +8,7 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 )
 
-// SystemKeyMessage is why an MCP server may not send a key.
+// SystemKeyMessage is why an MCP server or model provider may not send a key.
 const SystemKeyMessage = "this key belongs to Bothy and can't be sent to other services"
 
 // SystemKeys is what an MCP server may never send: the names
@@ -99,7 +99,8 @@ func systemRefsOf(ctx context.Context) []string {
 }
 
 // systemKeyErrors refuses a change that has an MCP server send one of
-// Bothy's own keys, in a header or its address. It runs on writes only, not
+// Bothy's own keys, in a header or its address, or a model provider send one
+// as its API key or a header. It runs on writes only, not
 // in validate: a value already in effect is left as it is, so a file that
 // had one still loads and the server's status says why it can't start
 // (SPEC §2.11) rather than the entry vanishing.
@@ -119,6 +120,21 @@ func systemKeyErrors(ctx context.Context, old, next *Config, src Source) FieldEr
 		}
 		if s.URL != was.URL && keys.Sends(s.URL) {
 			out = append(out, newIssue(base+".url", "", src, SystemKeyMessage).FieldError)
+		}
+	}
+	for _, p := range next.Providers {
+		var was Provider
+		if i := slices.IndexFunc(old.Providers, func(o Provider) bool { return o.ID == p.ID }); i >= 0 {
+			was = old.Providers[i]
+		}
+		base := "providers." + p.ID
+		if p.APIKey != was.APIKey && keys.Sends(p.APIKey) {
+			out = append(out, newIssue(base+".api_key", "", src, SystemKeyMessage).FieldError)
+		}
+		for _, h := range keysOf(p.Headers) {
+			if v := p.Headers[h]; v != was.Headers[h] && keys.Sends(v) {
+				out = append(out, newIssue(base+".headers."+h, "", src, SystemKeyMessage).FieldError)
+			}
 		}
 	}
 	return out

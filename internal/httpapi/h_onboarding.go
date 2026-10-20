@@ -223,6 +223,9 @@ func (s *Server) connectProvider(w http.ResponseWriter, r *http.Request, a core.
 	case strings.ContainsFunc(req.Model+req.QuickModel, func(c rune) bool { return c < ' ' || c == 0x7f }):
 		return badRequest("model ids must not contain control characters")
 	}
+	if err := s.refuseSystemKey(r.Context(), req.SecretRef); err != nil {
+		return err
+	}
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
 		id = freeProviderID(s.cfg().Providers, defaultProviderID(req.Kind, base), req.Kind, base)

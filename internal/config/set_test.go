@@ -548,3 +548,23 @@ func TestSetRefusesKeysBothysSettingsUse(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSetRefusesBothysOwnKeysForProviders(t *testing.T) {
+	m := load(t, t.TempDir())
+	provider := func(key string, headers map[string]string) string {
+		b, _ := json.Marshal(map[string]any{"type": "openai_compat", "base_url": "https://llm.example.com/v1", "api_key": key, "headers": headers})
+		return string(b)
+	}
+	for name, change := range map[string]string{
+		"api key": provider("secret:telegram_bot_token", nil),
+		"header":  provider("secret:llm_key", map[string]string{"X-Extra": "secret:google_sign_in_client_secret"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := set(t, m, map[string]string{"providers.custom": change})
+			if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), SystemKeyMessage) {
+				t.Fatalf("error %q lacks %q", fe.Error(), SystemKeyMessage)
+			}
+		})
+	}
+	mustSet(t, m, map[string]string{"providers.custom": provider("secret:llm_key", nil)})
+}

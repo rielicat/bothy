@@ -104,3 +104,19 @@ func TestMCPResolvePinsVersionAndIntegrity(t *testing.T) {
 		t.Fatalf("egress = %+v", dests)
 	}
 }
+
+func TestProvidersRefuseBothysOwnKeys(t *testing.T) {
+	h := newHarness(t).setup()
+	for _, ref := range []string{"secret:telegram_bot_token", "secret:github_sign_in_client_secret"} {
+		rec := h.do("POST", "/api/providers/test", dto.ProviderTestReq{Kind: core.KindOpenAICompat, BaseURL: "https://llm.example.com/v1", SecretRef: ref}, h.owner)
+		expect(t, rec, http.StatusBadRequest)
+		if !strings.Contains(rec.Body.String(), "belongs to Bothy") {
+			t.Fatalf("test %s: %s", ref, rec.Body)
+		}
+		expect(t, h.do("POST", "/api/providers/connect", dto.ProviderConnectReq{Kind: core.KindOpenAICompat, BaseURL: "https://llm.example.com/v1",
+			SecretRef: ref}, h.owner), http.StatusBadRequest)
+	}
+	if len(h.llm.Probes) != 0 {
+		t.Fatalf("a refused key reached the probe: %+v", h.llm.Probes)
+	}
+}
