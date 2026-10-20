@@ -210,8 +210,8 @@
         {/snippet}
       </SettingsRow>
     {/if}
-    <div class="py-2">
-      <Button variant="danger-text" class="-ml-3" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
+    <div class="py-3">
+      <Button variant="danger-text" size="sm" class="-ml-3" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
     </div>
   </SettingsSection>
 
