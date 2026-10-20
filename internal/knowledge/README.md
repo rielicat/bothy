@@ -8,7 +8,12 @@ index of repositories and its own project notes, kept outside the repositories.
 `dir` may be host-absolute, box-side `/workspace/...` or workspace-relative,
 and a `workspace_id` other than the principal's is ignored) or `POST /api/knowledge/repos` (any directory of the
 caller's workspace; a default `local/<name>` already naming another folder is
-a 409) queues an index. Two workers walk the directory read-only through
+a 409) queues an index. A GitHub source is indexed from `Deps.Snapshot`
+(`github.Service.Snapshot`): the files its commit holds in a folder of their
+own, removed after the walk, never the workspace checkout boxes edit, so no
+citation names code the commit lacks. `Reindex` of a GitHub source asks for
+the default branch's head now (requested `sha` ""), and the commit read
+becomes `IndexedSHA`. Two workers walk the directory read-only through
 `os.Root`, never following symlinks and opening files with `O_NONBLOCK` (a FIFO
 a box plants cannot park a worker), and skip VCS metadata, vendored and build
 directories, lockfiles, minified and generated files (by name and by

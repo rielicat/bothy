@@ -43,7 +43,11 @@ func checkoutDir(r *core.GitHubRepo) string { return "repos/" + r.Owner + "/" + 
 // lockCheckout serialises checkouts, change scans and pull requests of one
 // repository in one workspace.
 func (s *Service) lockCheckout(env *core.ToolEnv, r *core.GitHubRepo) func() {
-	return s.locks.lock(string(env.Principal.Workspace) + "\x00" + strings.ToLower(r.FullName()))
+	return s.lockRepo(env.Principal.Workspace, r)
+}
+
+func (s *Service) lockRepo(ws core.WorkspaceID, r *core.GitHubRepo) func() {
+	return s.locks.lock(string(ws) + "\x00" + strings.ToLower(r.FullName()))
 }
 
 // apiDomain is the API host:port an Action names for rules and audit.
