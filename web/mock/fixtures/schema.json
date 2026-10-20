@@ -1316,8 +1316,9 @@
      "x-reload": "hot"
     },
     "profile": {
-     "default": "base",
+     "default": "auto",
      "enum": [
+      "auto",
       "base",
       "node"
      ],

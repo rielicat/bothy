@@ -195,7 +195,7 @@ Versioned `/v1`, fixed schema, wire types in `internal/sandboxd/proto` (M5):
 
 | Method + path | Request → response |
 |---|---|
-| `GET /v1/health` | → `proto.Health` (engine, API ≥ 1.44, runtime, rootless, subpath, mount mode, self-test results, ok) |
+| `GET /v1/health` | → `proto.Health` (engine, API ≥ 1.44, runtime, rootless, subpath, mount mode, self-test results, ok, the profiles `BOTHY_SBX_IMAGES` lists) |
 | `POST /v1/selftest` | re-run canaries → `proto.Health` |
 | `POST /v1/boxes` | `proto.CreateReq` → `proto.CreateResp`. Idempotent per key. Limits clamped. Refused (503 `unavailable`) when the self-test failed. Refused (503 `busy`) at `BOTHY_SBX_MAX_BOXES` after evicting the least-recently-used idle box fails. |
 | `POST /v1/boxes/{key}/exec` | `proto.ExecReq` → NDJSON `proto.Frame` stream |
@@ -243,9 +243,10 @@ type Health struct {
 	OK       bool    `json:"ok"`               // false => gateway treats exec as unavailable
 	Reason   string  `json:"reason,omitempty"`
 	Fix      string  `json:"fix,omitempty"`
-	SelfTest []Check `json:"self_test"`
-	Boxes    int     `json:"boxes"`
-	MaxBoxes int     `json:"max_boxes"`
+	SelfTest []Check  `json:"self_test"`
+	Boxes    int      `json:"boxes"`
+	MaxBoxes int      `json:"max_boxes"`
+	Profiles []string `json:"profiles"` // the image keys of BOTHY_SBX_IMAGES, sorted
 }
 
 type Check struct {
@@ -388,6 +389,7 @@ Volume subpaths need Engine API ≥ 1.45 (Docker 26+), and the subpath directory
 **Sandbox images** (`deploy/sandbox/`, M5; digest-pinned in releases):
 - `bothy-sandbox` (base): debian trixie-slim, python3, python3-venv, uv, bash, coreutils, git, curl, ca-certificates, jq, ripgrep, unzip, procps, sbx-init; user `sbx` 10001. ~106 MiB compressed (measured 105.8 MiB on linux/arm64; the apt layer is ~173 MB unpacked and uv ~48 MB).
 - `bothy-sandbox-node`: base + Node 24 LTS + npm. ~153 MiB compressed (measured 152.5 MiB on linux/arm64).
+- **Which one a workspace gets.** The compose file, the ECS task and the EKS patch list both. A chat's box takes `sandbox.profile` (§7.1): `auto` (the default) is `node` when `Health.Profiles` lists it and `base` otherwise (also when the backend lists none: bwrap, an older sandboxd), so a sandboxd with only `BOTHY_SBX_IMAGES=base=…` keeps working without Node; `base` or `node` pins one. The gateway refuses a box whose profile `Health.Profiles` doesn't list (`ErrInvalid`, "this server has no Node workspace image, only Base") before asking sandboxd, and doctor reports `sandbox.profile_missing` while `sandbox.profile` resolves to such a profile. MCP servers keep their own `profile` (§2.11).
 - Both: all setuid/setgid bits stripped (`find / -perm /6000 -type f -exec chmod a-s {} +`); `/etc/gitconfig` sets `core.fsmonitor=false`, `core.hooksPath=/dev/null`, `core.pager=cat`, `protocol.file.allow=never`, `protocol.ext.allow=never`, `safe.directory=/workspace/*`.
 
 ### 2.7 Exec, timeout and kill (D12)
@@ -2580,6 +2582,9 @@ type SandboxStatus struct {
 	Rootless  bool            `json:"rootless"`
 	SelfTest  []SelfTestCheck `json:"self_test"`
 	CheckedAt time.Time       `json:"checked_at"`
+	// Profiles are the workspace images the backend offers (sandboxd's
+	// BOTHY_SBX_IMAGES keys); empty when it doesn't say (bwrap, none).
+	Profiles []BoxProfile `json:"profiles,omitempty"`
 }
 
 type BoxProfile string
@@ -2596,8 +2601,8 @@ type BoxLimits struct {
 }
 
 type BoxSpec struct {
-	Key       string // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
-	Profile   BoxProfile
+	Key       string      // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
+	Profile   BoxProfile  // "" = sandbox.profile, resolved against SandboxStatus.Profiles (§2.6)
 	Workspace WorkspaceID // mounted rw at /workspace; "" = none (MCP servers without workspace access)
 	MCPTree   string      // "mcp/<server>/<install_id>" mounted at /opt/mcp; "" = none
 	MCPTreeRW bool        // true only for the installer box
@@ -6712,7 +6717,7 @@ policy:
 sandbox:
   backend: auto                   # auto | sandboxd | bwrap | none
   socket: /run/bothy/sandboxd.sock
-  profile: base                   # base | node
+  profile: auto                   # auto | base | node; auto = node when sandboxd has its image, else base
   limits: {memory_mb: 512, cpus: 1.0, pids: 256}
   exec_timeout: 120s
   output_kb: 64
@@ -7111,7 +7116,7 @@ type Trifecta struct {
 type SandboxCfg struct {
 	Backend          string    `yaml:"backend"` // auto | sandboxd | bwrap | none
 	Socket           string    `yaml:"socket" locked:"true"`
-	Profile          string    `yaml:"profile" reload:"hot"`
+	Profile          string    `yaml:"profile" reload:"hot"` // auto | base | node; auto = node when sandboxd has its image
 	Limits           BoxLimits `yaml:"limits" reload:"hot"`
 	ExecTimeout      Duration  `yaml:"exec_timeout" reload:"hot"`
 	OutputKB         int       `yaml:"output_kb" reload:"hot"`
@@ -8906,6 +8911,7 @@ Config keys, provenance (§7.3: UI, file, env, default), env-var names and the e
 | `sandbox.rootful_runc` | low | ✓ | |
 | `sandbox.runsc_host_uds` | low | | |
 | `sandbox.bind_mounts` (Docker 25 bind-mount mode) | info | | |
+| `sandbox.profile_missing` (`sandbox.profile` resolves to an image sandboxd doesn't list, §2.6) | medium | | |
 | `docker.socket_access` | medium | | |
 | `egress.wildcards` / `egress.shared_tenant_allowed` | medium | ✓ | |
 | `egress.presets_enabled` | low | ✓ | |
@@ -10817,7 +10823,7 @@ Every module: implements its `new.go` signatures; ships `README.md`; `go test -r
 
 #### M5 · Sandbox
 
-- **Implements:** `sandbox.Client` (`core.Sandbox`): backend probe (sandboxd → bwrap → none), sandboxd client (`proto`), directory pre-creation in `Ensure` (`ws/<id>` and MCP trees 2770 g10001, `skills/`, `egress/<h>` 0750 g10001), `Usage` from the quota scan (every backend), `Destroy` → `Egress.CloseBox`, health watch and `Watch` callbacks (`Run` polls only sandboxd's health; an auto-mode `none` backend only watches for the sandboxd socket; `none` and `bwrap` are probed once, at start), `no_sandbox` / `sandbox_not_isolated` banners (an admin broadcast plus one per member user principal, since members get `banner` rather than `sandbox.status`: synced on every status change and once a minute for users created or promoted since, without reading the users table while no banner is shown; members promoted to admin, disabled or deleted lose their per-principal banner), idle reaping, quota scan, `Checks` (`sandbox.unavailable`, `sandbox.not_isolated`, `sandbox.rootful_runc`, `sandbox.bind_mounts`, `sandbox.runsc_host_uds`, `docker.socket_access`); `internal/sandbox/bwrap` (§2.12); tools `shell` (`bash -lc` via `ExecRequest`, `local_write`, `Exec`) and `python` (writes the script to `.bothy/tmp/` then runs `python3`). `internal/sandboxd`: server (`proto`, `DisallowUnknownFields`, regex validation, peercred check), hand-written Engine API client (ping, version, info, image inspect/pull by digest, container create/start/kill/remove/list, exec create/start with hijack and stream demux, exec inspect), compiled spec (§2.6), reaper, max-boxes LRU, runtime selection and UDS canary (§2.9), self-test (§2.10), socket onboarding messages. `internal/sbxinit` (§2.7). `deploy/sandbox/` images.
+- **Implements:** `sandbox.Client` (`core.Sandbox`): backend probe (sandboxd → bwrap → none), sandboxd client (`proto`), directory pre-creation in `Ensure` (`ws/<id>` and MCP trees 2770 g10001, `skills/`, `egress/<h>` 0750 g10001), `Usage` from the quota scan (every backend), `Destroy` → `Egress.CloseBox`, health watch and `Watch` callbacks (`Run` polls only sandboxd's health; an auto-mode `none` backend only watches for the sandboxd socket; `none` and `bwrap` are probed once, at start), `no_sandbox` / `sandbox_not_isolated` banners (an admin broadcast plus one per member user principal, since members get `banner` rather than `sandbox.status`: synced on every status change and once a minute for users created or promoted since, without reading the users table while no banner is shown; members promoted to admin, disabled or deleted lose their per-principal banner), idle reaping, quota scan, `Checks` (`sandbox.unavailable`, `sandbox.not_isolated`, `sandbox.rootful_runc`, `sandbox.bind_mounts`, `sandbox.runsc_host_uds`, `sandbox.bwrap_limits`, `sandbox.profile_missing`, `docker.socket_access`), the workspace image choice (`sandbox.profile`, §2.6); `internal/sandbox/bwrap` (§2.12); tools `shell` (`bash -lc` via `ExecRequest`, `local_write`, `Exec`) and `python` (writes the script to `.bothy/tmp/` then runs `python3`). `internal/sandboxd`: server (`proto`, `DisallowUnknownFields`, regex validation, peercred check), hand-written Engine API client (ping, version, info, image inspect/pull by digest, container create/start/kill/remove/list, exec create/start with hijack and stream demux, exec inspect), compiled spec (§2.6), reaper, max-boxes LRU, runtime selection and UDS canary (§2.9), self-test (§2.10), socket onboarding messages. `internal/sbxinit` (§2.7). `deploy/sandbox/` images.
 - **Consumes:** config, `core.Egress`, `core.Store`, `core.Bus`, `core.Auditor`.
 - **Acceptance tests:**
   - Unit: spec test asserts every hardening field of §2.6; unknown JSON fields, bad key/workspace/tree ids, `..` in cwd, forbidden env keys → 400; limits clamped; frame decoding fuzzed.

@@ -7,6 +7,8 @@
 
   let info = $state<SandboxInfo | null>(null);
   const st = $derived(info?.status);
+  const imageNames: Record<string, string> = { base: 'Base', node: 'Node' };
+  const images = $derived((st?.profiles ?? []).map((p) => imageNames[p] ?? p).join(', '));
 
   $effect(() => {
     api.get<SandboxInfo>('/api/sandbox').then((i) => (info = i), () => {});
@@ -32,6 +34,10 @@
         <dt class="py-1 text-muted">Self-test: {t.name}</dt>
         <dd class="py-1 {t.ok ? 'text-text' : 'text-danger-text'}">{t.ok ? 'Passed' : `Failed${t.detail ? `: ${t.detail}` : ''}`}</dd>
       {/each}
+      {#if images}
+        <dt class="py-1 text-muted">Workspace images</dt>
+        <dd class="py-1 text-text">{images}</dd>
+      {/if}
       {#if info?.quota_mb}
         <dt class="py-1 text-muted">Your workspace</dt>
         <dd class="py-1 text-text tabular-nums">{info.used_mb} MB of {info.quota_mb} MB</dd>
@@ -57,9 +63,11 @@
     label="Workspace image"
     type="select"
     options={[
+      { value: 'auto', label: 'Automatic' },
       { value: 'base', label: 'Base (Python and shell tools)' },
       { value: 'node', label: 'Node (adds Node.js)' },
     ]}
+    help="Automatic uses Node when this server has it, and Base when it doesn't."
   />
   <AdvancedField path="sandbox.limits.memory_mb" label="Memory per workspace (MB)" type="number" />
   <AdvancedField path="sandbox.limits.cpus" label="CPUs per workspace" type="number" />

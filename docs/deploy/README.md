@@ -107,6 +107,13 @@ capabilities, uid 10001, digest-pinned images). Prefer rootless Docker or
 gVisor (`runsc`) where you can. Where mounting the runtime socket is not
 acceptable, run without the sandbox.
 
+`BOTHY_SBX_IMAGES` lists the workspace images sandboxd may start. The compose
+file and the ECS and EKS examples list `base` (Python and shell tools) and
+`node` (adds Node 24 and npm). With the default `sandbox.profile: auto`, new
+workspaces get `node` when sandboxd lists it and `base` otherwise, so a
+sandbox with only `base` keeps working, without Node. Set `sandbox.profile`
+(Settings → Advanced → Running code → Workspace image) to pin one.
+
 ## Reaching the UI privately
 
 Bothy refuses to be exposed carelessly. Its exposure gate decides by the peer

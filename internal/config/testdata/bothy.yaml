@@ -161,7 +161,7 @@ policy:
 sandbox:
   backend: auto                   # auto | sandboxd | bwrap | none
   socket: /run/bothy/sandboxd.sock
-  profile: base                   # base | node
+  profile: auto                   # auto | base | node; auto = node when sandboxd has its image, else base
   limits: {memory_mb: 512, cpus: 1.0, pids: 256}
   exec_timeout: 120s
   output_kb: 64

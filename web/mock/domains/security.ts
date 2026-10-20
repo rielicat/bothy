@@ -64,6 +64,7 @@ export const sandbox: SandboxInfo = {
       { name: 'egress only via proxy', ok: true },
     ],
     checked_at: ago(30),
+    profiles: ['base', 'node'],
   },
   quota_mb: 2048,
   used_mb: 312,

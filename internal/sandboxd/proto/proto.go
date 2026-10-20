@@ -23,19 +23,20 @@ const (
 )
 
 type Health struct {
-	Version  string  `json:"version"`
-	API      string  `json:"api"`              // engine API version negotiated, must be >= 1.44
-	Engine   string  `json:"engine"`           // "docker 27.4.1"
-	Runtime  string  `json:"runtime"`          // runsc | runc
-	Rootless bool    `json:"rootless"`         // from /info SecurityOptions
-	Subpath  bool    `json:"subpath"`          // volume subpath supported
-	Mounts   string  `json:"mounts,omitempty"` // MountsSubpath | MountsBind, once the engine checks passed
-	OK       bool    `json:"ok"`               // false => gateway treats exec as unavailable
-	Reason   string  `json:"reason,omitempty"`
-	Fix      string  `json:"fix,omitempty"`
-	SelfTest []Check `json:"self_test"`
-	Boxes    int     `json:"boxes"`
-	MaxBoxes int     `json:"max_boxes"`
+	Version  string   `json:"version"`
+	API      string   `json:"api"`              // engine API version negotiated, must be >= 1.44
+	Engine   string   `json:"engine"`           // "docker 27.4.1"
+	Runtime  string   `json:"runtime"`          // runsc | runc
+	Rootless bool     `json:"rootless"`         // from /info SecurityOptions
+	Subpath  bool     `json:"subpath"`          // volume subpath supported
+	Mounts   string   `json:"mounts,omitempty"` // MountsSubpath | MountsBind, once the engine checks passed
+	OK       bool     `json:"ok"`               // false => gateway treats exec as unavailable
+	Reason   string   `json:"reason,omitempty"`
+	Fix      string   `json:"fix,omitempty"`
+	SelfTest []Check  `json:"self_test"`
+	Boxes    int      `json:"boxes"`
+	MaxBoxes int      `json:"max_boxes"`
+	Profiles []string `json:"profiles"` // the image keys of BOTHY_SBX_IMAGES, sorted
 }
 
 type Check struct {

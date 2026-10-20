@@ -84,6 +84,9 @@ func statusFromHealth(h proto.Health, err error) core.SandboxStatus {
 	for _, c := range h.SelfTest {
 		st.SelfTest = append(st.SelfTest, core.SelfTestCheck{Name: c.Name, OK: c.OK, Detail: c.Detail})
 	}
+	for _, p := range h.Profiles {
+		st.Profiles = append(st.Profiles, core.BoxProfile(p))
+	}
 	return st
 }
 

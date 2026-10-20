@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -88,6 +89,24 @@ func checks(s *service) []core.Check {
 			return finding("sandbox.bwrap_limits", "bwrap jails have no memory or process limits",
 				"Jails get rlimits only; a runaway command can exhaust the memory or the processes of the user the gateway runs as.",
 				"use the compose deployment for per-box memory, CPU and pids limits ("+composeSteps+")", core.SevLow, true)
+		}},
+		check{id: "sandbox.profile_missing", svc: s, run: func(st core.SandboxStatus) []core.Finding {
+			if !st.Available || len(st.Profiles) == 0 {
+				return nil
+			}
+			configured := s.cfg.Current().Sandbox.Profile
+			want := boxProfile(configured, st.Profiles)
+			if slices.Contains(st.Profiles, want) {
+				return nil
+			}
+			fix := "set Workspace image to Automatic in Settings → Advanced → Running code, or add a " +
+				string(want) + " image to BOTHY_SBX_IMAGES and restart sandboxd"
+			if configured == "auto" {
+				fix = "add a base or node image to BOTHY_SBX_IMAGES and restart sandboxd"
+			}
+			return finding("sandbox.profile_missing", "New workspaces can't start: "+missingProfile(want, st.Profiles),
+				"Bothy can't run commands or scripts in a chat until the workspace image is one the sandbox has.",
+				fix, core.SevMedium, false)
 		}},
 		check{id: "docker.socket_access", svc: s, run: func(st core.SandboxStatus) []core.Finding {
 			c, ok := selfTestCheck(st, proto.CheckEngine)

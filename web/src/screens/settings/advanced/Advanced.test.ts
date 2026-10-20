@@ -126,6 +126,15 @@ describe('Advanced', () => {
     expect((screen.getByLabelText('Log level') as HTMLSelectElement).disabled).toBe(true);
   });
 
+  it('picks the workspace image automatically and lists the ones this server has', async () => {
+    await open();
+    const image = (await screen.findByLabelText('Workspace image')) as HTMLSelectElement;
+    expect(image.value).toBe('auto');
+    expect([...image.options].map((o) => o.text)).toEqual(['Automatic', 'Base (Python and shell tools)', 'Node (adds Node.js)']);
+    expect(screen.getByText("Automatic uses Node when this server has it, and Base when it doesn't.")).toBeTruthy();
+    expect((await screen.findByText('Workspace images')).nextElementSibling?.textContent).toBe('Base, Node');
+  });
+
   it('edits a model price', async () => {
     const calls = await open();
     // Phones read the row as one line; the table cells carry the same prices on wider screens.

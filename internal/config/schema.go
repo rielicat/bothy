@@ -335,7 +335,7 @@ type Trifecta struct {
 type SandboxCfg struct {
 	Backend          string    `yaml:"backend"` // auto | sandboxd | bwrap | none
 	Socket           string    `yaml:"socket" locked:"true"`
-	Profile          string    `yaml:"profile" reload:"hot"`
+	Profile          string    `yaml:"profile" reload:"hot"` // auto | base | node; auto = node when sandboxd has its image
 	Limits           BoxLimits `yaml:"limits" reload:"hot"`
 	ExecTimeout      Duration  `yaml:"exec_timeout" reload:"hot"`
 	OutputKB         int       `yaml:"output_kb" reload:"hot"`

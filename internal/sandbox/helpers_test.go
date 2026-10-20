@@ -83,12 +83,19 @@ func shortTempDir(t *testing.T) string {
 	return dir
 }
 
+// bothImages is what the compose file gives sandboxd.
+var bothImages = "base=" + testImage + ",node=" + testImage
+
 // startSandboxd serves the real sandboxd API, backed by an enginetest.Fake,
-// on a unix socket and waits for its self-test.
-func startSandboxd(t *testing.T, sock string, mut func(*enginetest.Fake)) *enginetest.Fake {
+// on a unix socket and waits for its self-test. images is BOTHY_SBX_IMAGES,
+// bothImages when empty.
+func startSandboxd(t *testing.T, sock, images string, mut func(*enginetest.Fake)) *enginetest.Fake {
 	t.Helper()
+	if images == "" {
+		images = bothImages
+	}
 	runDir := shortTempDir(t)
-	cfg, err := sandboxd.ParseConfig([]string{"BOTHY_SBX_IMAGES=base=" + testImage + ",node=" + testImage,
+	cfg, err := sandboxd.ParseConfig([]string{"BOTHY_SBX_IMAGES=" + images,
 		"BOTHY_SBX_RUNTIME=runc", "BOTHY_SBX_SOCKET=" + sock, "BOTHY_SBX_RUN_DIR=" + runDir})
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +145,8 @@ type env struct {
 }
 
 type opts struct {
-	sandboxd bool // start a sidecar on the configured socket first
+	sandboxd bool   // start a sidecar on the configured socket first
+	images   string // the sidecar's BOTHY_SBX_IMAGES; bothImages when empty
 	cfg      func(*config.Config)
 	eng      func(*enginetest.Fake)
 }
@@ -157,7 +165,7 @@ func newEnv(t *testing.T, o opts) (*env, *enginetest.Fake) {
 	}
 	var eng *enginetest.Fake
 	if o.sandboxd {
-		eng = startSandboxd(t, e.socket, o.eng)
+		eng = startSandboxd(t, e.socket, o.images, o.eng)
 	}
 	e.cfg = config.Default()
 	e.cfg.Sandbox.Backend = "sandboxd"

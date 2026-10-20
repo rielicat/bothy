@@ -2889,7 +2889,7 @@
   },
   {
    "path": "sandbox.profile",
-   "value": "base",
+   "value": "auto",
    "source": {
     "layer": "file",
     "file": "/data/bothy.yaml",
@@ -2900,7 +2900,7 @@
      "source": {
       "layer": "default"
      },
-     "value": "base"
+     "value": "auto"
     }
    ],
    "locked": false,

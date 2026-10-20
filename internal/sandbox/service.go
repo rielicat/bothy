@@ -8,6 +8,8 @@ import (
 	"io"
 	"log/slog"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -265,7 +267,7 @@ func (s *service) Ensure(ctx context.Context, spec core.BoxSpec) error {
 	if !st.Available {
 		return unavailable(st)
 	}
-	if err := s.validateSpec(&spec); err != nil {
+	if err := s.validateSpec(&spec, st.Profiles); err != nil {
 		return err
 	}
 	if s.egress == nil {
@@ -305,10 +307,10 @@ func (s *service) ensureLocked(ctx context.Context, be backend, spec core.BoxSpe
 	return be.create(ctx, spec)
 }
 
-func (s *service) validateSpec(spec *core.BoxSpec) error {
+func (s *service) validateSpec(spec *core.BoxSpec, offered []core.BoxProfile) error {
 	c := s.cfg.Current().Sandbox
 	if spec.Profile == "" {
-		spec.Profile = core.BoxProfile(c.Profile)
+		spec.Profile = boxProfile(c.Profile, offered)
 	}
 	// Unset limits take the configured ones; sandboxd would clamp a zero to
 	// the minimum (0.1 CPU, 16 pids).
@@ -332,8 +334,42 @@ func (s *service) validateSpec(spec *core.BoxSpec) error {
 		return fmt.Errorf("sandbox: %w: MCPTreeRW without MCPTree", core.ErrInvalid)
 	case !proto.ValidProfile(string(spec.Profile)):
 		return fmt.Errorf("sandbox: %w: profile %q", core.ErrInvalid, spec.Profile)
+	case len(offered) > 0 && !slices.Contains(offered, spec.Profile):
+		return fmt.Errorf("sandbox: %w: %s", core.ErrInvalid, missingProfile(spec.Profile, offered))
 	}
 	return nil
+}
+
+// boxProfile is the image a box gets when its spec names none. "auto" takes
+// node when the backend offers it and base otherwise, so a deployment with
+// only the base image keeps working; a backend that lists no images (bwrap,
+// an older sandboxd) gets base.
+func boxProfile(configured string, offered []core.BoxProfile) core.BoxProfile {
+	if configured != "auto" {
+		return core.BoxProfile(configured)
+	}
+	if slices.Contains(offered, core.ProfileNode) {
+		return core.ProfileNode
+	}
+	return core.ProfileBase
+}
+
+func missingProfile(p core.BoxProfile, offered []core.BoxProfile) string {
+	names := make([]string, len(offered))
+	for i, o := range offered {
+		names[i] = profileName(o)
+	}
+	return fmt.Sprintf("this server has no %s workspace image, only %s", profileName(p), strings.Join(names, ", "))
+}
+
+func profileName(p core.BoxProfile) string {
+	switch p {
+	case core.ProfileBase:
+		return "Base"
+	case core.ProfileNode:
+		return "Node"
+	}
+	return strconv.Quote(string(p))
 }
 
 // begin marks key busy (not idle-reaped) and returns the release func. It

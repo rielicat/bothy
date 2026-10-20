@@ -422,13 +422,10 @@ func (r *Runner) ensureBox(ctx context.Context, rs *runState) error {
 		return core.ErrNoSandbox
 	}
 	c := r.cfg().Sandbox
-	profile := core.ProfileBase
-	if c.Profile == string(core.ProfileNode) {
-		profile = core.ProfileNode
-	}
+	// No Profile: the sandbox resolves sandbox.profile against the images
+	// its backend offers.
 	return r.d.Sandbox.Ensure(ctx, core.BoxSpec{
 		Key:       boxKey(rs.req.Session),
-		Profile:   profile,
 		Workspace: rs.principal.Workspace,
 		Limits:    core.BoxLimits{MemoryMB: c.Limits.MemoryMB, CPUs: c.Limits.CPUs, Pids: c.Limits.Pids},
 		Egress:    core.BoxEgress{Session: rs.req.Session, Principal: rs.req.Principal},

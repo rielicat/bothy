@@ -101,7 +101,7 @@ func TestSandboxdEndToEnd(t *testing.T) {
 		t.Fatalf("%d boxes running", n)
 	}
 	box := eng.Created()[len(eng.Created())-1]
-	if box.HostConfig.Memory != 512<<20 || box.Labels["bothy.profile"] != "base" {
+	if box.HostConfig.Memory != 512<<20 || box.Labels["bothy.profile"] != "node" {
 		t.Fatalf("config defaults not applied: mem %d profile %q", box.HostConfig.Memory, box.Labels["bothy.profile"])
 	}
 
@@ -542,7 +542,7 @@ func TestMemberBannersFollowChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the late member's banner", func() bool { return e.memberBanner(core.UserPrincipal(late.ID)) == "no_sandbox" })
-	startSandboxd(t, e.socket, nil)
+	startSandboxd(t, e.socket, "", nil)
 	waitFor(t, "the banners to clear", func() bool {
 		return e.memberBanner(member) == "" && e.memberBanner(core.UserPrincipal(late.ID)) == ""
 	})
@@ -634,6 +634,11 @@ func TestEnsureFailureLeavesTheSocketToTheReaper(t *testing.T) {
 	ctx := context.Background()
 	spec := e.spec(key1)
 	spec.Profile = "gpu" // valid syntax, unknown to sandboxd
+	// A stale status (sandboxd lost the image since) lets the spec through
+	// to sandboxd, which refuses it.
+	e.c.svc.mu.Lock()
+	e.c.svc.st.Profiles = append(e.c.svc.st.Profiles, "gpu")
+	e.c.svc.mu.Unlock()
 	if err := e.c.Ensure(ctx, spec); !isInvalid(err) {
 		t.Fatalf("Ensure = %v", err)
 	}
@@ -641,6 +646,74 @@ func TestEnsureFailureLeavesTheSocketToTheReaper(t *testing.T) {
 	e.c.svc.reapIdle(ctx)
 	if !slices.Contains(e.eg.closedKeys(), key1) {
 		t.Fatal("the egress socket of a box that was never created stays open")
+	}
+}
+
+func lastProfile(eng *enginetest.Fake) string {
+	created := eng.Created()
+	return created[len(created)-1].Labels["bothy.profile"]
+}
+
+// The compose file gives sandboxd both images, so a new workspace gets Node
+// and can run a JavaScript project's tests.
+func TestWorkspacesGetNodeWhenSandboxdHasIt(t *testing.T) {
+	e, eng := newEnv(t, opts{sandboxd: true})
+	ctx := context.Background()
+	if err := e.c.Ensure(ctx, e.spec(key1)); err != nil {
+		t.Fatal(err)
+	}
+	if p := lastProfile(eng); p != "node" {
+		t.Fatalf("profile = %q, want node", p)
+	}
+	if st := e.c.Status(ctx); !slices.Equal(st.Profiles, []core.BoxProfile{core.ProfileBase, core.ProfileNode}) {
+		t.Fatalf("status profiles = %v", st.Profiles)
+	}
+	if f := findings(t, e.c, "sandbox.profile_missing"); len(f) != 0 {
+		t.Fatalf("profile_missing = %+v", f)
+	}
+	// An admin who wants the smaller image still gets it.
+	e.cfg.Sandbox.Profile = "base"
+	if err := e.c.Ensure(ctx, e.spec(key2)); err != nil {
+		t.Fatal(err)
+	}
+	if p := lastProfile(eng); p != "base" {
+		t.Fatalf("profile = %q, want base", p)
+	}
+}
+
+func TestWorkspacesFallBackToBaseWithoutTheNodeImage(t *testing.T) {
+	e, eng := newEnv(t, opts{sandboxd: true, images: "base=" + testImage})
+	ctx := context.Background()
+	if err := e.c.Ensure(ctx, e.spec(key1)); err != nil {
+		t.Fatal(err)
+	}
+	if p := lastProfile(eng); p != "base" {
+		t.Fatalf("profile = %q, want base", p)
+	}
+	if f := findings(t, e.c, "sandbox.profile_missing"); len(f) != 0 {
+		t.Fatalf("profile_missing = %+v", f)
+	}
+}
+
+func TestChosenProfileTheSandboxLacks(t *testing.T) {
+	e, eng := newEnv(t, opts{sandboxd: true, images: "base=" + testImage,
+		cfg: func(c *config.Config) { c.Sandbox.Profile = "node" }})
+	before := len(eng.Created())
+	err := e.c.Ensure(context.Background(), e.spec(key1))
+	if !isInvalid(err) || !strings.Contains(err.Error(), "this server has no Node workspace image, only Base") {
+		t.Fatalf("Ensure = %v", err)
+	}
+	if len(eng.Created()) != before {
+		t.Fatal("a box was created")
+	}
+	f := findings(t, e.c, "sandbox.profile_missing")
+	if len(f) != 1 || f[0].Severity != core.SevMedium || f[0].Security ||
+		!strings.Contains(f[0].Title, "no Node workspace image") || !strings.Contains(f[0].Fix, "Automatic") {
+		t.Fatalf("profile_missing = %+v", f)
+	}
+	e.cfg.Sandbox.Profile = "auto"
+	if f := findings(t, e.c, "sandbox.profile_missing"); len(f) != 0 {
+		t.Fatalf("profile_missing with auto = %+v", f)
 	}
 }
 
@@ -696,7 +769,7 @@ func TestAutoSwitchesToSandboxd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- e.c.Run(ctx) }()
-	startSandboxd(t, e.socket, nil)
+	startSandboxd(t, e.socket, "", nil)
 	waitFor(t, "the sandboxd backend", func() bool { return e.c.Status(ctx).Available })
 	if e.c.Status(ctx).Backend != "sandboxd" {
 		t.Fatalf("status = %+v", e.c.Status(ctx))
@@ -798,7 +871,7 @@ func TestChecks(t *testing.T) {
 		ids = append(ids, ch.ID())
 	}
 	if !slices.Equal(ids, []string{"sandbox.unavailable", "sandbox.not_isolated", "sandbox.rootful_runc", "sandbox.bind_mounts",
-		"sandbox.runsc_host_uds", "sandbox.bwrap_limits", "docker.socket_access"}) {
+		"sandbox.runsc_host_uds", "sandbox.bwrap_limits", "sandbox.profile_missing", "docker.socket_access"}) {
 		t.Fatalf("check ids = %v", ids)
 	}
 	set := func(st core.SandboxStatus) { e.c.svc.setStatus(st) }

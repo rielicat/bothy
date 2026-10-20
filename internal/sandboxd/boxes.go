@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"sync"
@@ -105,6 +106,7 @@ func (d *daemon) healthSnapshot() proto.Health {
 	h.Boxes = len(d.boxes)
 	d.mu.Unlock()
 	h.MaxBoxes = d.cfg.MaxBoxes
+	h.Profiles = slices.Sorted(maps.Keys(d.cfg.Images))
 	return h
 }
 

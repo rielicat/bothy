@@ -2364,7 +2364,7 @@ Opening sentence (`text-body muted`): "Settings for troubleshooting and fine-tun
 | Backup | "Last backup: yesterday at 03:00" · [Back up now] |
 | Rules | Policy rules table (When · Bothy does · Why) with Add/Edit dialog; class overrides ("For each kind of action") on a group card, like Limits; "Test a rule" dialog (tool + JSON → "Bothy would ask, because rule wiki-writes matches") |
 | Limits | Per-task steps, time and cost; scheduled-task limits; check-in daily cap; rate limits; Refine drafts, rounds and early stop |
-| Running code | Backend, runtime, engine, self-test, processes per box, memory, idle timeout, active workspaces |
+| Running code | Backend, runtime, engine, self-test, the workspace images this server has ("Base, Node"), processes per box, memory, idle timeout, active workspaces; "Workspace image" offers Automatic (the default; help "Automatic uses Node when this server has it, and Base when it doesn't."), Base (Python and shell tools) and Node (adds Node.js) |
 | Network | Extra host names, shared hosting suffixes, egress caps |
 | Model prices | Overrides table (Model · Input per million · Output per million · Edit), [Add a price] on the heading's line (under "No price changes. Bothy uses its built-in prices." while there are none) |
 | Built-in safety rules | The constitution, read-only, sans prose |

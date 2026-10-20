@@ -84,7 +84,7 @@ func defaults() *Config {
 		Sandbox: SandboxCfg{
 			Backend:          "auto",
 			Socket:           "/run/bothy/sandboxd.sock",
-			Profile:          "base",
+			Profile:          "auto",
 			Limits:           BoxLimits{MemoryMB: 512, CPUs: 1.0, Pids: 256},
 			ExecTimeout:      d(120 * time.Second),
 			OutputKB:         64,

@@ -565,7 +565,9 @@ func TestExecToolsUseTheBoxInEveryRun(t *testing.T) {
 		if shell.calls.Load() != 2 || h.toolCalls(res.Run)[0].Status != core.TCOK {
 			t.Fatalf("shell calls %d, second status %s", shell.calls.Load(), h.toolCalls(res.Run)[0].Status)
 		}
-		if len(h.sbx.Ensured) != 2 || h.sbx.Ensured[0].Key != boxKey(h.sess.ID) || h.sbx.Ensured[0].Workspace != principalWorkspace(t, h) {
+		// No profile: only the sandbox knows which images its backend has.
+		if len(h.sbx.Ensured) != 2 || h.sbx.Ensured[0].Key != boxKey(h.sess.ID) || h.sbx.Ensured[0].Workspace != principalWorkspace(t, h) ||
+			h.sbx.Ensured[0].Profile != "" {
 			t.Fatalf("ensured = %+v", h.sbx.Ensured)
 		}
 		if len(h.egress.Bound) != 2 || h.egress.Bound[1].Run != res.Run || !h.egress.Bound[1].Interactive {

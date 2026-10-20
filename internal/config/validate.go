@@ -44,7 +44,7 @@ var enums = map[string][]string{
 	"policy.approval.interactive_on_timeout": {"deny", "park"},
 	"policy.approval.scheduled_on_timeout":   {"deny", "park"},
 	"sandbox.backend":                        {"auto", "sandboxd", "bwrap", "none"},
-	"sandbox.profile":                        {"base", "node"},
+	"sandbox.profile":                        {"auto", "base", "node"},
 	"search.provider":                        {"searxng", "brave", "tavily", "none"},
 	"channels.unknown_senders":               {"pair", "ignore"},
 	"mcp.servers.*.transport":                {"stdio", "http"},

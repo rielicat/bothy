@@ -2203,6 +2203,11 @@ export interface SandboxStatus {
   rootless: boolean;
   self_test: SelfTestCheck[];
   checked_at: string /* RFC 3339 */;
+  /**
+   * Profiles are the workspace images the backend offers (sandboxd's
+   * BOTHY_SBX_IMAGES keys); empty when it doesn't say (bwrap, none).
+   */
+  profiles?: BoxProfile[];
 }
 export type BoxProfile = string;
 export const ProfileBase: BoxProfile = "base";
@@ -2214,7 +2219,7 @@ export interface BoxLimits {
 }
 export interface BoxSpec {
   Key: string; // box_<26>; DerivedID("box", "session:"+id) or ("mcp:"+server+":"+principal)
-  Profile: BoxProfile;
+  Profile: BoxProfile; // "" = sandbox.profile, resolved against SandboxStatus.Profiles
   Workspace: WorkspaceID; // mounted rw at /workspace; "" = none (MCP servers without workspace access)
   MCPTree: string; // "mcp/<server>/<install_id>" mounted at /opt/mcp; "" = none
   MCPTreeRW: boolean; // true only for the installer box

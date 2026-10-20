@@ -233,6 +233,16 @@ func TestSelfTestHealthy(t *testing.T) {
 	}
 }
 
+// The gateway picks a workspace image from the ones health lists.
+func TestHealthListsTheImages(t *testing.T) {
+	h := newHarness(t, func(c *Config, _ *enginetest.Fake) { c.Images["node"] = testImage })
+	_, b := h.do("GET", "/health", "")
+	var hl proto.Health
+	if err := json.Unmarshal(b, &hl); err != nil || !slices.Equal(hl.Profiles, []string{"base", "node"}) {
+		t.Fatalf("health: %s (%v)", b, err)
+	}
+}
+
 func TestSelfTestFailuresRefuseBoxes(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mut        func(*Config, *enginetest.Fake)
