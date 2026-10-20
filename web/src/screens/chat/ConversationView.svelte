@@ -23,7 +23,6 @@
   import Icon from '../../components/Icon.svelte';
   import Markdown from '../../components/Markdown.svelte';
   import Button from '../../components/ui/Button.svelte';
-  import Dialog from '../../components/ui/Dialog.svelte';
   import Disclosure from '../../components/ui/Disclosure.svelte';
   import FileToken from '../../components/ui/FileToken.svelte';
   import IconButton from '../../components/ui/IconButton.svelte';
@@ -74,9 +73,6 @@
   let pinAdding = $state(false);
   let detailsOpen = $state(false);
   let detailsRun = $state('');
-  let cleanOpen = $state(false);
-  let busy = $state(false);
-  let dialogError = $state('');
   let sendError = $state('');
   let dragging = $state(false);
   let pendingModel = $state('');
@@ -124,6 +120,8 @@
   });
   const latestReply = $derived([...blocks].reverse().find((b) => b.kind === 'assistant' && b.text)?.key ?? '');
   const lastUser = $derived([...conv.items].reverse().find((i) => i.kind === 'user'));
+  // The welcome chat, until the person writes in it.
+  const welcome = $derived(!lastUser && conv.messages[0]?.sender === 'bothy:welcome');
   let refining = $state<RefineProgress | null>(null);
   $effect(() =>
     events.on('run.refine', (e) => {
@@ -302,6 +300,10 @@
       atBottom = false;
       el.scrollIntoView({ block: 'center' });
       el.classList.add('bg-warning-subtle');
+    } else if (welcome) {
+      // Its greeting reads from the top; a phone would open on the starters.
+      atBottom = false;
+      scroller().scrollTop = 0;
     } else scrollDown();
   }
 
@@ -456,20 +458,6 @@
     return renaming;
   }
 
-  async function fork() {
-    busy = true;
-    dialogError = '';
-    try {
-      await chats.fork(conv.id);
-      cleanOpen = false;
-      toast('Started a clean chat.');
-    } catch {
-      dialogError = "Couldn't start a new chat. Try again.";
-    } finally {
-      busy = false;
-    }
-  }
-
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
@@ -512,7 +500,6 @@
     { label: 'Chat details', onselect: () => ((detailsRun = ''), (detailsOpen = true)) },
     // Nothing is lost, so it needs no dialog (§7.7).
     { label: 'New related chat', onselect: () => chats.fork(conv.id).catch(() => toast("Couldn't start a new chat. Try again.")) },
-    { label: 'Continue in a clean chat', onselect: () => ((dialogError = ''), (cleanOpen = true)) },
     'separator',
     { label: 'Delete chat…', danger: true, onselect: () => (chats.deleting = s) },
   ]);
@@ -721,7 +708,7 @@
                 {#snippet more()}
                   <p class="text-small text-muted">
                     This chat has used private information and content from outside your team, like a web page. To keep that information from leaking, Bothy now asks first.
-                    Continue in a clean chat to reset this.
+                    A new related chat starts clean.
                   </p>
                 {/snippet}
               </ChatNotice>
@@ -731,7 +718,7 @@
       {/each}
 
       <!-- The welcome chat offers the starters under its message until the person writes (§7.1). -->
-      {#if !lastUser && conv.messages[0]?.sender === 'bothy:welcome'}<NewChat bare onpick={(t) => composer?.fill(t)} />{/if}
+      {#if welcome}<NewChat bare onpick={(t) => composer?.fill(t)} />{/if}
 
       {#each strayApprovals as a (a.id)}<div class="mt-3"><InlineApproval approval={a} onresolved={decided} /></div>{/each}
 
@@ -785,13 +772,3 @@
   <PinnedDrawer bind:open={pinsOpen} bind:adding={pinAdding} {conv} />
 {/if}
 
-<Dialog bind:open={cleanOpen} title="Continue in a clean chat?" {busy}>
-  <p class="text-body text-text">
-    Bothy will start a new chat without this chat's messages, or the private information and outside content it has seen. This chat stays as it is, and the new one is listed under it.
-  </p>
-  {#if dialogError}<p class="mt-2 text-small text-danger-text" role="alert">{dialogError}</p>{/if}
-  {#snippet footer({ close })}
-    <Button onclick={close}>Cancel</Button>
-    <Button variant="primary" loading={busy} onclick={fork}>Continue in a clean chat</Button>
-  {/snippet}
-</Dialog>

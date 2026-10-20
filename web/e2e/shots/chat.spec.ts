@@ -156,7 +156,6 @@ const states: ShotState[] = [
     setup: then(menu('Chat details'), (p) => p.getByRole('dialog').getByRole('button', { name: 'Technical details' }).click()),
   },
   { name: 'pinned', route: chat(ids.notices), ready: 'had a problem answering', setup: then(menu(/^Pinned/)) },
-  { name: 'dialog-clean-chat', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(menu('Continue in a clean chat')) },
   { name: 'dialog-delete', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(menu('Delete chat…')) },
 ];
 

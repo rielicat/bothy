@@ -462,13 +462,6 @@ describe('related chats', () => {
     expect(await screen.findByText("Couldn't start a new chat. Try again.")).toBeTruthy();
     expect(router.path).toBe(`/chat/${id}`);
     expect(document.querySelector('dialog[open]')).toBeNull();
-    // Continue in a clean chat says the same, in its dialog.
-    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Continue in a clean chat' }));
-    const dialog = await waitFor(() => screen.getByRole('dialog', { name: 'Continue in a clean chat?' }));
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Continue in a clean chat' }));
-    expect((await within(dialog).findByRole('alert')).textContent).toBe("Couldn't start a new chat. Try again.");
-    expect(router.path).toBe(`/chat/${id}`);
   });
 });
 

@@ -103,13 +103,12 @@ test('Enter adds a line instead of sending on a touch screen', async ({ browser 
   await ctx.close();
 });
 
-test('a clean chat is listed at once, under the chat it came from and selected', async ({ page }) => {
+test('a new related chat is listed at once, under the chat it came from and selected', async ({ page }) => {
   const problems = watch(page);
   await page.goto(`/chat/${sid('login')}?mock=`);
   await page.getByRole('heading', { level: 1, name: 'Fix login redirect' }).waitFor();
   await page.getByRole('button', { name: 'Chat options' }).first().click();
-  await page.getByRole('menuitem', { name: 'Continue in a clean chat' }).click();
-  await page.getByRole('dialog', { name: 'Continue in a clean chat?' }).getByRole('button', { name: 'Continue in a clean chat' }).click();
+  await page.getByRole('menuitem', { name: 'New related chat' }).click();
   await expect(page).not.toHaveURL(new RegExp(sid('login')));
   const nav = page.getByRole('navigation', { name: 'Main' });
   const kids = nav.getByRole('list', { name: 'Related to “Fix login redirect”' });
@@ -191,4 +190,12 @@ test.describe('axe on the chat screens', () => {
       expect(violations).toEqual([]);
     });
   }
+});
+
+test('the welcome chat opens at its greeting on a phone', async ({ page }) => {
+  const problems = watch(page);
+  await page.setViewportSize({ width: 375, height: 560 });
+  await page.goto('/chat?mock=welcome');
+  await expect(page.getByText(/^Hi Sam, I'm Bothy\./)).toBeInViewport({ ratio: 1 });
+  expect(problems).toEqual([]);
 });

@@ -113,29 +113,17 @@ describe('conversation', () => {
     }
   });
 
-  it('neutralises links, says once that the chat is exposed and continues in a clean chat', async () => {
+  it('neutralises links, says once that the chat is exposed and starts a clean related chat', async () => {
     render(ConversationView, { id: 'ses_01jinbox00000000000000000' });
     expect(await screen.findByText(/I would not click it/)).toBeTruthy();
     expect(document.querySelector('a[href*="evil.example"]')).toBeNull();
     expect(document.querySelector('.md-inert')?.textContent).toBe('evil.example');
     expect(screen.getAllByText('From now on, Bothy will ask before sending anything out of this chat.')).toHaveLength(1);
     await fireEvent.click(screen.getByRole('button', { name: 'Chat options' }));
-    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Continue in a clean chat' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Continue in a clean chat?' });
-    await fireEvent.click(dialog.querySelector('.btn-primary')!);
+    // One way to start fresh: the menu offers no second, identical action.
+    expect(screen.queryByRole('menuitem', { name: 'Continue in a clean chat' })).toBeNull();
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'New related chat' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/fork'))).toBe(true));
-  });
-
-  it("asks again before a clean chat, saying honestly what it leaves behind", async () => {
-    render(ConversationView, { id: SID });
-    await loaded();
-    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
-    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Continue in a clean chat' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Continue in a clean chat?' });
-    expect(dialog.textContent).toContain(
-      "Bothy will start a new chat without this chat's messages, or the private information and outside content it has seen. This chat stays as it is, and the new one is listed under it.",
-    );
-    expect(dialog.textContent).not.toContain('summary');
   });
 
   it("hands Delete to the shell's one dialog instead of keeping its own", async () => {
