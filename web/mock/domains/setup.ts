@@ -1,7 +1,7 @@
 // Setup and sign-in (C2): the setup code, the owner account, signing in, and
 // the provider detection and checks the model step runs.
 import type { Detection, FailureCode, ProbeResult, ProviderConnectReq } from '../../src/lib/api/types.gen.ts';
-import { body, core, fail, json, nowISO, on, SETUP_TOKEN, scenario, sleep, ZERO, type Req } from './core.ts';
+import { body, core, fail, json, nowISO, on, SETUP_TOKEN, scenario, setupMode, sleep, ZERO, type Req } from './core.ts';
 import { state as security } from './security.ts';
 import { state as settings, writeConfig } from './settings.ts';
 import { me } from './shell.ts';
@@ -60,8 +60,10 @@ on(
   'GET',
   '/api/setup/state',
   (req, res) => {
-    if (remote(req)) return remoteFail(res);
     const state = setupOwner(req) ? { ...core.setup, needs_setup: true, owner_set: true } : core.setup;
+    // As the server: once set up it answers anyone that it is, with nothing else.
+    if (!state.needs_setup && !setupMode(req)) return json(res, 200, { needs_setup: false, owner_set: true });
+    if (remote(req)) return remoteFail(res);
     json(res, 200, { ...state, install: install.arg(req) || 'compose' });
   },
   { open: true },

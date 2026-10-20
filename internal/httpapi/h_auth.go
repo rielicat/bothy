@@ -74,6 +74,12 @@ func (s *Server) setupState(w http.ResponseWriter, r *http.Request, _ core.Actor
 	if err != nil {
 		return err
 	}
+	if !need {
+		return ok(w, dto.SetupState{OwnerSet: true})
+	}
+	if infoOf(r).class != classLocal {
+		return setupLocalOnly()
+	}
 	st := dto.SetupState{NeedsSetup: need, Sandbox: s.sandboxAvailable(ctx), Install: s.installKind()}
 	if sg, has := s.d.Auth.(setupGrants); has {
 		// A reload between claim and owner creation must not strand the
