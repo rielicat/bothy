@@ -11,11 +11,11 @@ test.describe('layout probes', () => {
   test('pass on a page that follows the rules', async ({ page }) => {
     await page.setViewportSize(page1280);
     await page.setContent(`
-      <style>:root{--shadow-card:0 1px 2px rgb(74 58 33 / .05), 0 6px 16px -8px rgb(74 58 33 / .12)}</style>
+      <style>:root{--elevation-card:0 1px 2px rgb(74 58 33 / .05), 0 6px 16px -8px rgb(74 58 33 / .12)}</style>
       <body style="margin:0;font:14px system-ui">
         <main style="width:720px;margin-left:408px">
           <h1 style="font-size:20px;margin:0">Approvals</h1>
-          <div style="border:1px solid #d3cfc6;padding:16px;box-shadow:0 0 #0000, var(--shadow-card)">
+          <div style="border:1px solid #d3cfc6;padding:16px;box-shadow:0 0 #0000, var(--elevation-card)">
             <p>Delete notes/staging.md?</p>
             <input style="border:1px solid #8f8a80;height:36px"> <button style="border:1px solid #d3cfc6;height:36px">Deny</button>
             <a href="#" style="border:1px solid #ccc;display:inline-block;height:36px">Details</a>

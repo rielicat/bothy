@@ -173,7 +173,7 @@ export async function probe(page: Page, opts: ProbeOptions = allProbes): Promise
       const named = new Set<string>();
       for (const n of ['raised', 'card', 'primary', 'focus', 'frame', 'pop', 'overlay']) {
         const probeEl = document.createElement('div');
-        probeEl.style.boxShadow = `var(--shadow-${n})`;
+        probeEl.style.boxShadow = `var(--elevation-${n})`;
         document.body.append(probeEl);
         const v = norm(getComputedStyle(probeEl).boxShadow);
         if (v) named.add(v);
@@ -283,7 +283,8 @@ export async function capture(page: Page, chunk: string, state: ShotState, viewp
   let full: string | undefined;
   if (state.full === true || (state.full !== false && tall)) {
     full = `${stem}-full.png`;
-    await page.screenshot({ ...shot, path: join(dir, full), fullPage: true });
+    // The inset panel's frame is fixed to the window, so a capture taller than the window would paint the canvas over the rest.
+    await page.screenshot({ ...shot, path: join(dir, full), fullPage: true, style: '[data-frame]{display:none!important}' });
   }
   const problems = await probe(page, { ...probes, ...state.probes });
   // The narrowest phone the layout supports: nothing may scroll sideways there either.

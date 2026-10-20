@@ -71,13 +71,13 @@
   --radius-lg: 14px;
   --radius-xl: 20px;
 
-  --shadow-raised: 0 0 0 1px rgb(74 58 33 / 0.06), 0 1px 2px rgb(74 58 33 / 0.08);
-  --shadow-card: 0 1px 2px rgb(74 58 33 / 0.05), 0 6px 16px -8px rgb(74 58 33 / 0.12);
-  --shadow-primary: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(20 60 45 / 0.28);
-  --shadow-focus: 0 0 0 1px var(--color-focus), 0 0 0 4px rgb(42 106 84 / 0.14);
-  --shadow-frame: 0 0 0 1px rgb(74 58 33 / 0.07), 0 12px 32px -16px rgb(74 58 33 / 0.14), 0 0 0 100vmax var(--color-sidebar);
-  --shadow-pop: 0 0 0 1px rgb(74 58 33 / 0.07), 0 24px 48px -20px rgb(60 44 20 / 0.28);
-  --shadow-overlay: 0 1px 2px rgb(74 58 33 / 0.06), 0 8px 24px rgb(74 58 33 / 0.14);
+  --shadow-raised: var(--elevation-raised);
+  --shadow-card: var(--elevation-card);
+  --shadow-primary: var(--elevation-primary);
+  --shadow-focus: var(--elevation-focus);
+  --shadow-frame: var(--elevation-frame);
+  --shadow-pop: var(--elevation-pop);
+  --shadow-overlay: var(--elevation-overlay);
 
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -86,8 +86,16 @@
 }
 
 @layer base {
+  /* Tailwind copies a theme value into its shadow-* utility, so the themed values live here and @theme points at them. */
   :root {
     color-scheme: light;
+    --elevation-raised: 0 0 0 1px rgb(74 58 33 / 0.06), 0 1px 2px rgb(74 58 33 / 0.08);
+    --elevation-card: 0 1px 2px rgb(74 58 33 / 0.05), 0 6px 16px -8px rgb(74 58 33 / 0.12);
+    --elevation-primary: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(20 60 45 / 0.28);
+    --elevation-focus: 0 0 0 1px var(--color-focus), 0 0 0 4px rgb(42 106 84 / 0.14);
+    --elevation-frame: 0 0 0 1px rgb(74 58 33 / 0.07), 0 12px 32px -16px rgb(74 58 33 / 0.14), 0 0 0 100vmax var(--color-sidebar);
+    --elevation-pop: 0 0 0 1px rgb(74 58 33 / 0.07), 0 24px 48px -20px rgb(60 44 20 / 0.28);
+    --elevation-overlay: 0 1px 2px rgb(74 58 33 / 0.06), 0 8px 24px rgb(74 58 33 / 0.14);
   }
   :root[data-theme='dark'] {
     color-scheme: dark;
@@ -120,13 +128,13 @@
     --color-diff-add: #1e2e22;
     --color-chart: #726d65;
     --color-scrim: rgb(0 0 0 / 0.6);
-    --shadow-raised: 0 0 0 1px #34312d, inset 0 1px 0 rgb(255 255 255 / 0.03);
-    --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 1px 2px rgb(0 0 0 / 0.3);
-    --shadow-primary: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-focus: 0 0 0 1px var(--color-focus), 0 0 0 4px rgb(134 205 174 / 0.18);
-    --shadow-frame: 0 0 0 1px #262422, 0 12px 32px -16px rgb(0 0 0 / 0.6), 0 0 0 100vmax var(--color-sidebar);
-    --shadow-pop: 0 0 0 1px #34312d, 0 24px 48px -20px rgb(0 0 0 / 0.7);
-    --shadow-overlay: 0 0 0 1px #34312d, 0 8px 24px rgb(0 0 0 / 0.5);
+    --elevation-raised: 0 0 0 1px #34312d, inset 0 1px 0 rgb(255 255 255 / 0.03);
+    --elevation-card: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 1px 2px rgb(0 0 0 / 0.3);
+    --elevation-primary: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4);
+    --elevation-focus: 0 0 0 1px var(--color-focus), 0 0 0 4px rgb(134 205 174 / 0.18);
+    --elevation-frame: 0 0 0 1px #262422, 0 12px 32px -16px rgb(0 0 0 / 0.6), 0 0 0 100vmax var(--color-sidebar);
+    --elevation-pop: 0 0 0 1px #34312d, 0 24px 48px -20px rgb(0 0 0 / 0.7);
+    --elevation-overlay: 0 0 0 1px #34312d, 0 8px 24px rgb(0 0 0 / 0.5);
   }
   /* The sticky banner (--bar, set by the shell) and the phone top bar cover the page's top edge,
      so what is scrolled or focused into view lands below them. */

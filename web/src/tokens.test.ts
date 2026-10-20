@@ -265,12 +265,15 @@ describe('design tokens (§3.1)', () => {
 
   it('names every elevation, with its own dark value (§3.4)', () => {
     const theme = block(/@theme\s*\{/);
+    const lightBlock = block(/:root\s*\{/);
     const darkBlock = block(/:root\[data-theme='dark'\]\s*\{/);
     for (const name of ['raised', 'card', 'primary', 'focus', 'frame', 'pop', 'overlay']) {
-      expect(theme, `--shadow-${name}`).toMatch(new RegExp(`--shadow-${name}:`));
-      expect(darkBlock, `dark --shadow-${name}`).toMatch(new RegExp(`--shadow-${name}:`));
+      // Tailwind would inline a literal into the utility, and the dark value would never apply.
+      expect(theme, `--shadow-${name}`).toMatch(new RegExp(`--shadow-${name}: var\\(--elevation-${name}\\);`));
+      expect(lightBlock, `light --elevation-${name}`).toMatch(new RegExp(`--elevation-${name}:`));
+      expect(darkBlock, `dark --elevation-${name}`).toMatch(new RegExp(`--elevation-${name}:`));
     }
-    expect(darkBlock).toMatch(/--shadow-overlay:\s*0 0 0 1px #34312d, 0 8px 24px rgb\(0 0 0 \/ 0\.5\);/);
+    expect(darkBlock).toMatch(/--elevation-overlay:\s*0 0 0 1px #34312d, 0 8px 24px rgb\(0 0 0 \/ 0\.5\);/);
   });
 
   it('keeps the radii at 6, 10 and 14 px, and 20 for the sign-in card (§3.4)', () => {
