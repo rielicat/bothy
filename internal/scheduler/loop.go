@@ -402,7 +402,12 @@ func (s *Service) targetSession(ctx context.Context, sc *core.Schedule, now time
 	if sc.Kind == core.SchedHeartbeat {
 		name = checkInName
 	}
-	ses.Title, ses.ScheduleID, ses.Hidden = name+" · "+now.In(loc).Format("2 Jan"), sc.ID, sc.Kind == core.SchedHeartbeat
+	day := now.In(loc).Format("2 Jan")
+	if !sc.LastRunAt.IsZero() && sc.LastRunAt.In(loc).Format("2006-01-02") == now.In(loc).Format("2006-01-02") {
+		// Another run already made "Name · 19 Oct" today; the sidebar would show two alike.
+		day += ", " + now.In(loc).Format("15:04")
+	}
+	ses.Title, ses.ScheduleID, ses.Hidden = name+" · "+day, sc.ID, sc.Kind == core.SchedHeartbeat
 	ses.UpdatedAt = now
 	if err := s.store.Sessions().Update(ctx, ses); err != nil {
 		s.log.Warn("scheduler: title schedule session", "session", ses.ID, "err", err)

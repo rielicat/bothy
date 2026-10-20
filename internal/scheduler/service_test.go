@@ -265,6 +265,33 @@ func TestUpsertDeliverTargets(t *testing.T) {
 	}
 }
 
+// A second result on the same day carries its time, so the sidebar never
+// lists two "Digest · 12 Oct".
+func TestSameDayResultsAreTitledApart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t)
+		ctx := context.Background()
+		sleepUntil(utc(2026, 10, 12, 8, 30))
+		sc := h.upsert(&core.Schedule{Name: "Digest", Kind: core.SchedCron, Spec: "0 8 * * *", TZ: "UTC", Prompt: "x", Deliver: &core.ChatRef{Channel: "web"}, Enabled: true})
+		var titles []string
+		for range 2 {
+			_, ses, err := h.svc.RunNowIn(ctx, h.viewer(), sc.ID, h.owner)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s, err := h.store.Sessions().Get(ctx, core.SystemViewer(), ses)
+			if err != nil {
+				t.Fatal(err)
+			}
+			titles = append(titles, s.Title)
+			time.Sleep(5 * time.Hour)
+		}
+		if !slices.Equal(titles, []string{"Digest · 12 Oct", "Digest · 12 Oct, 13:30"}) {
+			t.Fatalf("titles = %q", titles)
+		}
+	})
+}
+
 func TestRunNowAndSessions(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		h := newHarness(t)

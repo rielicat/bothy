@@ -89,6 +89,11 @@ func (r *Runner) Fork(ctx context.Context, v core.Viewer, id core.SessionID, by 
 	}
 	now := r.now()
 	title := strings.TrimSpace(old.Title)
+	if i := strings.LastIndex(title, " · "); old.ScheduleID != "" && i > 0 {
+		// A result's date would push "(clean)" out of the sidebar, where the
+		// clean chat then reads as one more run of the schedule.
+		title = title[:i]
+	}
 	fork := &core.Session{
 		ID:            core.SessionID(core.NewID(core.PrefixSession)),
 		Principal:     old.Principal,

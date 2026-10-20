@@ -2799,7 +2799,7 @@ The UI never parses error strings or invents sentences from model output where s
 | S35 | Related chats: `parent_id`, `root_id` and `schedule_id` on sessions, `parents` on `GET /api/sessions`, `from` on the session detail, a fork listed at once under its chat | §4.2, §7.1 | — (landed with SPEC §14.10) | — |
 | S36 | Starters: `GET /api/starters`, up to four rows for the viewer; schedule examples and check-in lines (`GET /api/schedules/examples`) | §7.2, §10.3 | — (landed with SPEC §14.10) | — |
 | S37 | The welcome chat: `Me.welcome_pending`, `POST /api/me/welcome` | §5.9, §7.3 | — (landed with SPEC §14.10) | — |
-| S38 | Quiet check-ins: a check-in's chat stays hidden until it parks, finds something or someone writes in it; schedule results titled "{name} · 19 Oct", "Check-in · 19 Oct" | §4.2, §7.3 | — (landed with SPEC §14.10) | — |
+| S38 | Quiet check-ins: a check-in's chat stays hidden until it parks, finds something or someone writes in it; schedule results titled "{name} · 19 Oct", "Check-in · 19 Oct" ("{name} · 19 Oct, 14:05" for a later one the same day); a clean chat of a result is "{name} (clean)" | §4.2, §7.3 | — (landed with SPEC §14.10) | — |
 
 S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
 

@@ -266,6 +266,18 @@ func TestForkIsRelatedListedAndNamedByItsFirstMessage(t *testing.T) {
 			t.Fatalf("named fork = title %q auto %v", got.Title, got.TitleAuto)
 		}
 
+		result, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result.Title, result.ScheduleID = "Morning build check · 19 Oct, 14:05", "sch_build"
+		if err := h.store.Sessions().Update(h.ctx, result); err != nil {
+			t.Fatal(err)
+		}
+		if f, err := h.r.Fork(h.ctx, v, result.ID, h.user.ID); err != nil || f.Title != "Morning build check (clean)" {
+			t.Fatalf("fork of a schedule's result = %+v %v", f, err)
+		}
+
 		hb, err := h.r.NewSession(h.ctx, h.pid, "schedule", nil)
 		if err != nil {
 			t.Fatal(err)
