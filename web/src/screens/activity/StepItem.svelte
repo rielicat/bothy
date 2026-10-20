@@ -23,7 +23,7 @@
   <div class="flex items-start gap-3">
   <button
     type="button"
-    class="-mx-2 flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 rounded-md px-2 py-2.5 text-left text-body {tone} hover:bg-subtle focus-visible:-outline-offset-2 pointer-coarse:min-h-12"
+    class="-mx-2 flex min-h-11 min-w-0 flex-1 cursor-pointer items-start gap-2 rounded-md px-2 py-3 text-left text-body {tone} hover:bg-subtle focus-visible:-outline-offset-2 pointer-coarse:min-h-12"
     aria-expanded={open}
     aria-controls="{uid}-d"
     onclick={() => (open = !open)}
@@ -42,7 +42,8 @@
     <span class="flex h-5 shrink-0 items-center text-muted"><Icon name="chevron-right" size={12} class="transition-transform duration-160 {open ? 'rotate-90' : ''}" /></span>
   </button>
   {#if next}
-    <a class="link inline-flex min-h-11 shrink-0 items-center py-2.5 text-body whitespace-nowrap pointer-coarse:min-h-12" href={next.href} onclick={router.link}>{next.label}</a>
+    <!-- Top-aligned as the row's words are, so both sit on one line whatever the row's height. -->
+    <a class="link inline-flex min-h-11 shrink-0 items-start py-3 text-body whitespace-nowrap pointer-coarse:min-h-12" href={next.href} onclick={router.link}>{next.label}</a>
   {/if}
   </div>
   <div id="{uid}-d" data-details class="pb-3 text-small text-muted {gutter ? 'pl-6' : ''}" hidden={!open}>

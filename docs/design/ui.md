@@ -1465,7 +1465,7 @@ Refine is on: Bothy writes 3 drafts, checks them and sends the best. About $0.20
 
 ### 7.6 Notices and errors in the chat
 
-A notice is a system line at the column edge: `text-small muted`, no box, at most one action as a link button, optional Details. Two kinds sit on a tint sized to their words instead, as chat apps show their notices (`w-fit rounded-lg px-3 py-2 text-body text-text`, the alert glyph in a 16 px column, Details indented under the words): failures on `bg-danger-subtle` with the glyph in `danger-text`, and stops the person can lift or route around (the step limit, the task and daily spending limits, code that's off) on `bg-warning-subtle` with the glyph in `warning-text`. The words stay ink, so the tint and the glyph are the one signal. Every error is said once.
+A notice is a system line at the column edge: `text-small muted`, no box, at most one action as a link button, optional Details. Two kinds sit on a tint sized to their words instead, as chat apps show their notices (`w-fit rounded-md px-3 py-2 text-body text-text`, the `Notice` recipe sized to its words: the alert glyph in a 16 px column, Details indented under the words): failures on `bg-danger-subtle` with the glyph in `danger-text`, and stops the person can lift or route around (the step limit, the task and daily spending limits, code that's off) on `bg-warning-subtle` with the glyph in `warning-text`. The words stay ink, so the tint and the glyph are the one signal. Every error is said once.
 
 | Event | Copy | Action |
 |---|---|---|
@@ -1497,7 +1497,7 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
   │ Model                       Claude Sonnet 4.5 │      one group card (`list-card`),
   │ Refine                                    Off │      label muted, value right-aligned
   │ Cost so far                             $0.42 │
-  │ Length    Getting long. Bothy will summarise… │      ← only above 70 %
+  │ Length    Getting long. Bothy will summarise… │      ← only above 70 %; the sentence wraps, so it is left-aligned
   └──────────────────────────────────────────────┘
   › Technical details
       Context: 23,104 of 200,000 tokens (12%)
@@ -1926,15 +1926,20 @@ Fix login redirect                                                   [ Open chat
 Maya Chen asked in Web · Today at 10:42 · Took 2 min 10 s · Cost $0.12      text-small muted
 
 What Bothy did                                                            text-heading
-  Got a copy of acme/web (main)
-  Read 6 files in acme/web
-  Ran `npm test`
-  Changed src/auth/redirect.ts (+12 −3)
-  Maya Chen approved opening a pull request in acme/web
-  Opened pull request #142 in acme/web ↗
+┌──────────────────────────────────────────────────────────────────────────┐
+│ Got a copy of acme/web (main)                                          › │  one group card,
+│ Read 6 files in acme/web                                               › │  each row opens
+│ Ran `npm test`                                                         › │  its Details
+│ Changed src/auth/redirect.ts (+12 −3)                                  › │
+│ Maya Chen approved opening a pull request in acme/web                  › │
+│ Opened pull request #142 in acme/web                                   › │
+└──────────────────────────────────────────────────────────────────────────┘
 
 Answer
-  The return address is dropped in the login form… (3 lines)       Show all
+┌──────────────────────────────────────────────────────────────────────────┐
+│ The return address is dropped in the login form… (3 lines)               │  .card
+│ Show all                                                                 │
+└──────────────────────────────────────────────────────────────────────────┘
 
 › Technical details
 ```
@@ -1944,7 +1949,7 @@ Answer
 - "Technical details" (closed, `text-small`) holds the old trace as plain tables. A refined answer's Refine block comes first, since every model call of a refinement reads "agent" and its drafts would otherwise sit under a dozen tables: "3 drafts, 2 rounds. Draft 2 was sent; 2 of 3 drafts reached its answer.", then each draft, critique and correction in its own nested disclosure, rendered as small Markdown (`.md-small`) with links off rather than as code, on a guide line under its toggle (`border-l border-border-strong pl-4`, as related chats hang) (a disclosure inside a disclosure is allowed, a card inside a card is not). Then Model calls (Model id · Started · Time to first word · Duration · Tokens in / cached / out · Cost · Fallback attempts); Tool calls (Tool · Exact action · Decision · Rule · Approval id · Sites contacted · Duration); Task id [Copy].
 - Refined answers add "Refined from 3 drafts · 2 of 3 agreed" to the meta line.
 - A task still going ends the meta line with "Working…" ("Waiting to start" while queued), since it may have no step to show yet; one waiting for approval says so on its waiting step instead.
-- Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection ›" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it.
+- Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it. Neither link adds a "›": the row's own chevron sits beside it, and the underline already says it goes somewhere.
 - Details follow the chat's order (§7.4): Result, How it was allowed, What Bothy asked for, Technical.
 - Not found: title "Can't open this task", "This task was deleted, or it belongs to someone else." with the logo beside it + "Go to Activity". The server answers another person's task as it does a deleted one (404, so nobody learns which tasks exist), so the copy names both.
 
@@ -2563,7 +2568,7 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 
 ### 13.2 Loading and errors
 
-- No skeletons. Lists and pages keep their layout and show a 16 px spinner and "Loading…" (`text-body muted`) only after 400 ms; so does the app while it starts, centred, and a chat while it opens.
+- No skeletons. Lists and pages keep their layout and show a 16 px spinner and "Loading…" (`text-body muted`) only after 400 ms; so does the app while it starts, centred, and a chat while it opens. Under reduced motion the words stand alone: they end in "…" already, so the spinner's static "…" would double it.
 - Buttons doing work show a spinner and an "-ing" label ("Saving…"), with the width locked.
 - Streaming never shows a spinner after the first word.
 

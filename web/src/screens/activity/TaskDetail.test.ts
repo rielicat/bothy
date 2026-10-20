@@ -24,17 +24,17 @@ describe('Task detail (docs/design/ui.md §10.2)', () => {
 
   it('points an admin at the GitHub connection when GitHub refused Bothy, which Open chat cannot fix', async () => {
     await open('run_01jprdigest1000000000000');
-    const fix = await screen.findByRole('link', { name: 'Check the GitHub connection ›' });
+    const fix = await screen.findByRole('link', { name: 'Check the GitHub connection' });
     expect(fix.getAttribute('href')).toBe('/settings/connections/github');
   });
 
   it("doesn't send a member to settings they can't change", async () => {
     session.me = null;
     await open('run_01jprdigest1000000000000');
-    await screen.findByRole('link', { name: 'Check the GitHub connection ›' });
+    await screen.findByRole('link', { name: 'Check the GitHub connection' });
     session.me!.user.role = 'member';
     await screen.findByText("Couldn't check builds in acme/web", { exact: false });
-    expect(screen.queryByRole('link', { name: 'Check the GitHub connection ›' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Check the GitHub connection' })).toBeNull();
     session.me!.user.role = 'owner';
   });
 

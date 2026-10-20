@@ -53,7 +53,7 @@
 {/snippet}
 
 {#if t}
-  <div class="w-fit max-w-full rounded-lg px-3 py-2 text-body text-text {t === 'danger' ? 'bg-danger-subtle' : 'bg-warning-subtle'}" role={alert ? 'alert' : undefined}>
+  <div class="w-fit max-w-full rounded-md px-3 py-2 text-body text-text {t === 'danger' ? 'bg-danger-subtle' : 'bg-warning-subtle'}" role={alert ? 'alert' : undefined}>
     <p class="flex items-start gap-2">
       <span class="flex h-5 w-4 shrink-0 items-center justify-center"><Icon name="alert" class={t === 'danger' ? 'text-danger-text' : 'text-warning-text'} /></span>
       <span class="min-w-0">{@render words()}</span>

@@ -75,7 +75,7 @@
         line.state === 'waiting' && a && decidable(a, me)
           ? { label: 'Review it', href: `/approvals/${encodeURIComponent(a.id)}` }
           : github && line.state === 'failed' && /^(github_|repo_)/.test(t.tool)
-            ? { label: 'Check the GitHub connection ›', href: '/settings/connections/github' }
+            ? { label: 'Check the GitHub connection', href: '/settings/connections/github' }
             : undefined;
       out.push({ line, how: allowedHow(t, a, who), next });
     }

@@ -40,15 +40,16 @@
   </p>
   <!-- One group card of plain facts, as Settings shows them (§11.1). -->
   <dl class="list-card mt-3 text-body">
-    {#snippet fact(label: string, value: string, cls = '')}
+    {#snippet fact(label: string, value: string, cls = 'text-right')}
       <div class="row items-start justify-between gap-4 py-2.5">
         <dt class="shrink-0 text-muted">{label}</dt>
-        <dd class="min-w-0 text-right {cls}">{value}</dd>
+        <dd class="min-w-0 {cls}">{value}</dd>
       </div>
     {/snippet}
     {@render fact('Model', model)}
     {@render fact('Refine', refine ? 'On' : 'Off')}
-    {@render fact('Cost so far', money(cost), 'tabular-nums')}
+    {@render fact('Cost so far', money(cost), 'text-right tabular-nums')}
+    <!-- A sentence wraps in a 400 px drawer, and right-aligned lines read raggedly. -->
     {#if used > 0.7}{@render fact('Length', 'Getting long. Bothy will summarise older messages soon.', 'text-pretty')}{/if}
   </dl>
   <Disclosure label="Technical details" class="mt-6" bind:open={technical}>

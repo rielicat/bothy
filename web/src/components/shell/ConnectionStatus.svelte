@@ -48,7 +48,7 @@
 {#if shown !== 'hidden'}
   <div class="bg-bg">
     <p class="mx-auto flex max-w-3xl items-center gap-2 px-6 py-2 text-small text-muted transition-opacity duration-200 max-sm:px-4 {fading ? 'opacity-0' : ''}">
-      {#if shown === 'reconnecting'}<Spinner size={12} />{/if}{text[shown]}
+      {#if shown === 'reconnecting'}<Spinner size={12} class="motion-reduce:hidden" />{/if}{text[shown]}
     </p>
   </div>
 {/if}

@@ -21,5 +21,5 @@
 {#if failed}
   <div role="alert"><EmptyState {text} action={retry ? { label: 'Try again', onclick: retry, variant: 'secondary' } : undefined} /></div>
 {:else}
-  <p class="flex min-h-8 items-center gap-2 text-body text-muted" class:invisible={!slow}><Spinner />Loading…</p>
+  <p class="flex min-h-8 items-center gap-2 text-body text-muted" class:invisible={!slow}><Spinner class="motion-reduce:hidden" />Loading…</p>
 {/if}
