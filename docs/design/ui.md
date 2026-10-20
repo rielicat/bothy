@@ -1701,7 +1701,7 @@ Succeeded, failed and `unknown` are final: no event follows them.
 Approvals
 (Waiting 3 | Done)                                                   tabs on a track; count only on Waiting
 
-For you 4                                                            text-heading label, then the count in muted
+For you 4                                                            text-heading label, then the count, regular weight, muted
 ┌────────────────────────────────────────────────────────────────┐
 │ ⇡ Deploy acme/web to production?                                │   first item expanded = full card
 │   …full card as in 8.5…                                         │
@@ -1724,7 +1724,7 @@ Waiting for others 1                                                 only when n
 
 - One column, no duplicate card. `/approvals/:id` opens the same list with that item expanded and scrolled into view (fixes `30`).
 - Admins, while `team_access` lasts (§11.5): a neutral `Notice` above the Waiting list, "People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve in People." with "Open People", since their requests now arrive here.
-- Sections: `section-title` with the count after it as plain `text-heading text-muted` (outside the heading, so its name stays "For you"), then a list of cards 8 px apart.
+- Sections: `section-title` with the count after it as a plain number (`text-heading font-normal text-muted`, outside the heading, so its name stays "For you"), then a list of cards 8 px apart.
 - Collapsed row: a card-like button (`min-h-14 rounded-lg border border-border bg-surface px-4 py-3 shadow-card`, hover `bg-subtle`, `aria-expanded="false"`) with the type icon (18 px, muted), the title, line 2 and a trailing `chevron-right`. The title is the card's row title, `text-body` 500, which names what the card is about where the question alone can't tell two rows apart: a command "Run {command}?" (verbatim; the row's ellipsis cuts it and the card shows it in full), a note "Remember “{first 60 characters}”?" ("Remember “…” for everyone?", "Forget “…” for everyone?", "Change “…” for everyone?" for what's remembered for everyone), a message "Send a message to {recipient}?" (worded as on the card's To line). Other rows show the question. Line 2 at every width (`text-small muted`, truncated): source and age ("Clean up staging notes · 2 min ago", "Alex Kim · Slack · 6 min ago"). The right slot holds **at most one status**: for you, "Expires in 3 min" in `warning-text` when under 15 minutes, or "Waiting since 10:42" (muted) when parked, else nothing; waiting for others, a `clock` and who it waits for (`waitingFor`, muted): "Waiting for {name}", "Waiting for an admin" (admin-only and chat-app requests), "Waiting for an approver" (a name Bothy can't show), "{k} of {n} approvals" (several approvers). Under 640 px the status moves under line 2. Clicking or Enter expands the row in place and collapses the previous one.
 - After a decision the row collapses (160 ms), the next "For you" item expands and takes focus, and the live region says "Approved. Next: {question}" or "Nothing else is waiting."
 - **Item types** (all in the same card shell, S12):

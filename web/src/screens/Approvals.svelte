@@ -331,7 +331,7 @@
 
 <!-- The count follows the heading rather than sitting in it, so the heading keeps its plain name. -->
 {#snippet heading(id: string, title: string, n: number)}
-  <div class="flex items-baseline gap-2"><h2 {id} class="section-title">{title}</h2><span class="text-heading text-muted tabular-nums">{n}</span></div>
+  <div class="flex items-baseline gap-2"><h2 {id} class="section-title">{title}</h2><span class="text-heading font-normal text-muted tabular-nums">{n}</span></div>
 {/snippet}
 
 {#snippet list(section: Row[], mine: boolean)}
