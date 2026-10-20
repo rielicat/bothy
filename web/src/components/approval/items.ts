@@ -30,8 +30,18 @@ function fromServer(i: ServerItem): InboxItem | null {
         .filter((p) => p.status === 'pending')
         .map((p) => {
           const before = pins.find((x) => x.tool === p.tool && x !== p);
-          const d = (p.definition ?? {}) as { title?: string; description?: string };
-          return { name: p.tool, title: d.title, description: d.description ?? '', side_effect: p.side_effect, ...(before ? definitionChange(before, p) : { fresh: true }), hash: p.hash, private: p.private, field_map: p.field_map };
+          const d = (p.definition ?? {}) as { title?: string; description?: string; annotations?: { readOnlyHint?: boolean } };
+          return {
+            name: p.tool,
+            title: d.title,
+            description: d.description ?? '',
+            side_effect: p.side_effect,
+            ...(before ? definitionChange(before, p) : { fresh: true }),
+            reads: d.annotations?.readOnlyHint === true,
+            hash: p.hash,
+            private: p.private,
+            field_map: p.field_map,
+          };
         });
       return tools.length ? { ...base, type: 'mcp_review', server: i.mcp.server, tools } : null;
     }

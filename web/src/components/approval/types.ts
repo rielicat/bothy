@@ -35,7 +35,20 @@ export interface McpReviewItem extends ItemBase {
   server: string;
   /** `prose`: only the description changed, so `diff` compares the two sentences rather than the definitions. */
   /** `fresh`: a new action, with nothing approved before it to compare. */
-  tools: { name: string; title?: string; description: string; side_effect: string; diff?: string; prose?: boolean; fresh?: boolean; hash: string; private: boolean; field_map?: Record<string, string> }[];
+  /** `reads`: the server's own readOnlyHint, shown but never choosing the class. */
+  tools: {
+    name: string;
+    title?: string;
+    description: string;
+    side_effect: string;
+    diff?: string;
+    prose?: boolean;
+    fresh?: boolean;
+    reads?: boolean;
+    hash: string;
+    private: boolean;
+    field_map?: Record<string, string>;
+  }[];
 }
 
 export interface SkillReviewItem extends ItemBase {

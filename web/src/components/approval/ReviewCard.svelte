@@ -98,6 +98,8 @@
         <li class="border-b border-border py-3 last:border-b-0">
           <p class="text-body font-medium text-text">{t.title || humanize(t.name)}</p>
           <p class="text-small text-muted" data-copy-ignore><Verbatim text={t.description} /></p>
+          <!-- As on the server's page: the server's own word is shown, never chosen for it. -->
+          {#if t.reads}<p class="mt-1 text-small text-muted">{serviceName(item.server)} says this only reads information.</p>{/if}
           <Select class="mt-2 max-w-72" label="What this does" options={classes} bind:value={effects[t.name]} />
           {#if t.diff}{@render changed(t.name, t.diff, undefined, t.prose)}{/if}
         </li>
