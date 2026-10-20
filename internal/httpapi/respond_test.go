@@ -3,7 +3,6 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/rielicat/bothy/internal/core"
@@ -51,8 +50,9 @@ func (upstreamErr) UpstreamStatus() int { return http.StatusUnauthorized }
 // reason, not an internal error; a sentinel still decides first.
 func TestUpstreamRefusalIsBadGateway(t *testing.T) {
 	h := newHarness(t)
-	st, env, _ := h.srv.mapError(fmt.Errorf("github: workflows: %w", upstreamErr{}))
-	if st != http.StatusBadGateway || env.Error.Error.Code != "provider_error" || !strings.Contains(env.Error.Error.Message, "Bad credentials") {
+	// Only GitHub's own reason: what wraps it can name local paths.
+	st, env, _ := h.srv.mapError(fmt.Errorf("github: reading /data/github/checkouts/ws_1/acme/web: %w", upstreamErr{}))
+	if st != http.StatusBadGateway || env.Error.Error.Code != "provider_error" || env.Error.Error.Message != (upstreamErr{}).Error() {
 		t.Fatalf("upstream refusal = %d %+v", st, env.Error.Error)
 	}
 	if st, _, _ := h.srv.mapError(fmt.Errorf("%w: %w", core.ErrNotFound, upstreamErr{})); st != http.StatusNotFound {

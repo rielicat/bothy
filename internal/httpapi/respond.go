@@ -102,8 +102,13 @@ func (s *Server) mapError(err error) (int, errorEnvelope, time.Duration) {
 		return http.StatusServiceUnavailable, body("unavailable", "not available in this build", ""), 0
 	case errors.As(err, &upstream):
 		// Another service's refusal (GitHub rejecting the token) is not
-		// Bothy's own failure, and its plain reason is safe to show.
-		return http.StatusBadGateway, body("provider_error", err.Error(), ""), 0
+		// Bothy's own failure. Its own reason is written to be shown; the
+		// errors wrapping it may name local paths, so they are left out.
+		msg := err.Error()
+		if e, ok := upstream.(error); ok {
+			msg = e.Error()
+		}
+		return http.StatusBadGateway, body("provider_error", msg, ""), 0
 	}
 	return http.StatusInternalServerError, body("internal", "internal error", ""), 0
 }
