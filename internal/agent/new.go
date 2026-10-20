@@ -204,6 +204,17 @@ func (r *Runner) teamMemory(ctx context.Context) string {
 	return r.redact(c)
 }
 
+// runTeam is TEAM.md for S1, read once per run: a note the run itself got
+// approved would otherwise show up in S1 of its next step, and the model took
+// its own new note for an older one it had duplicated.
+func (r *Runner) runTeam(ctx context.Context, rs *runState) string {
+	if rs.team == nil {
+		t := r.teamMemory(ctx)
+		rs.team = &t
+	}
+	return *rs.team
+}
+
 func (r *Runner) redact(s string) string {
 	if r.d.Redactor == nil || s == "" {
 		return s

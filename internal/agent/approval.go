@@ -505,6 +505,7 @@ func (r *Runner) runResume(rs *runState, j *resumeJob) {
 	defer close(rs.done)
 	end := r.startResume(rs, j)
 	if end == nil {
+		r.runTeam(rs.ctx, rs) // before the approved call can change it
 		end = r.executeApproved(rs, j.approval)
 	}
 	if end == nil {

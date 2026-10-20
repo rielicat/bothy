@@ -250,9 +250,7 @@ func (t *memoryTool) execTeam(ctx context.Context, env *core.ToolEnv, act *core.
 		return nil, err
 	}
 	verb := map[string]string{"add": "Remembered for everyone", "replace": "Updated for everyone", "remove": "Forgot for everyone"}[e.Op]
-	// S1 is rebuilt for the next call, so the model meets this change in its
-	// team memory block straight away and took it for an older duplicate.
-	return &core.ToolResult{Name: memoryToolName, Content: fmt.Sprintf("%s (an admin approved it; TEAM.md %d/%d bytes used). Your team memory block shows this change from now on; it is not an earlier copy.",
+	return &core.ToolResult{Name: memoryToolName, Content: fmt.Sprintf("%s (an admin approved it; TEAM.md %d/%d bytes used). Your team memory block shows it from the next message on.",
 		verb, len(e.After), t.s.capOf(core.FileTeam))}, nil
 }
 

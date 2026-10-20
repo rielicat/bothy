@@ -34,7 +34,7 @@ type assembler struct {
 	r        *Runner
 	ws       string // workspace dir images are read from
 	standing []string
-	team     string // TEAM.md, read once per step, redacted
+	team     string // TEAM.md, read once per run, redacted
 	s2       string
 	specs    []core.ToolSpec
 	snap     profile
@@ -54,7 +54,7 @@ func (r *Runner) newAssembler(ctx context.Context, rs *runState, hist []histMsg)
 		r:        r,
 		ws:       r.workspaceDir(rs.principal),
 		standing: r.cfg().Agent.StandingRules,
-		team:     r.teamMemory(ctx),
+		team:     r.runTeam(ctx, rs),
 		s2:       rs.sess.SystemSnapshot,
 		specs:    r.snapshotSpecs(rs),
 		snap:     snapshotProfile(rs.sess.SystemSnapshot),

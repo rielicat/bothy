@@ -59,7 +59,8 @@ type runState struct {
 	toolErrors int // consecutive failed tool calls
 	deadline   *time.Timer
 	ctxRetried bool
-	lastEst    int // estimated input of the last step, for post-run compaction
+	lastEst    int     // estimated input of the last step, for post-run compaction
+	team       *string // TEAM.md as this run's S1 carries it (runTeam)
 
 	refine *refineMode // nil: final answers are not refined
 }

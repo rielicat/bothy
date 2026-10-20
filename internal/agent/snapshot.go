@@ -235,7 +235,7 @@ func (r *Runner) rebuildSnapshot(ctx context.Context, rs *runState, promote []st
 			legs |= core.TaintSend
 		}
 	}
-	hash := core.PrefixHash(toolDefs(specs), []core.SystemBlock{{Text: s1(p, c.Agent.StandingRules, r.teamMemory(ctx))}, {Text: s2}})
+	hash := core.PrefixHash(toolDefs(specs), []core.SystemBlock{{Text: s1(p, c.Agent.StandingRules, r.runTeam(ctx, rs))}, {Text: s2}})
 	s, err := r.mutateSession(ctx, rs.sess.ID, func(s *core.Session) error {
 		if edit != nil {
 			edit(s)

@@ -219,3 +219,58 @@ func TestTeamMemoryChangeIsNoCacheBug(t *testing.T) {
 		}
 	})
 }
+
+// TestTeamMemoryHoldsStillWithinARun: a note the run itself gets approved
+// stays out of S1 for the rest of that run, also when it resumes after
+// parking, so the model doesn't take its own new note for an older one it
+// duplicated; the next turn has it.
+func TestTeamMemoryHoldsStillWithinARun(t *testing.T) {
+	const before, after = "Deploy day is Thursday\n", "Deploy day is Thursday\nStaging is at staging.acme.test\n"
+	for _, parked := range []bool{false, true} {
+		name := map[bool]string{false: "approved at once", true: "resumed"}[parked]
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var h *harness
+				remember := &testTool{name: "remember", se: core.SELocalWrite, run: func(context.Context, *core.ToolEnv, *core.Action) (*core.ToolResult, error) {
+					if _, err := h.mem.WriteTeam(h.ctx, after, "", h.user.ID); err != nil {
+						return nil, err
+					}
+					return &core.ToolResult{Content: "Remembered for everyone"}, nil
+				}}
+				h = newHarness(t, opts{tools: []core.Tool{remember},
+					pol:  &fakes.Policy{Verdicts: map[string]core.Verdict{"remember": core.VerdictAsk}},
+					appr: &fakes.Approvals{Choice: core.AllowOnce, Manual: parked},
+					steps: []fakes.LLMStep{{ToolCalls: []core.ToolCall{call("remember", `{}`)}}, {Text: []string{"Saved."}},
+						{Text: []string{"ok"}}}})
+				defer h.close()
+				h.setTeam(before)
+				if parked {
+					h.appr.OnResolved(func(a *core.Approval) { _ = h.r.Resume(context.Background(), a) })
+					id, a := parkRun(t, h)
+					if _, err := h.appr.Resolve(h.ctx, core.Resolution{ID: a.ID, Choice: core.AllowOnce, By: h.user.ID, Via: "web"}); err != nil {
+						t.Fatal(err)
+					}
+					synctest.Wait()
+					if st := h.run(id).Status; st != core.RunDone {
+						t.Fatalf("resumed run = %s", st)
+					}
+				} else {
+					h.submit("remember where staging is")
+					synctest.Wait()
+				}
+				reqs := h.requests()
+				if len(reqs) != 2 || remember.calls.Load() != 1 {
+					t.Fatalf("%d model calls, remember ran %d times", len(reqs), remember.calls.Load())
+				}
+				if sys := reqs[1].System[0].Text; strings.Contains(sys, "staging.acme.test") || !strings.Contains(sys, "Deploy day is Thursday") {
+					t.Fatalf("S1 after the run's own change =\n%s", sys)
+				}
+				h.submit("where is staging?")
+				synctest.Wait()
+				if sys := h.requests()[2].System[0].Text; !strings.Contains(sys, "staging.acme.test") {
+					t.Fatalf("the next turn's S1 lacks the note:\n%s", sys)
+				}
+			})
+		})
+	}
+}
