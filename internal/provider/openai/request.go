@@ -155,12 +155,7 @@ func markTail(msgs []message) {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		m := &msgs[i]
 		switch m.Role {
-		case "tool":
-			if s, _ := m.Content.(string); s != "" {
-				m.Content = []contentPart{{Type: "text", Text: s, CacheControl: ephemeral}}
-				return
-			}
-		case "user":
+		case "tool", "user":
 			ps, _ := m.Content.([]contentPart)
 			for j := len(ps) - 1; j >= 0; j-- {
 				if ps[j].Type == "text" && ps[j].Text != "" {
@@ -200,9 +195,10 @@ func limitBreakpoints(msgs []message) {
 
 // buildMessages converts the history; thinking parts signed with echo
 // ("" for none) go back as the assistant turn's reasoning_content. With
-// keep, user content always stays a list of parts and a merged user turn
-// appends its own, so a message added after a user turn (a refine call's)
-// leaves every earlier block, and so the cached prefix, byte-identical.
+// keep, user content and a non-empty tool result always stay a list of
+// parts and a merged user turn appends its own, so neither a message added
+// after a user turn (a refine call's) nor the rolling marker moving on
+// changes an earlier block, and so the cached prefix.
 func buildMessages(msgs []core.Message, echo string, keep bool) []message {
 	var out []message
 	for _, m := range msgs {
@@ -210,7 +206,11 @@ func buildMessages(msgs []core.Message, echo string, keep bool) []message {
 		case core.MsgTool:
 			for _, p := range m.Parts {
 				if p.Type == core.PartToolResult && p.ToolResult != nil {
-					out = append(out, message{Role: "tool", ToolCallID: p.ToolResult.CallID, Content: p.ToolResult.Content})
+					var content any = p.ToolResult.Content
+					if keep && p.ToolResult.Content != "" {
+						content = []contentPart{{Type: "text", Text: p.ToolResult.Content}}
+					}
+					out = append(out, message{Role: "tool", ToolCallID: p.ToolResult.CallID, Content: content})
 				}
 			}
 		case core.MsgAssistant:

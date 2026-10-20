@@ -191,7 +191,8 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 			info.Cache = core.CacheImplicit
 		}
 	case core.KindOpenAICompat:
-		if openai.ExplicitCache(e.kind, e.base, model) {
+		// Only the Chat Completions client sends the markers.
+		if e.api == openai.APIChat && openai.ExplicitCache(e.kind, e.base, model) {
 			info.Cache = core.CacheExplicit
 		}
 	case core.KindOllama:

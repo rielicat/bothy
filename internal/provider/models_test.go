@@ -63,9 +63,12 @@ func TestModelResolution(t *testing.T) {
 		cfgProvider("lan", core.KindOpenAICompat, "http://192.168.1.20:8000/v1",
 			config.ProviderModel{ID: "qwen", Context: 32768, MaxOutput: 4096, Tools: &yes, Vision: true}),
 		cfgProvider("router", core.KindOpenAICompat, "https://openrouter.ai/api/v1"),
+		cfgProvider("router-responses", core.KindOpenAICompat, "https://openrouter.ai/api/v1"),
 	})
 	h.view.c.Providers[0].AllowPrivate = false
 	h.view.c.Providers[2].AllowPrivate = false
+	h.view.c.Providers[3].AllowPrivate = false
+	h.view.c.Providers[3].API = "responses"
 
 	m, ok := h.f.Model(core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"})
 	if !ok || m.Source != "catalog" || m.Context != 200000 || m.Cache != core.CacheExplicit || !m.Price.Known || m.Price.InPerM != 1_000_000 || m.Local {
@@ -86,6 +89,11 @@ func TestModelResolution(t *testing.T) {
 	}
 	if got := m.Price.Cost(core.Usage{Input: 1_000, CacheRead: 100_000, CacheWrite: 10_000, Output: 1_000}); got != 3_000+30_000+37_500+15_000 {
 		t.Fatalf("openrouter claude cost with cache = %d micros", got)
+	}
+	// The Responses client sends no markers, so nothing is cached at them.
+	m, _ = h.f.Model(core.ModelRef{Provider: "router-responses", Model: "anthropic/claude-sonnet-4.5"})
+	if m.Cache == core.CacheExplicit {
+		t.Fatalf("openrouter claude through responses %+v", m)
 	}
 	m, _ = h.f.Model(core.ModelRef{Provider: "router", Model: "openai/gpt-5"})
 	if m.Cache != core.CacheImplicit {

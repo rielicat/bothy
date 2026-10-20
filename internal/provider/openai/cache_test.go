@@ -121,6 +121,25 @@ func TestOpenRouterClaudeAppendedTurnKeepsPrefix(t *testing.T) {
 	}
 }
 
+// TestOpenRouterClaudeToolResultKeepsShape: the step after a tool result
+// moves the rolling marker on; the result itself must reach the server in
+// the shape it had when it carried the marker, a one-part list, or the
+// next call's prefix would differ from what the previous one cached.
+func TestOpenRouterClaudeToolResultKeepsShape(t *testing.T) {
+	call := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: "c1", Name: "a", Args: json.RawMessage(`{}`)}}}}
+	result := core.Message{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "c1", Content: "r"}}}}
+	got := openRouterBody(t, agentRequest("anthropic/claude-sonnet-5.5", userText("one"), call, result,
+		core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartText, Text: "done"}}}, userText("two")))
+	for _, want := range []string{
+		`{"role":"tool","content":[{"type":"text","text":"r"}],"tool_call_id":"c1"}`,
+		`{"role":"user","content":[{"type":"text","text":"two","cache_control":{"type":"ephemeral"}}]}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %s in\n%s", want, got)
+		}
+	}
+}
+
 // TestOpenRouterClaudeBreakpointLimit: Anthropic takes at most four
 // markers; the earliest system ones give way to the rolling tail, which
 // moves past an empty tool result (a marker on empty text is refused).
