@@ -205,7 +205,8 @@ export async function probe(page: Page, opts: ProbeOptions = allProbes): Promise
         };
         const seen = new Set<string>();
         for (const el of all) {
-          if (el.matches(controls) || el.closest(controls) || !boxed(el) || !shown(el)) continue;
+          // An overlay is its own view, even when its markup sits inside a card (a row's menu in a group).
+          if (el.matches(controls) || el.closest(controls) || el.matches(floating) || !boxed(el) || !shown(el)) continue;
           for (let up = el.parentElement; up && up !== document.body; up = up.parentElement) {
             if (up.matches(floating)) break;
             if (!up.matches(controls) && boxed(up)) {

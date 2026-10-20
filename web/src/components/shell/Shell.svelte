@@ -144,7 +144,7 @@
   </main>
 </div>
 
-<!-- The inset panel: the canvas shows round the page's curved frame, drawn over it so the document still scrolls (§6.1). -->
+<!-- The inset panel's frame and the canvas around it, drawn over the page so the document still scrolls (§6.1). -->
 <div aria-hidden="true" data-frame class="pointer-events-none fixed inset-y-2 right-2 left-66 z-30 hidden rounded-lg shadow-frame lg:block"></div>
 <NavDrawer />
 <ChatDialogs />

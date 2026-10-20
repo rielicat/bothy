@@ -574,7 +574,7 @@
   >
 {/snippet}
 
-<!-- Bothy's picture, as the chat apps show it (D48). -->
+<!-- Bothy's picture, as the chat apps show it (D49). -->
 {#snippet face()}
   <img
     src="/api/agent/picture"

@@ -20,6 +20,7 @@ test.describe('layout probes', () => {
             <input style="border:1px solid #8f8a80;height:36px"> <button style="border:1px solid #d3cfc6;height:36px">Deny</button>
             <a href="#" style="border:1px solid #ccc;display:inline-block;height:36px">Details</a>
             <p>Read the <a href="#">guide</a> first.</p>
+            <div role="menu" style="border:1px solid #e6e3dc">a row's menu, rendered inside the card</div>
           </div>
           <div style="border-bottom:1px solid #e6e3dc">a row with a hairline</div>
           <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);font-size:8px">screen reader text</span>
