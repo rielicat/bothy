@@ -1248,7 +1248,7 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 - "Result": first 20 lines in a `CodeBlock` with "Show all"; file writes show `DiffView`.
 - "How it was allowed": "Allowed automatically", "You approved it", "Allowed by a saved permission", "Sam Patel approved it".
 - "What Bothy asked for": the action's fields, verbatim (`CodeBlock` of the exact Action JSON). When the Result above shows the action's diff, the JSON reads `"diff": "(shown above)"` instead of printing it twice.
-- "Technical": tool name, decision, rule, duration ("Took 1.2 s"), "Contacted api.github.com", and, for outside content, "This came from outside your team ({source}). Bothy treats it with caution.", the source named from the tool: "a web page", "a repository" (GitHub tools and Knowledge search), "a connected tool" (MCP), else "content Bothy read", in the chat's step Details and the task page alike When "How it was allowed" is shown, the decision word is left out: "Tool fs_write · Rule default:local_write · Took 1 s"
+- "Technical": tool name, decision, rule, duration ("Took 1.2 s"), "Contacted api.github.com", and, for outside content, "This came from outside your team ({source}). Bothy treats it with caution.", the source named from the tool: "a web page", "a repository" (GitHub tools and Knowledge search), "a connected tool" (MCP), else "content Bothy read", in the chat's step Details and the task page alike. When "How it was allowed" is shown, the decision word is left out: "Tool fs_write · Rule default:local_write · Took 1 s"
 
 `tool_search` and `use_tool` are never rendered or counted; the tool reached through them is shown as if called directly.
 
