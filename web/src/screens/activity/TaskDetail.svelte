@@ -90,7 +90,10 @@
     return s && f && f >= s ? `Took ${duration((f - s) * 1e6)}` : '';
   });
   const refine = $derived(d?.refine);
-  const agreed = $derived(refine ? `${refine.votes[0]?.count ?? 1} of ${refine.drafts} agreed` : '');
+  // The vote matches drafts' exact final lines, so on an open-ended question every draft words it
+  // differently and "1 of 3 agreed" would read as disagreement that may not be there; say nothing.
+  const agreeing = $derived(refine && (refine.votes[0]?.count ?? 0) > 1 ? refine.votes[0].count : 0);
+  const agreed = $derived(agreeing ? ` · ${agreeing} of ${refine!.drafts} agreed` : '');
   const who = $derived.by(() => {
     if (!run) return '';
     const scheduled = run.trigger === 'schedule' || run.trigger === 'heartbeat';
@@ -98,7 +101,7 @@
   });
   const when = $derived(run ? `${dayLabel(run.created_at)} at ${new Date(run.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}` : '');
   const facts = $derived(
-    [took, run?.cost_micros ? `Cost ${money(run.cost_micros)}` : '', refine ? `Refined from ${plural(refine.drafts, 'draft')} · ${agreed}` : ''].filter(Boolean),
+    [took, run?.cost_micros ? `Cost ${money(run.cost_micros)}` : '', refine ? `Refined from ${plural(refine.drafts, 'draft')}${agreed}` : ''].filter(Boolean),
   );
   const result = $derived(run ? detailOutcome(run) : null);
 
@@ -164,7 +167,7 @@
       {#if refine}
         <h3 class="mt-4 text-small font-medium text-text">Refine</h3>
         <p class="mt-1 text-small text-text">
-          {plural(refine.drafts, 'draft')}, {plural(refine.rounds, 'round')}. Draft {refine.winner + 1} was sent; {refine.votes[0]?.count ?? 1} of {refine.drafts} drafts reached its answer.
+          {plural(refine.drafts, 'draft')}, {plural(refine.rounds, 'round')}. Draft {refine.winner + 1} was sent{#if agreeing}; {agreeing} of {refine.drafts} drafts reached its answer{/if}.
         </p>
         <!-- Each entry hangs on a guide line under its toggle, as related chats do, so its words don't read as the page's own. -->
         {#each refine.entries ?? [] as e, i (i)}

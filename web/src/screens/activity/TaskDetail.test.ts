@@ -55,6 +55,15 @@ describe('Task detail (docs/design/ui.md §10.2)', () => {
     expect(text.closest('.md-small')?.parentElement?.classList.contains('border-l')).toBe(true);
   });
 
+  it("leaves out agreement when no two drafts gave the same answer", async () => {
+    await open('run_01jpricing00000000000000', 'refine-split');
+    await screen.findByText('Refined from 3 drafts', { exact: false });
+    expect(screen.queryByText(/agreed/)).toBeNull();
+    (await screen.findByRole('button', { name: 'Technical details' })).click();
+    await screen.findByText('3 drafts, 2 rounds. Draft 1 was sent.');
+    expect(screen.queryByText(/reached its answer/)).toBeNull();
+  });
+
   it('lists the steps as rows of one group card, each opening its details', async () => {
     await open('run_01jfixlogin0000000000000');
     const step = await screen.findByRole('button', { name: /^Ran npm test/ });

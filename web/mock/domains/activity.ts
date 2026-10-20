@@ -401,6 +401,7 @@ const spend80 = scenario('spend-80', "Today's spending passed 80% of the daily l
 const chatShare = scenario('chat-share', "Chat apps' share of today's limit: chat-share:80 (85% used) or chat-share:out (all used).", 'activity');
 const noReleases = scenario('releases-none', 'No deploy environments, so the Releases tab is hidden.', 'activity');
 const noDeploys = scenario('releases-empty', 'Deploy environments exist but nothing was deployed yet.', 'activity');
+const refineSplit = scenario('refine-split', "A refined answer's drafts each worded their final answer differently.", 'activity');
 const deployWaiting = scenario('deploy-waiting', 'A two-approver deploy waits for one more approval; an earlier one was denied.', 'activity');
 const auditBroken = scenario('audit-broken', "The audit log's hash chain breaks at one entry.", 'activity');
 const blankList = scenario('checkin-empty', 'The check-in list is blank: turning the check-in on opens it, with suggested lines.', 'activity');
@@ -455,7 +456,15 @@ on('GET', '/api/runs', (req, res, _m, q) => {
   json(res, 200, { items: page, next: items.length > limit ? Date.parse(page[page.length - 1].created_at) : 0 });
 });
 // Any id answers, like the v0.1 mock (the chat's live runs ask for theirs), except a "missing" one.
-on('GET', '/api/runs/{id}', (_q, res, m) => (m[1].includes('missing') ? fail(res, 404, 'not_found', 'No such run.') : json(res, 200, runDetail(m[1]))));
+on('GET', '/api/runs/{id}', (q, res, m) => {
+  if (m[1].includes('missing')) return fail(res, 404, 'not_found', 'No such run.');
+  const d = runDetail(m[1]);
+  if (refineSplit(q) && d.refine) {
+    d.refine.winner = 0;
+    d.refine.votes = d.refine.votes.flatMap((v) => v.drafts.map((i) => ({ answer: `${v.answer} (${i + 1})`, count: 1, drafts: [i] })));
+  }
+  return json(res, 200, d);
+});
 
 const human = (b: { kind: string; spec: string; tz: string }) => {
   const known: Record<string, string> = { '0 9 1,15 * *': 'On the 1st and 15th of each month at 09:00' };
