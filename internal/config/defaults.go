@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"time"
+
+	"github.com/rielicat/bothy/internal/core"
+)
 
 // defaults holds the built-in values of SPEC §7.1. Entries marked "example"
 // there (providers, model chains, pricing, MCP servers) are not defaults.
@@ -110,9 +114,9 @@ func defaults() *Config {
 		WebFetch: WebFetch{MaxBytes: 2097152, Timeout: d(20 * time.Second), MaxRedirects: 5},
 		Channels: Channels{
 			UnknownSenders: "pair",
-			Telegram:       Telegram{Token: "secret:telegram_bot_token", Groups: Groups{MentionOnly: true}, APIBase: "https://api.telegram.org"},
-			Discord:        Discord{Token: "secret:discord_bot_token", Groups: Groups{MentionOnly: true}, APIBase: "https://discord.com/api/v10"},
-			Slack: Slack{AppToken: "secret:slack_app_token", BotToken: "secret:slack_bot_token", Groups: Groups{MentionOnly: true},
+			Telegram:       Telegram{Token: "secret:" + core.SecretTelegramBotToken, Groups: Groups{MentionOnly: true}, APIBase: "https://api.telegram.org"},
+			Discord:        Discord{Token: "secret:" + core.SecretDiscordBotToken, Groups: Groups{MentionOnly: true}, APIBase: "https://discord.com/api/v10"},
+			Slack: Slack{AppToken: "secret:" + core.SecretSlackAppToken, BotToken: "secret:" + core.SecretSlackBotToken, Groups: Groups{MentionOnly: true},
 				APIBase: "https://slack.com/api/"},
 		},
 		GitHub:    GitHubCfg{APIBase: "https://api.github.com", Checkout: GitHubCheckout{MaxMB: 256, MaxFiles: 20000}},

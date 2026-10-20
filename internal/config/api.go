@@ -350,8 +350,9 @@ func keepServer(server bool) func(*field) bool {
 // "providers.<id>" creates or replaces the UI item); JSON null removes the UI
 // override and is audited as a reset. A rejected change returns FieldErrors
 // and writes nothing. Without ServerWrite on ctx, a server:"true" field can't
-// be set or removed, at its own path or through a value above it. A check on
-// ctx (WithCheck) may still refuse the validated result.
+// be set or removed, at its own path or through a value above it. A change
+// that has an MCP server send one of Bothy's own keys is refused
+// (SystemKeyMessage), and so may be one a check on ctx (WithCheck) refuses.
 func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, by string) (restart []string, err error) {
 	if len(changes) == 0 {
 		return nil, nil
@@ -429,6 +430,9 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 	if bad = newErrors(st, cand); len(bad) > 0 {
 		return nil, bad
 	}
+	if bad = systemKeyErrors(st.cfg, cand.cfg, src); len(bad) > 0 {
+		return nil, bad
+	}
 	if c := checkOf(ctx); c != nil {
 		if err := c(st.cfg, cand.cfg); err != nil {
 			return nil, err
@@ -504,8 +508,13 @@ func (m *Manager) Reset(ctx context.Context, path, by string) error {
 	if !ui.removeUnder(t.segs, keepServer(server)) {
 		return nil
 	}
+	cand := m.build(st.file, st.fileErr, ui, nil).cfg
+	// Taking a UI value away may bring back bothy.yaml's, which wasn't in effect.
+	if bad := systemKeyErrors(st.cfg, cand, Source{Layer: LayerUI, File: m.uiPath}); len(bad) > 0 {
+		return bad
+	}
 	if c := checkOf(ctx); c != nil {
-		if err := c(st.cfg, m.build(st.file, st.fileErr, ui, nil).cfg); err != nil {
+		if err := c(st.cfg, cand); err != nil {
 			return err
 		}
 	}

@@ -268,3 +268,31 @@ func TestDiscoveryWithAnAdminsOwnKey(t *testing.T) {
 		t.Fatalf("a removed server's key holder was kept: %v", err)
 	}
 }
+
+// A server set, in bothy.yaml or before config refused it, to send one of
+// Bothy's own keys never gets it: its status says why, and it isn't tried
+// again until its entry changes.
+func TestBothysOwnKeyIsNeverSent(t *testing.T) {
+	f := newFakeServer()
+	ts := f.httpServer(t, false)
+	header := httpServerCfg("header", ts.URL)
+	header.Headers = map[string]string{"Authorization": "Bearer secret:telegram_bot_token"}
+	addr := httpServerCfg("addr", ts.URL+"/mcp?token=secret:github_sign_in_client_secret")
+	h := newHarness(t, []config.MCPServer{header, addr}, withClient(ts.Client()),
+		withSecrets(map[string]string{"telegram_bot_token": "qa-bot-token-0001", "github_sign_in_client_secret": "qa-client-secret-0001"}))
+	h.start()
+	for _, name := range []string{"header", "addr"} {
+		st := h.status(name)
+		if st.State != stError || st.Code != "bothy_key" || !strings.Contains(st.Err, config.SystemKeyMessage) || !st.RetryAt.IsZero() {
+			t.Fatalf("%s: status = %+v", name, st)
+		}
+	}
+	for _, a := range f.authHeadersAll() {
+		if strings.Contains(a, "qa-") {
+			t.Fatalf("the server was sent %q", a)
+		}
+	}
+	if len(h.vault.Uses) != 0 {
+		t.Fatalf("Bothy's own keys were read: %+v", h.vault.Uses)
+	}
+}

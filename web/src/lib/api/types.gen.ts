@@ -2344,7 +2344,9 @@ export interface MCPStatus {
    * answered 401 or 403 while it has no key set at all), private_address
    * (needs allow_private), needs_https (plain http with a key to a name
    * that resolves to a public address), not_installed (a command server to
-   * install or reinstall), install_failed (its install failed; also with
+   * install or reinstall), bothy_key (a header or its address names one of
+   * Bothy's own keys, IsSystemSecret, which is never sent; not tried again
+   * until the entry changes), install_failed (its install failed; also with
    * State ready or pins_pending when a reinstall of the version it runs
    * failed and that install keeps serving, Err saying why); "" otherwise.
    */
@@ -2876,6 +2878,11 @@ export interface SecretMeta {
   hint: string; // last 4 chars; always "" for aws-sm
   updated_at: string /* RFC 3339 */;
   last_used_at: string /* RFC 3339 */;
+  /**
+   * System marks one of Bothy's own keys (IsSystemSecret) in the global
+   * list: never offered for a connected tool.
+   */
+  system?: boolean;
 }
 export type MetaRepo = any;
 export type UserRepo = any;
@@ -3054,6 +3061,10 @@ export type ToolRegistry = any;
  */
 export type Scope = string;
 export const GlobalScope: Scope = "global";
+export const SecretTelegramBotToken = "telegram_bot_token";
+export const SecretDiscordBotToken = "discord_bot_token";
+export const SecretSlackAppToken = "slack_app_token";
+export const SecretSlackBotToken = "slack_bot_token";
 /**
  * Secret never prints its value through fmt, JSON or slog.
  */

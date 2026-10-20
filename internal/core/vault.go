@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // Scope is "global" or "user:<id>". Spaces have no vault scope.
 type Scope string
@@ -8,6 +11,62 @@ type Scope string
 const GlobalScope Scope = "global"
 
 func UserScope(u UserID) Scope { return Scope("user:" + string(u)) }
+
+// The names of the keys Bothy keeps in the global vault for itself: its chat
+// apps' tokens, sign-in client secrets and its GitHub connections' and apps'
+// keys. IsSystemSecret is the one list of them.
+
+const (
+	SecretTelegramBotToken = "telegram_bot_token"
+	SecretDiscordBotToken  = "discord_bot_token"
+	SecretSlackAppToken    = "slack_app_token"
+	SecretSlackBotToken    = "slack_bot_token"
+)
+
+// SignInSecretName is where a sign-in provider's client secret is saved; a
+// "_2" (and on) suffix when an environment variable holds that name.
+func SignInSecretName(p SignInProvider) string { return string(p) + "_sign_in_client_secret" }
+
+// GitHubConnSecretName is where a GitHub connection (ghc_…) keeps the token
+// or app key Bothy stores for it.
+func GitHubConnSecretName(connID string) string { return "github_" + connID }
+
+// GitHubAppKeyName and GitHubAppClientSecretName are where an app Bothy made
+// (gha_…) keeps its private key and client secret.
+func GitHubAppKeyName(appID string) string          { return "github_" + appID + "_key" }
+func GitHubAppClientSecretName(appID string) string { return "github_" + appID + "_client_secret" }
+
+// IsSystemSecret reports whether name is one of Bothy's own keys. They are
+// never offered for, or sent to, an MCP server: a key a person saves for a
+// connected tool has any other name.
+func IsSystemSecret(name string) bool {
+	n := strings.ToLower(name)
+	switch n {
+	case SecretTelegramBotToken, SecretDiscordBotToken, SecretSlackAppToken, SecretSlackBotToken:
+		return true
+	}
+	for _, p := range SignInProviders {
+		if rest, ok := strings.CutPrefix(n, SignInSecretName(p)); ok && (rest == "" || rest[0] == '_' && onlyOf(rest[1:], "0123456789")) {
+			return true
+		}
+	}
+	// Lenient about the id's shape: missing one of these costs more than
+	// hiding a key someone happened to name like them.
+	const idChars = "0123456789abcdefghijklmnopqrstuvwxyz"
+	if id, ok := strings.CutPrefix(n, GitHubConnSecretName(PrefixGitHubConn+"_")); ok && onlyOf(id, idChars) {
+		return true
+	}
+	if rest, ok := strings.CutPrefix(n, "github_"+PrefixGitHubApp+"_"); ok {
+		for _, part := range []string{"_key", "_client_secret"} {
+			if id, ok := strings.CutSuffix(rest, part); ok && onlyOf(id, idChars) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func onlyOf(s, chars string) bool { return s != "" && strings.Trim(s, chars) == "" }
 
 // Secret never prints its value through fmt, JSON or slog.
 type Secret struct{ v []byte }

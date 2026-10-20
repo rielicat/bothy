@@ -270,7 +270,7 @@ on('PATCH', '/api/sign-in/{p}', async (req, res, m) => {
   if (Array.isArray(b.orgs)) set[`${base}.orgs`] = next.orgs;
   if (b.client_secret) {
     const name = `${p}_sign_in_client_secret`;
-    security.secrets = [...security.secrets.filter((s) => s.name !== name), { scope: 'global', name, source: 'vault', hint: String(b.client_secret).slice(-4), updated_at: nowISO(), last_used_at: ZERO }];
+    security.secrets = [...security.secrets.filter((s) => s.name !== name), { scope: 'global', name, source: 'vault', hint: String(b.client_secret).slice(-4), updated_at: nowISO(), last_used_at: ZERO, system: true }];
     set[`${base}.client_secret`] = `secret:${name}`;
   }
   if (!Object.keys(set).length) return fail(res, 400, 'bad_request', 'nothing to change');

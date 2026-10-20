@@ -55,7 +55,11 @@ const toolCodes: Record<string, string> = {
   needs_https: "it isn't on your private network, so its key needs an https:// address",
   not_installed: 'it needs to be installed',
   install_failed: "it couldn't be installed",
+  bothy_key: "the key it's set to send belongs to Bothy and can't be sent to other services",
 };
+
+/** What a refused save says when a setting would send one of Bothy's own keys (config.SystemKeyMessage). */
+export const bothyKeyText = "This key belongs to Bothy and can't be sent to other services. Choose another key.";
 
 /** " Bothy tries again in 4 min." while Bothy will try again on its own (MCPStatus.retry_at), else ''. */
 export function retryText(s: MCPStatus, now = Date.now()): string {

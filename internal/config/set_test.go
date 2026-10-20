@@ -437,3 +437,66 @@ func TestCheckRefusesBeforeWriting(t *testing.T) {
 		t.Fatalf("allowed Set = %v %v", err, m.Current().Budgets.DailyUSD)
 	}
 }
+
+func TestSetRefusesBothysOwnKeysForMCP(t *testing.T) {
+	dir := t.TempDir()
+	m := load(t, dir)
+	server := func(url, header string) string {
+		b, _ := json.Marshal(map[string]any{"transport": "http", "url": url, "headers": map[string]string{"Authorization": header}})
+		return string(b)
+	}
+	const addr = "https://mcp.example.com/mcp"
+	for name, change := range map[string]string{
+		"bot token":                  server(addr, "secret:telegram_bot_token"),
+		"embedded":                   server(addr, "Bearer secret:slack_bot_token"),
+		"ends where the vault stops": server(addr, "secret:discord_bot_tokenX"),
+		"GitHub connection":          server(addr, "token secret:github_ghc_01m4wa97e4s0p3qgcng95bcyhf"),
+		"GitHub app key":             server(addr, "secret:github_gha_01m4wa97e4s0p3qgcng95bcyhf_key"),
+		"sign-in, renamed":           server(addr, "secret:google_sign_in_client_secret_2"),
+		"in the address":             server(addr+"?token=secret:github_sign_in_client_secret", "secret:docs_key"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := set(t, m, map[string]string{"mcp.servers.docs": change})
+			if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), SystemKeyMessage) {
+				t.Fatalf("error %q lacks %q", fe.Error(), SystemKeyMessage)
+			}
+		})
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bothy.ui.yaml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("refused changes must not write bothy.ui.yaml")
+	}
+	// A key saved for the tool, the one the Add dialog saves, and an AWS
+	// secret whose name merely looks like one of Bothy's are fine.
+	mustSet(t, m, map[string]string{
+		"mcp.servers.docs":  server(addr, "Bearer secret:docs_key"),
+		"mcp.servers.mine":  server(addr, "secret:mcp_mine_header"),
+		"mcp.servers.cloud": server(addr, "aws-sm:arn:aws:secretsmanager:us-east-1:123456789012:secret:telegram_bot_token"),
+	})
+}
+
+func TestBothysOwnKeyInTheFileStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "bothy.yaml"), "version: 1\nmcp:\n  servers:\n    - name: docs\n      transport: http\n      url: https://mcp.example.com/mcp\n      headers: {Authorization: \"secret:telegram_bot_token\"}\n")
+	m := load(t, dir)
+	if s := m.Current().MCP.Servers; len(s) != 1 || s[0].Headers["Authorization"] != "secret:telegram_bot_token" {
+		t.Fatalf("servers %+v: the entry stays, and the MCP status says why it can't start", s)
+	}
+	if errs := m.Effective().Errors; len(errs) != 0 {
+		t.Fatalf("errors %+v", errs)
+	}
+	// Changing something else about the server keeps what was in effect.
+	mustSet(t, m, map[string]string{"mcp.servers.docs.enabled": "false"})
+	if _, err := set(t, m, map[string]string{"mcp.servers.docs.headers.Authorization": `"secret:slack_bot_token"`}); err == nil {
+		t.Fatal("pointing the header at another of Bothy's keys must be refused")
+	}
+	// Replacing it with a saved key works; taking that back would bring the
+	// file's value back, so it is refused too.
+	mustSet(t, m, map[string]string{"mcp.servers.docs.headers.Authorization": `"secret:docs_key"`})
+	err := m.Reset(context.Background(), "mcp.servers.docs.headers.Authorization", "user:alice")
+	if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), SystemKeyMessage) {
+		t.Fatalf("reset error %q", fe.Error())
+	}
+	if h := m.Current().MCP.Servers[0].Headers["Authorization"]; h != "secret:docs_key" {
+		t.Fatalf("header %q", h)
+	}
+}

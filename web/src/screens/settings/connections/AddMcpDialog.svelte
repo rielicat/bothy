@@ -5,7 +5,7 @@
   import type { MCPResolveResp, SandboxInfo } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { session } from '../../../lib/stores/session.svelte';
-  import { headerError, privateHost, saveConfig, type Failure } from './connections';
+  import { bothyKeyText, headerError, privateHost, saveConfig, type Failure } from './connections';
   import FailureLine from './FailureLine.svelte';
   import McpKey from './McpKey.svelte';
 
@@ -136,7 +136,9 @@
       if (failure) {
         failure.message = /use https/.test(failure.details ?? '')
           ? 'Use an https:// address: over http the secret header would be sent unencrypted.'
-          : "Bothy couldn't add this server. Check the details and try again.";
+          : /belongs to Bothy/.test(failure.details ?? '')
+            ? bothyKeyText
+            : "Bothy couldn't add this server. Check the details and try again.";
         return;
       }
       if (how === 'stdio') await api.post(`/api/mcp/${encodeURIComponent(id)}/install`).catch(() => {});

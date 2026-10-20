@@ -6,12 +6,15 @@ import { state as settings } from './settings.ts';
 
 export const secrets: SecretMeta[] = [
   { scope: 'global', name: 'anthropic_api_key', source: 'vault', hint: 'x9Qa', updated_at: ago(60 * 24 * 30), last_used_at: ago(12) },
-  { scope: 'global', name: 'telegram_bot_token', source: 'vault', hint: 'kT2c', updated_at: ago(60 * 24 * 20), last_used_at: ago(60 * 26) },
+  // Bothy's own keys (`system`, core.IsSystemSecret) are never offered to a connected tool.
+  { scope: 'global', name: 'telegram_bot_token', source: 'vault', hint: 'kT2c', updated_at: ago(60 * 24 * 20), last_used_at: ago(60 * 26), system: true },
+  { scope: 'global', name: 'github_ghc_01jacme00000000000000000000', source: 'vault', hint: 'e4Pd', updated_at: ago(60 * 24 * 40), last_used_at: ago(30), system: true },
+  { scope: 'global', name: 'google_sign_in_client_secret', source: 'vault', hint: 'Gc7v', updated_at: ago(60 * 24 * 50), last_used_at: ZERO, system: true },
   { scope: 'global', name: 'openrouter_api_key', source: 'vault', hint: 'p0Rt', updated_at: ago(60 * 24 * 9), last_used_at: ZERO },
   { scope: 'global', name: 'brave_api_key', source: 'env', hint: 'Lm0p', updated_at: ZERO, last_used_at: ago(60 * 24 * 3) },
 ];
 
-export const vaultStatus: VaultStatus = { sealed: false, kek_source: 'autogen', kek_id: '3fa9c2d1', colocated: true, secrets: 4 };
+export const vaultStatus: VaultStatus = { sealed: false, kek_source: 'autogen', kek_id: '3fa9c2d1', colocated: true, secrets: 6 };
 
 // As GET /api/grants sends them: with whom each covers and who made it.
 const grant = (id: string, g: Partial<GrantView>): GrantView => ({
@@ -200,8 +203,9 @@ on('GET', '/api/vault', (req, res, _m, q) => {
 });
 on('PUT', '/api/vault/{scope}/{name}', async (req, res, m) => {
   const { value } = JSON.parse(await body(req));
-  const s = { scope: decodeURIComponent(m[1]), name: m[2], source: 'vault', hint: String(value).slice(-4), updated_at: nowISO(), last_used_at: ZERO };
-  state.secrets = [...state.secrets.filter((x) => !(x.name === s.name && x.scope === s.scope)), s];
+  const prev = state.secrets.find((x) => x.name === m[2] && x.scope === decodeURIComponent(m[1]));
+  const s = { scope: decodeURIComponent(m[1]), name: m[2], source: 'vault', hint: String(value).slice(-4), updated_at: nowISO(), last_used_at: ZERO, ...(prev?.system && { system: true }) };
+  state.secrets = [...state.secrets.filter((x) => x !== prev), s];
   json(res, 200, s);
 });
 on('DELETE', '/api/vault/{scope}/{name}', (_q, res, m) => {

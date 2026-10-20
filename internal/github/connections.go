@@ -422,7 +422,7 @@ func (s *Service) connect(ctx context.Context, c core.GitHubCredentials, repos [
 	}
 	storedHere := conn.SecretRef == ""
 	if storedHere {
-		name := "github_" + conn.ID
+		name := core.GitHubConnSecretName(conn.ID)
 		if _, err := s.vault.Put(ctx, core.GlobalScope, name, rawSecret(c).Bytes(), by); err != nil {
 			return nil, nil, fmt.Errorf("github: storing the secret in the vault: %w", err)
 		}

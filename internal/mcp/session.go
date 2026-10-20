@@ -469,6 +469,16 @@ type httpAuth struct {
 // header whose key still doesn't exist, for a server whose people each use
 // their own key.
 func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, skipMissing bool, own core.UserID) (*httpAuth, error) {
+	// Config refuses these when they are written; a bothy.yaml entry, or one
+	// written before, still reaches here.
+	for _, k := range slices.Sorted(maps.Keys(s.spec.headers)) {
+		if config.SendsSystemKey(s.spec.headers[k]) {
+			return nil, &codedErr{code: "bothy_key", err: fmt.Errorf("mcp server %s: header %s: %w", s.name, k, errSystemKey)}
+		}
+	}
+	if config.SendsSystemKey(s.spec.url) {
+		return nil, &codedErr{code: "bothy_key", err: fmt.Errorf("mcp server %s: address: %w", s.name, errSystemKey)}
+	}
 	a := &httpAuth{headers: make(map[string]core.Secret, len(s.spec.headers))}
 	resolve := func(ref string) (core.Secret, error) {
 		v, err := m.d.Vault.Resolve(ctx, ref, u, source(s.name))
@@ -603,6 +613,7 @@ func (m *Manager) connectHTTP(ctx context.Context, s *server, a *httpAuth) (*con
 var (
 	errKeyRejected = errors.New("the server didn't accept the key it was sent")
 	errKeyNeeded   = errors.New("the server asks for a key, and none is set")
+	errSystemKey   = errors.New(config.SystemKeyMessage)
 )
 
 // hideEndpoint puts the address as configured back in an error that quotes

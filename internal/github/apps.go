@@ -260,7 +260,7 @@ func (s *Service) CreateApp(ctx context.Context, code string, t core.GitHubAppTa
 	id := core.NewID(core.PrefixGitHubApp)
 	a := &core.GitHubOwnApp{ID: id, AppID: conv.ID, Slug: conv.Slug, Name: name, Owner: conv.Owner.Login, OwnerID: conv.Owner.ID,
 		OwnerType: conv.Owner.Type, URL: htmlURL, ClientID: clientID, Replaces: replaces, CreatedBy: by}
-	keyName, secretName := "github_"+id+"_key", "github_"+id+"_client_secret"
+	keyName, secretName := core.GitHubAppKeyName(id), core.GitHubAppClientSecretName(id)
 	if _, err := s.vault.Put(ctx, core.GlobalScope, keyName, []byte(conv.PEM), by); err != nil {
 		return fail(fmt.Errorf("github: storing the new app's private key: %w", err))
 	}

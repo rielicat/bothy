@@ -912,6 +912,11 @@ func (s *Server) vaultList(w http.ResponseWriter, r *http.Request, a core.Actor)
 	if err != nil {
 		return err
 	}
+	if sc == core.GlobalScope {
+		for i := range metas {
+			metas[i].System = metas[i].Source != "aws-sm" && core.IsSystemSecret(metas[i].Name)
+		}
+	}
 	return ok(w, nonNil(metas))
 }
 

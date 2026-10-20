@@ -84,7 +84,7 @@ describe('Connections overview (§12.1)', () => {
   it('names the saved keys it offers as Saved keys does', async () => {
     const saved = [
       { scope: 'global', name: 'acme_helpdesk_key', source: 'vault' },
-      { scope: 'global', name: 'github_ghc_01m5bbd32ta4af183fzf6v6eq0', source: 'vault' },
+      { scope: 'global', name: 'mcp_docs_header', source: 'vault' },
       { scope: 'global', name: 'aws-sm:secret/bothy#OPENROUTER_API_KEY', source: 'aws-sm' },
     ];
     const calls = await start((m, url) => (m === 'GET' && url === '/api/vault?scope=global' ? saved : undefined));
@@ -95,10 +95,42 @@ describe('Connections overview (§12.1)', () => {
     expect([...key.options].map((o) => [o.text, o.value])).toEqual([
       ['Enter a key', ''],
       ['Acme helpdesk key', 'secret:acme_helpdesk_key'],
-      ['GitHub connection key', 'secret:github_ghc_01m5bbd32ta4af183fzf6v6eq0'],
+      ['Key for Docs', 'secret:mcp_docs_header'],
       ['secret/bothy (OPENROUTER_API_KEY) in AWS Secrets Manager', 'aws-sm:secret/bothy#OPENROUTER_API_KEY'],
     ]);
     expect(writes(calls)).toEqual([]);
+  });
+
+  it("never offers Bothy's own keys, such as its chat app tokens or GitHub connection key", async () => {
+    await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    const key = (await within(dialog).findByRole('combobox', { name: 'Key' })) as HTMLSelectElement;
+    expect([...key.options].map((o) => o.value)).toEqual(['', 'secret:anthropic_api_key', 'secret:brave_api_key', 'secret:openrouter_api_key']);
+  });
+
+  it('only offers a typed key when every saved key is one of Bothy’s own', async () => {
+    const saved = [{ scope: 'global', name: 'github_ghc_01m5bbd32ta4af183fzf6v6eq0', source: 'vault', system: true }];
+    await start((m, url) => (m === 'GET' && url === '/api/vault?scope=global' ? saved : undefined));
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    expect(await within(dialog).findByLabelText(/^Key/)).toBeTruthy();
+    expect(within(dialog).queryByRole('combobox')).toBeNull();
+  });
+
+  it('says so when the server refuses one of its own keys', async () => {
+    const refused = { fields: [{ path: 'mcp.servers.wiki.headers.Authorization', message: "bothy.ui.yaml: mcp.servers.wiki.headers.Authorization: this key belongs to Bothy and can't be sent to other services" }] };
+    await start((m, url) => (m === 'PATCH' && url === '/api/config' ? new Response(JSON.stringify(refused), { status: 400 }) : undefined));
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'wiki' } });
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://mcp.example.com/mcp' } });
+    await fireEvent.change(await within(dialog).findByLabelText('Key'), { target: { value: 'secret:brave_api_key' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(await within(dialog).findByText("This key belongs to Bothy and can't be sent to other services. Choose another key.")).toBeTruthy();
   });
 
   it('takes the name as people write it and keeps it lower-cased with dashes', async () => {
@@ -294,6 +326,7 @@ describe('MCP server page (§12.4)', () => {
     // It refused without a key set: nothing to replace.
     ['key_needed', 'it asks for a key', 'Add key', ''],
     ['key_locked', "Bothy's saved keys are locked", 'Open saved keys', ''],
+    ['bothy_key', "the key it's set to send belongs to Bothy and can't be sent to other services", 'Choose another key', ''],
   ])('names a %s problem and offers its fix', async (code, text, label, write) => {
     const calls = await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code, protocol: '', tools: 0, pending: 0, since: '' }] : undefined));
     render(McpServer, { params: { item: 'mcp-linear' } });
@@ -317,6 +350,25 @@ describe('MCP server page (§12.4)', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'POST /api/mcp/linear/reload']));
     expect(JSON.parse(writes(calls)[0].body)).toEqual({ value: 'Bearer new-one' });
+  });
+
+  it("points a server set to send one of Bothy's own keys at another, never overwriting Bothy's", async () => {
+    const calls = await start((m, url) =>
+      m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code: 'bothy_key', protocol: '', tools: 0, pending: 0, since: '' }] : undefined,
+    );
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText("Can't start: the key it's set to send belongs to Bothy and can't be sent to other services.");
+    config.view!.entries = [...config.view!.entries, { path: 'mcp.servers.linear.headers.Authorization', value: 'Bearer secret:telegram_bot_token' } as never];
+    await fireEvent.click(screen.getByRole('button', { name: 'Choose another key' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Choose another key for Linear' });
+    expect(within(dialog).queryByLabelText(/^Header/)).toBeNull();
+    const key = (await within(dialog).findByRole('combobox', { name: 'Key' })) as HTMLSelectElement;
+    expect([...key.options].map((o) => o.value)).not.toContain('secret:telegram_bot_token');
+    await fireEvent.input(within(dialog).getByLabelText('New key'), { target: { value: 'lin_api_new' } });
+    expect(within(dialog).getByText('Enter only the key: Bothy puts “Bearer” before it. Stored encrypted. Only sent to this address.')).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'PATCH /api/config']));
+    expect(JSON.parse(writes(calls)[1].body).set).toEqual({ 'mcp.servers.linear.headers.Authorization': 'Bearer secret:mcp_linear_header' });
   });
 
   it('adds a key to a server that sends none, as the Add dialog would', async () => {

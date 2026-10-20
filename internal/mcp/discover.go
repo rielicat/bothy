@@ -84,7 +84,8 @@ func (m *Manager) discoverLocked(ctx context.Context, s *server) {
 			state, err = stNoSandbox, errors.New(noSandboxMsg)
 		case errors.Is(err, errDrifted):
 			state = stDisabled
-		case !errors.Is(err, errNotInstalled) && ctx.Err() == nil:
+		// Trying again sends nothing new: only a config change fixes these.
+		case !errors.Is(err, errNotInstalled) && !errors.Is(err, errSystemKey) && ctx.Err() == nil:
 			s.failed(m.clock.Now())
 		}
 		// A server may echo request headers (vault secrets) in an error body.

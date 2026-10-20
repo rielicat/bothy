@@ -360,7 +360,7 @@ onReset(() => {
   seed('channels.slack.app_token', 'secret:slack_app_token');
   seed('channels.slack.bot_token', 'secret:slack_bot_token');
   for (const name of ['slack_app_token', 'slack_bot_token'])
-    if (!security.secrets.some((s) => s.name === name)) security.secrets.push({ scope: 'global', name, source: 'vault', hint: 'q7Lm', updated_at: ago(60 * 24 * 14), last_used_at: ago(2) });
+    if (!security.secrets.some((s) => s.name === name)) security.secrets.push({ scope: 'global', name, source: 'vault', hint: 'q7Lm', updated_at: ago(60 * 24 * 14), last_used_at: ago(2), system: true });
   for (const [k, v] of Object.entries({ name: 'linear', transport: 'http', url: 'https://mcp.linear.app/mcp' })) seed(`mcp.servers.linear.${k}`, v);
   for (const [n, e] of Object.entries({
     production: { name: 'production', repo: 'acme/web', workflow: 'deploy.yml', ref_pattern: 'main', approvers: [member.id, 'admin'], required: 2, inputs: {} },

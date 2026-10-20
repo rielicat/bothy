@@ -135,6 +135,35 @@ func FindAWSSecretRefs(s string) ([]AWSSecretRefAt, error) {
 	return out, nil
 }
 
+// SecretNames lists the vault names s references as secret:<name>, in order.
+// The ":secret:" of an aws-sm ARN is not one. It reads at least every name
+// the vault would resolve in s, so a check of the names misses none.
+func SecretNames(s string) []string {
+	const marker = "secret:"
+	aws, _ := FindAWSSecretRefs(s)
+	var out []string
+	for i := 0; i < len(s); {
+		j := strings.Index(s[i:], marker)
+		if j < 0 {
+			break
+		}
+		start := i + j
+		i = start + len(marker)
+		if slices.ContainsFunc(aws, func(a AWSSecretRefAt) bool { return start >= a.Start && start < a.End }) {
+			continue
+		}
+		// The vault's name characters: "secret:abcX" sends abc's value.
+		end := scanWhile(s, i, func(c byte) bool {
+			return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '.' || c == '-'
+		})
+		if end > i {
+			out = append(out, s[i:end])
+		}
+		i = end
+	}
+	return out
+}
+
 // HasSecretRef reports whether s holds a secret:<name> or aws-sm reference.
 func HasSecretRef(s string) bool {
 	return strings.Contains(s, "secret:") || strings.Contains(s, AWSSecretPrefix)

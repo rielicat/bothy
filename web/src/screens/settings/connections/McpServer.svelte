@@ -19,14 +19,14 @@
   } from '../../../components/ui';
   import Loading from '../../../components/ui/Loading.svelte';
   import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
-  import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
+  import type { MCPPin, MCPStatus, SecretMeta, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { lineDiff } from '../../../lib/diff';
   import { plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
   import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
-  import { effects, headerError, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
+  import { bothyKeyText, effects, headerError, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
   import FailureLine from './FailureLine.svelte';
   import McpKey from './McpKey.svelte';
 
@@ -53,12 +53,19 @@
   let keyTried = $state(false);
   let keyFailure = $state<Failure | null>(null);
   let lending = $state(false);
+  let bothyKeys = $state<string[]>([]);
 
   async function load() {
     try {
-      const [all, p] = await Promise.all([api.get<MCPStatus[]>('/api/mcp'), api.get<MCPPin[]>(`/api/mcp/${enc}/pins`).catch(() => []), config.load(true)]);
+      const [all, p, keys] = await Promise.all([
+        api.get<MCPStatus[]>('/api/mcp'),
+        api.get<MCPPin[]>(`/api/mcp/${enc}/pins`).catch(() => []),
+        api.get<SecretMeta[]>('/api/vault?scope=global').catch(() => []),
+        config.load(true),
+      ]);
       status = all.find((s) => s.name === name);
       pins = p;
+      bothyKeys = (keys ?? []).filter((k) => k.system).map((k) => k.name);
       enabled = config.value(`mcp.servers.${name}.enabled`, null) !== false;
       view = status || config.keys('mcp.servers').includes(name) ? 'ready' : 'missing';
     } catch {
@@ -144,9 +151,24 @@
   // The shared saved key it sends, from a header or else its address; one added here is named as the Add dialog names it.
   const keyRef = $derived(refs.map((v) => /secret:([\w.-]+)/.exec(v)?.[1]).find(Boolean));
   const keySaved = $derived(!!keyRef && status?.code !== 'key_missing' && status?.code !== 'no_shared_key');
+  // One of Bothy's own keys, which it never sends (code bothy_key): the setting is pointed at another key, and Bothy's is never overwritten.
+  const bothyRef = $derived(
+    refs.flatMap((v) => [...v.matchAll(/secret:([a-z0-9_.-]+)/g)].map((m) => m[1])).find((n) => bothyKeys.includes(n)) ??
+      (status?.code === 'bothy_key' ? keyRef : undefined),
+  );
+  function swapBothyRef(to: string): Record<string, string> {
+    const re = new RegExp(`secret:${bothyRef!.replace(/[.]/g, '\\.')}(?![a-z0-9_.-])`, 'g');
+    const out: Record<string, string> = {};
+    for (const [path, v] of [...headers.map(([h, v]) => [`mcp.servers.${name}.headers.${h}`, v]), [`mcp.servers.${name}.url`, url]]) {
+      const next = v.replace(re, to);
+      if (next !== v) out[path] = next;
+    }
+    return out;
+  }
   // The header that carries the key, and what it sends before it ("Bearer "), which the help names.
   const keyHelp = $derived.by(() => {
-    const h = keyRef ? headers.find((x) => x[1].includes(`secret:${keyRef}`)) : ['Authorization', ''];
+    const named = bothyRef ?? keyRef;
+    const h = named ? headers.find((x) => x[1].includes(`secret:${named}`)) : ['Authorization', ''];
     const before = h?.[1].split('secret:')[0].trim();
     return `${before ? `Enter only the key: Bothy puts “${before}” before it. ` : h ? `Sent as the ${h[0]} header, such as Bearer abc123. ` : ''}Stored encrypted. Only sent to this address.`;
   });
@@ -163,19 +185,25 @@
     keyTried = true;
     if ((!newKey.trim() && !newRef) || headerError(newHeader)) return;
     busy = true;
-    const ref = keyRef ?? `mcp_${name}_header`;
+    const ref = keyRef && !bothyRef ? keyRef : `mcp_${name}_header`;
     try {
       if (!newRef) await api.put(`/api/vault/global/${ref}`, { value: newKey.trim() });
-      // A new header changes the server's entry, which rediscovers it; a replaced key needs a reload to be tried.
-      keyFailure = keyRef ? null : await saveConfig({ [`mcp.servers.${name}.headers.${newHeader.trim() || 'Authorization'}`]: newRef || `secret:${ref}` });
+      const value = newRef || `secret:${ref}`;
+      // A changed setting rediscovers the server; a replaced key needs a reload to be tried.
+      keyFailure = bothyRef
+        ? await saveConfig(swapBothyRef(value))
+        : keyRef
+          ? null
+          : await saveConfig({ [`mcp.servers.${name}.headers.${newHeader.trim() || 'Authorization'}`]: value });
       if (keyFailure) {
         // Nothing sends the key just saved: it doesn't stay behind.
-        if (!newRef) await api.del(`/api/vault/global/${ref}`).catch(() => {});
+        if (!newRef && !ownKey) await api.del(`/api/vault/global/${ref}`).catch(() => {});
         if (/use https/.test(keyFailure.details ?? '')) keyFailure.message = 'Over http the key would be sent unencrypted. Add the server again with its https:// address.';
+        if (/belongs to Bothy/.test(keyFailure.details ?? '')) keyFailure.message = bothyKeyText;
       } else {
         keying = false;
         toast('Key saved.');
-        if (keyRef) await post('reload', "Bothy couldn't reload this server. Try again.");
+        if (keyRef && !bothyRef) await post('reload', "Bothy couldn't reload this server. Try again.");
         else await load();
       }
     } catch (err) {
@@ -214,6 +242,8 @@
         break;
       case 'key_locked':
         return { label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') };
+      case 'bothy_key':
+        return { label: 'Choose another key', onclick: openKey };
     }
     return status?.state === 'error' ? { label: 'Try again', onclick: reload } : undefined;
   });
@@ -256,7 +286,11 @@
       placement="bottom-end"
       items={[
         { label: 'Reload', onselect: reload },
-        ...(keyable ? [{ label: keySaved ? 'Replace key…' : 'Add a key…', onselect: openKey }] : []),
+        ...(bothyRef
+          ? [{ label: 'Choose another key…', onselect: openKey }]
+          : keyable
+            ? [{ label: keySaved ? 'Replace key…' : 'Add a key…', onselect: openKey }]
+            : []),
         { label: 'Remove server…', danger: true, onselect: () => (removing = true) },
       ]}
     >
@@ -388,9 +422,25 @@
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy} cancel>
+<Dialog
+  bind:open={keying}
+  title={bothyRef ? `Choose another key for ${title}` : keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`}
+  dirty={!!newKey}
+  {busy}
+  cancel
+>
   <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
-    {#if keyRef}
+    {#if bothyRef}
+      <!-- The setting keeps its header and the words around the key; only the key changes. -->
+      <McpKey
+        bind:ref={newRef}
+        bind:key={newKey}
+        askHeader={false}
+        optional={false}
+        help={keyHelp}
+        error={keyTried ? { key: newKey.trim() ? undefined : 'Enter the key.' } : undefined}
+      />
+    {:else if keyRef}
       <TextField
         label="Key"
         type="password"

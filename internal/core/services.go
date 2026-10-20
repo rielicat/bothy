@@ -84,7 +84,9 @@ type MCPStatus struct {
 	// answered 401 or 403 while it has no key set at all), private_address
 	// (needs allow_private), needs_https (plain http with a key to a name
 	// that resolves to a public address), not_installed (a command server to
-	// install or reinstall), install_failed (its install failed; also with
+	// install or reinstall), bothy_key (a header or its address names one of
+	// Bothy's own keys, IsSystemSecret, which is never sent; not tried again
+	// until the entry changes), install_failed (its install failed; also with
 	// State ready or pins_pending when a reinstall of the version it runs
 	// failed and that install keeps serving, Err saying why); "" otherwise.
 	Code    string    `json:"code,omitempty"`

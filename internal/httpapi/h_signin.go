@@ -352,7 +352,7 @@ func (s *Server) patchSignIn(w http.ResponseWriter, r *http.Request, a core.Acto
 		if len(secret) > 4096 || strings.ContainsFunc(secret, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 			return badRequest("client_secret must be at most 4096 printable characters")
 		}
-		meta, u, err := s.saveGlobalKey(r, a, string(p)+"_sign_in_client_secret", []byte(secret), "", "sign-in:"+string(p))
+		meta, u, err := s.saveGlobalKey(r, a, core.SignInSecretName(p), []byte(secret), "", "sign-in:"+string(p))
 		if err != nil {
 			return err
 		}
