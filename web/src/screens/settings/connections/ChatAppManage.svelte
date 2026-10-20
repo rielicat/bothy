@@ -311,10 +311,9 @@
   </SettingsSection>
 </ConnPage>
 
-<Dialog bind:open={leaving} title="Disconnect {name}?" initialFocus="cancel" {busy}>
+<Dialog bind:open={leaving} title="Disconnect {name}?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy stops answering in {name} and forgets its tokens. People and group chat settings are kept.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Disconnecting…" onclick={disconnect}>Disconnect {name}</Button>
   {/snippet}
 </Dialog>

@@ -9,6 +9,7 @@
   import ConnPage from './ConnPage.svelte';
   import { approverLine, githubWeb, installationSettingsURL, readAt, saveConfig, type Failure } from './connections';
   import EnvironmentDialog from './EnvironmentDialog.svelte';
+  import FailureLine from './FailureLine.svelte';
   import RepoPicker from './RepoPicker.svelte';
   import type { GitHubApp, GitHubAppCheck, GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
 
@@ -232,7 +233,7 @@
       action={{ label: 'See progress in Knowledge ›', onclick: () => router.navigate('/knowledge') }}
     />
   {/if}
-  {#if problem}<StatusLine class="mb-6" tone="danger" alert text={problem.message} details={problem.details} />{/if}
+  <FailureLine class="mb-6" failure={problem} />
 
   <SettingsSection title="Account">
     <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">
@@ -338,17 +339,16 @@
   </Disclosure>
 </ConnPage>
 
-<Dialog bind:open={leaving} title="Disconnect GitHub?" initialFocus="cancel" {busy}>
+<Dialog bind:open={leaving} title="Disconnect GitHub?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">
     Bothy will stop reading these repositories and can't open pull requests or deploy. Project notes are kept.{app ? ` ${app.name} stays on GitHub until you delete it there.` : ''}
   </p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Disconnecting…" onclick={disconnect}>Disconnect GitHub</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={adding} title={allowed.length ? 'Add repositories' : 'Which repositories can Bothy use?'} size="md" {busy}>
+<Dialog bind:open={adding} title={allowed.length ? 'Add repositories' : 'Which repositories can Bothy use?'} size="md" {busy} cancel>
   {#if probeError}
     <StatusLine tone="danger" text="Bothy couldn't ask GitHub for more repositories. Try again." details={probeError} />
   {:else if !probe}
@@ -376,16 +376,14 @@
       </p>
     {/if}
   {/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     {#if addable.length}<Button variant="primary" loading={busy} loadingLabel="Adding…" onclick={addMore}>Add repositories</Button>{/if}
   {/snippet}
 </Dialog>
 
-<Dialog open={!!dropping} onclose={() => (dropping = '')} title="Delete {dropping}?" initialFocus="cancel" {busy}>
+<Dialog open={!!dropping} onclose={() => (dropping = '')} title="Delete {dropping}?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy can no longer deploy to {dropping}. Past deploys stay in Activity. This can't be undone.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={dropEnv}>Delete environment</Button>
   {/snippet}
 </Dialog>

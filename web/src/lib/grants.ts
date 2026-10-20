@@ -1,5 +1,5 @@
 import type { Action, GrantCreateReq, PrincipalID } from './api/types.gen';
-import { serviceName } from './format';
+import { capital, serviceName } from './format';
 
 // core.GrantDomain values are exact "host:port" (IPv6 in brackets); a bare
 // host would never match a connection, so the port is always spelled out.
@@ -46,8 +46,6 @@ export function hostOf(a: Pick<Action, 'host' | 'port' | 'url'>): string {
     return '';
   }
 }
-
-const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 /** Grant wording with identifiers (paths, hosts, commands, repositories) marked for `text-code`. */
 export type GrantPart = string | { code: string };

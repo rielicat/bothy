@@ -32,6 +32,13 @@ describe('config store', () => {
     expect(config.schema('pricing.ollama/qwen3:14b.in')?.type).toBe('number');
   });
 
+  it('asks for the schema on the first read only, and keeps it through reloads', async () => {
+    await config.save({ 'budgets.daily_usd': 7 });
+    expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/config')).map((c) => c.url)).toEqual(['/api/config?schema=1', '/api/config']);
+    expect(config.value('budgets.daily_usd')).toBe(7);
+    expect(config.schema('policy.preset')?.enum).toEqual(['careful', 'balanced', 'hands_off']);
+  });
+
   it('sends changes as a dotted-path patch and reloads', async () => {
     expect(await config.save({ 'budgets.daily_usd': 7 })).toEqual({ ok: true, restart: [] });
     expect(calls.find((c) => c.method === 'PATCH')?.body).toBe('{"set":{"budgets.daily_usd":7}}');

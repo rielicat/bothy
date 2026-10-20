@@ -7,7 +7,7 @@
 // 'repo' segment, then the path inside it ("acme/web · src/a.ts").
 import type { Action, ApprovalStatus, ToolCallStatus } from './api/types.gen';
 import { chatName } from './cardcopy';
-import { serviceName, skillName } from './format';
+import { capital, humanise, serviceName, skillName } from './format';
 
 export type SegKind = 'text' | 'code' | 'name' | 'repo';
 export interface Seg {
@@ -76,16 +76,8 @@ const T: Record<string, string[]> = {
 };
 T.skill_read = T.skill_load;
 
-/** Every tool the phrase table covers, for tests and the gallery. */
-export const knownTools = Object.keys(T);
 
 const CODE = new Set(['path', 'dir', 'command', 'host', 'hostpath', 'ref']);
-
-/** "create_issue" → "Create issue". */
-export function humanise(s: string): string {
-  const t = s.replace(/[_-]+/g, ' ').trim();
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
 
 export function shellCommand(action?: Action, args?: Record<string, unknown>): string {
   const argv = action?.argv;
@@ -252,7 +244,7 @@ export function fill(tpl: string, vals: Record<string, string>): Phrase {
   return out;
 }
 
-const cap = (p: Phrase): Phrase => (p[0]?.k === 'text' ? [{ k: 'text', v: p[0].v.charAt(0).toUpperCase() + p[0].v.slice(1) }, ...p.slice(1)] : p);
+const cap = (p: Phrase): Phrase => (p[0]?.k === 'text' ? [{ k: 'text', v: capital(p[0].v) }, ...p.slice(1)] : p);
 
 export function phrases(s: StepInput): Phrases {
   const a = (s.action?.payload ?? s.args ?? {}) as Record<string, unknown>;

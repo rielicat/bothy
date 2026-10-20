@@ -1,6 +1,5 @@
 <script lang="ts">
   import { ApprovalCard } from '../../components/approval';
-  import Button from '../../components/ui/Button.svelte';
   import Dialog from '../../components/ui/Dialog.svelte';
   import type { Approval } from '../../lib/api/types.gen';
 
@@ -13,13 +12,12 @@
   });
 </script>
 
-<Dialog bind:open title="Suggested changes" size="lg">
+<!-- On phones the sheet has no close button of its own; Close sits in its header bar. -->
+<Dialog bind:open title="Suggested changes" size="lg" cancel="Close">
   <div class="space-y-4">
     <!-- The cards look alike until opened, so each shows its change straight away. -->
     {#each items as a (a.id)}
       <ApprovalCard approval={a} showOpen />
     {/each}
   </div>
-  <!-- On phones the sheet has no close button of its own; this one sits in its header bar. -->
-  {#snippet footer({ close })}<Button onclick={close}>Close</Button>{/snippet}
 </Dialog>

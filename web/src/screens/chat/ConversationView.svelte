@@ -6,16 +6,15 @@
 
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import { ApprovalCard, DecidedLine } from '../../components/approval';
+  import { people } from '../../components/approval/people.svelte';
   import ActivityGroup from '../../components/chat/ActivityGroup.svelte';
   import ChatDetails from '../../components/chat/ChatDetails.svelte';
   import ChatNotice from '../../components/chat/ChatNotice.svelte';
   import { linkCitations } from '../../components/chat/citations';
-  import DecidedLine from '../../components/chat/DecidedLine.svelte';
-  import InlineApproval from '../../components/chat/InlineApproval.svelte';
   import ModelPicker from '../../components/chat/ModelPicker.svelte';
   import { models, providerName } from '../../components/chat/models.svelte';
   import NewChat from '../../components/chat/NewChat.svelte';
-  import { appName, people } from '../../components/chat/people.svelte';
   import PinnedDrawer from '../../components/chat/PinnedDrawer.svelte';
   import { refineLabel, refineStep, type RefineProgress } from '../../components/chat/refine';
   import { stepOf, type StepView } from '../../components/chat/steps';
@@ -35,7 +34,8 @@
   import { fill, prefix, type Phrase } from '../../lib/activity';
   import { api, ApiError } from '../../lib/api/client';
   import type { Approval, RefineData, RefineEstimate, SandboxInfo, Session, SubmitResult } from '../../lib/api/types.gen';
-  import { clock, estimate, fullTime, money, plural } from '../../lib/format';
+  import { capital, clock, estimate, fullTime, money, plural } from '../../lib/format';
+  import { channelName } from '../../lib/labels';
   import { router } from '../../lib/router.svelte';
   import { events } from '../../lib/sse.svelte';
   import { session as auth } from '../../lib/stores/session.svelte';
@@ -89,7 +89,7 @@
   const exposed = $derived(((s?.taint ?? 0) & 3) === 3);
   const firstText = $derived(conv.items.find((i) => i.kind === 'user')?.text ?? '');
   const chatTitle = $derived(s?.title || firstText.slice(0, 48));
-  const where = $derived(s && ['telegram', 'slack', 'discord'].includes(s.origin) ? appName[s.origin] : '');
+  const where = $derived(s && ['telegram', 'slack', 'discord'].includes(s.origin) ? channelName[s.origin] : '');
   const blocks = $derived(buildBlocks(conv.items));
   const liveRun = $derived(conv.running && conv.live ? conv.live.id : '');
   let codeAvailable: boolean | null = $state(null);
@@ -176,7 +176,7 @@
     const head = `Refine is on: Bothy writes ${n} drafts, checks them and sends the best.`;
     if (est?.usd != null) {
       const e = estimate(est.usd * 1e6);
-      return `${head} ${e.charAt(0).toUpperCase()}${e.slice(1)} for this reply.`;
+      return `${head} ${capital(e)} for this reply.`;
     }
     const m = Math.round(est?.multiplier ?? models.refine?.multiplier ?? 0);
     return m > 1 ? `${head} Costs about ${m}× a normal reply.` : `${head} Slower, and costs several times more.`;
@@ -563,7 +563,7 @@
 {#snippet approvalFor(st: StepView, afterStep: boolean)}
   {@const a = st.approval!}
   {#if a.status === 'pending' || a.status === 'parked'}
-    <div class="mt-2 mb-3"><InlineApproval approval={a} onresolved={decided} /></div>
+    <div class="mt-2 mb-3"><ApprovalCard approval={a} onresolved={decided} /></div>
   {:else}
     <DecidedLine approval={a} phrases={st.phrases} {afterStep} />
   {/if}
@@ -720,7 +720,7 @@
       <!-- The welcome chat offers the starters under its message until the person writes (§7.1). -->
       {#if welcome}<NewChat bare onpick={(t) => composer?.fill(t)} />{/if}
 
-      {#each strayApprovals as a (a.id)}<div class="mt-3"><InlineApproval approval={a} onresolved={decided} /></div>{/each}
+      {#each strayApprovals as a (a.id)}<div class="mt-3"><ApprovalCard approval={a} onresolved={decided} /></div>{/each}
 
       {#if conv.queued.length}<div class="mt-3"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
       {#if working}

@@ -6,16 +6,13 @@
   import Dot from '../ui/Dot.svelte';
   import IconButton from '../ui/IconButton.svelte';
   import { attention } from './attention.svelte';
-  import { personalGroups, workspaceGroups } from './settings';
+  import { settingsSections } from './settings';
 
   // Opening Settings swaps the sidebar's contents (§4.3): same width, same colour.
   let { drawer = false }: { drawer?: boolean } = $props();
   const uid = $props.id();
   const here = (id: string) => router.path === `/settings/${id}` || router.path.startsWith(`/settings/${id}/`);
-  const sections = $derived([
-    { key: 'you', label: 'You', groups: personalGroups },
-    ...(session.isAdmin ? [{ key: 'workspace', label: 'Workspace', groups: workspaceGroups }] : []),
-  ]);
+  const sections = $derived(settingsSections(session.isAdmin));
   const item =
     'flex h-8 items-center gap-2 rounded-md px-2 text-body font-medium text-muted hover:bg-hover hover:text-text focus-visible:-outline-offset-2 aria-[current=page]:bg-selected aria-[current=page]:text-text pointer-coarse:h-11';
 </script>

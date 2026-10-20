@@ -34,6 +34,4 @@ export function relLower(t: string): string {
   return relTime(t).replace(/^(Yesterday|Tomorrow)/, (m) => m.toLowerCase());
 }
 
-/** The first letter up: meta lines start with whichever piece is present. */
-export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 

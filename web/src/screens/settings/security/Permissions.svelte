@@ -1,13 +1,12 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import Icon from '../../../components/Icon.svelte';
-  import { Button, CodeBlock, Disclosure, EmptyState, Page, toast } from '../../../components/ui';
+  import { Button, CodeBlock, Disclosure, EmptyState, FieldError, Page, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { Grant, GrantView, List, Schedule, Session } from '../../../lib/api/types.gen';
-  import { fullTime, relTime } from '../../../lib/format';
+  import { capital, fullTime, relTime } from '../../../lib/format';
   import { session } from '../../../lib/stores/session.svelte';
   import { describeGrant, grantMeta } from './grantText';
-  import { capital, relLower, securityBack } from './page.svelte';
+  import { relLower, securityBack } from './page.svelte';
   import PageState from './PageState.svelte';
 
   let grants = $state<GrantView[] | null>(null);
@@ -95,7 +94,7 @@
             <Button variant="ghost" size="sm" data-remove loading={removing === g.id} loadingLabel="Removing…" onclick={() => remove(g, i)}>Remove</Button>
           </div>
           {#if d.raw}<Disclosure><CodeBlock code={d.raw} wrap /></Disclosure>{/if}
-          {#if error?.id === g.id}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error.text}</p>{/if}
+          <FieldError text={error?.id === g.id && error.text} />
         </div>
       {/each}
     </div>

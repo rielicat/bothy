@@ -2,62 +2,55 @@
 // write it (SPEC §7.3), and the save state of one settings row (§11.1).
 import { api, ApiError } from '../../lib/api/client';
 import type { ConfigPatchResp, ConfigView, Entry } from '../../lib/api/types.gen';
+import { config } from '../../lib/config.svelte';
 import { events } from '../../lib/sse.svelte';
 
+// Reads lib/config's copy, so these pages and the ones that need the schema fetch the config once.
 class SettingsConfig {
-  view: ConfigView | null = $state(null);
-  failed = $state(false);
-  #byPath = $derived(new Map((this.view?.entries ?? []).map((e) => [e.path, e])));
-  #loading: Promise<void> | null = null;
+  get view(): ConfigView | null {
+    return config.view;
+  }
+
+  get failed(): boolean {
+    return !config.view && !!config.error;
+  }
 
   load(force = false): Promise<void> {
-    if (this.view && !force) return Promise.resolve();
-    this.#loading ??= api
-      .get<ConfigView>('/api/config')
-      .then((v) => {
-        this.view = v;
-        this.failed = false;
-      })
-      .catch(() => {
-        this.failed = !this.view;
-      })
-      .finally(() => (this.#loading = null));
-    return this.#loading;
+    return config.load(force);
   }
 
   entry(path: string): Entry | undefined {
-    return this.#byPath.get(path);
+    return config.entry(path);
   }
 
   /** The server knows this setting; rows for settings it doesn't know yet stay hidden. */
   has(path: string): boolean {
-    return this.#byPath.has(path);
+    return !!config.entry(path);
   }
 
   value<T = unknown>(path: string, fallback?: T): T {
-    const e = this.#byPath.get(path);
+    const e = config.entry(path);
     return (e && e.value !== null && e.value !== undefined ? e.value : fallback) as T;
   }
 
   /** Changes to this setting apply only after a restart. */
   restartOnly(path: string): boolean {
-    return this.#byPath.get(path)?.hot === false;
+    return config.entry(path)?.hot === false;
   }
 
   locked(path: string): boolean {
-    return !!this.#byPath.get(path)?.locked;
+    return !!config.entry(path)?.locked;
   }
 
   /** Keys of the list items or map entries under prefix: "providers" → ["anthropic", "ollama"]. */
   keys(prefix: string): string[] {
-    const p = prefix + '.';
-    return [...new Set((this.view?.entries ?? []).filter((e) => e.path.startsWith(p)).map((e) => e.path.slice(p.length).split('.')[0]))];
+    return config.keys(prefix);
   }
 
   /** Writes and reloads; throws ApiError (with field errors on 400). Returns the paths that need a restart, which the shell's banner announces. */
   async save(set: Record<string, unknown>): Promise<string[]> {
     const r = await api.patch<ConfigPatchResp>('/api/config', { set });
-    await this.load(true);
+    await config.load(true);
     return r?.restart_required ?? [];
   }
 
@@ -66,7 +59,7 @@ class SettingsConfig {
    * a row someone is editing then notices its value moved and shows a conflict.
    */
   listen(): () => void {
-    return events.on('config.changed', () => void this.load(true));
+    return events.on('config.changed', () => void config.load(true));
   }
 }
 

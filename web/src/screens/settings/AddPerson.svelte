@@ -70,7 +70,7 @@
   }
 </script>
 
-<Dialog bind:open title="Add person" size="md" {busy} dirty={!done && !!(name || username)}>
+<Dialog bind:open title="Add person" size="md" {busy} dirty={!done && !!(name || username)} cancel={!done} lockCancel>
   {#if done}
     <p class="text-body text-text">{done.name} can sign in now. Send them these details:</p>
     <CodeBlock class="mt-3" code={`Address: ${address}\nUsername: ${done.username}\nOne-time password: ${done.password}`} wrap />
@@ -109,7 +109,6 @@
     {#if done}
       <Button variant="primary" onclick={close}>Done</Button>
     {:else}
-      <Button data-cancel onclick={close} disabled={busy}>Cancel</Button>
       <Button variant="primary" type="submit" form={formId} loading={busy} loadingLabel="Creating…">Create</Button>
     {/if}
   {/snippet}

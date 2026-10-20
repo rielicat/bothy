@@ -1,6 +1,6 @@
 import { api, ApiError } from './api/client';
 import type { ConfigPatchResp, ConfigView, Entry, FieldError, Source } from './api/types.gen';
-import { ago } from './format';
+import { ago, capital } from './format';
 
 export interface SchemaNode {
   type?: string | string[];
@@ -30,10 +30,13 @@ class Config {
 
   load(force = false): Promise<void> {
     if (this.view && !force) return Promise.resolve();
+    // The gateway builds the schema once at start-up, so only the first read asks for it;
+    // the Settings rows reload the config after every save.
+    const schema = this.view?.schema;
     this.#loading ??= api
-      .get<ConfigView>('/api/config?schema=1')
+      .get<ConfigView>(schema ? '/api/config' : '/api/config?schema=1')
       .then((v) => {
-        this.view = v;
+        this.view = schema ? { ...v, schema } : v;
         this.error = '';
       })
       .catch((e) => {
@@ -165,7 +168,7 @@ export function saveErrorText(r: SaveResult, path?: string, opts: { technical?: 
   if (opts.technical && field) {
     // "bothy.ui.yaml: budgets.daily_usd: must be 0 or more" → "Must be 0 or more."
     const reason = field.slice(field.lastIndexOf(': ') + 1).trim() || field;
-    const sentence = reason.charAt(0).toUpperCase() + reason.slice(1);
+    const sentence = capital(reason);
     return `Couldn't save. ${/[.?]$/.test(sentence) ? sentence : sentence + '.'}`;
   }
   return "Couldn't save. Try again.";

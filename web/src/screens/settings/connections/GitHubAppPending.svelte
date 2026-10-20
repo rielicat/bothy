@@ -3,6 +3,7 @@
   import { Button, Dialog, StatusLine, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
   import type { Failure } from './connections';
+  import FailureLine from './FailureLine.svelte';
   import type { GitHubApp, GitHubAppCheck } from './types';
 
   // An app GitHub created that isn't installed yet (§12.2).
@@ -87,14 +88,13 @@
     <Button loading={checking} loadingLabel="Checking…" onclick={() => check(false)}>Check again</Button>
   </div>
   {#if result}<StatusLine class="mt-3" tone={result.tone} alert={result.tone === 'danger'} text={result.text} details={result.details} />{/if}
-  {#if problem}<StatusLine class="mt-3" tone="danger" alert text={problem.message} details={problem.details} />{/if}
+  <FailureLine class="mt-3" failure={problem} />
   <div class="mt-3"><Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Start over…</Button></div>
 </section>
 
-<Dialog bind:open={leaving} title="Start over?" initialFocus="cancel" {busy}>
+<Dialog bind:open={leaving} title="Start over?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy stops using {app.name} and deletes its keys. The app stays on GitHub until you delete it there.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Starting over…" onclick={startOver}>Start over</Button>
   {/snippet}
 </Dialog>

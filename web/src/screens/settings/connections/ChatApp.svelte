@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
-  import { Button, EmptyState, LinkButton, StatusLine, TextField, toast } from '../../../components/ui';
+  import { Button, LinkButton, StatusLine, TextField, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { ChannelTestResp, DiscordInvite, SecretMeta, SpaceView } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { router } from '../../../lib/router.svelte';
   import { pictureDownloadURL, pictureURL } from '../picture';
+  import PageState from '../security/PageState.svelte';
   import ChatAppManage from './ChatAppManage.svelte';
   import ConnPage from './ConnPage.svelte';
   import { appTitle, channelFailure, connectedText, isApp, saveConfig, secretName, type AppName, type AppStatus, type Failure } from './connections';
@@ -264,7 +265,7 @@
 {:else}
   <ConnPage title="Connect {name}">
     {#if view === 'failed'}
-      <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => load(true), variant: 'secondary' }} />
+      <PageState kind="failed" onretry={() => load(true)} />
     {:else if view === 'steps'}
       <ol>
         {#if app === 'slack'}

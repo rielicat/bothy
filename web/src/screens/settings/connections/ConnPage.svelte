@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { EmptyState, Page } from '../../../components/ui';
+  import { Page } from '../../../components/ui';
   import { session } from '../../../lib/stores/session.svelte';
+  import PageState from '../security/PageState.svelte';
 
   // Every Connections page: the admin check (§4.11) and the column.
   let {
@@ -20,7 +21,7 @@
 
 {#if !session.isAdmin}
   <Page title="Connections">
-    <EmptyState text="Only admins can see this page." action={{ label: 'Go to chat', href: '/chat' }} />
+    <PageState kind="forbidden" />
   </Page>
 {:else if back}
   <Page {title} {back} {actions}>{@render children()}</Page>

@@ -30,11 +30,10 @@
   } = $props();
 </script>
 
-<Dialog bind:open {title} initialFocus="cancel" {busy} {onclose}>
+<Dialog bind:open {title} initialFocus="cancel" {busy} {onclose} {cancel} lockCancel>
   <p class="text-body text-text">{@render children()}</p>
   {#if error}<Notice class="mt-3" tone="danger" text={error} role="alert" />{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close} disabled={busy}>{cancel}</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel={busyLabel} onclick={onconfirm}>{confirm}</Button>
   {/snippet}
 </Dialog>

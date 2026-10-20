@@ -1,13 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, EmptyState, IconButton, Menu, Page, TextField, toast } from '../../../components/ui';
+  import { Button, Dialog, EmptyState, FieldError, IconButton, Menu, Page, TextField, toast } from '../../../components/ui';
   import { api, ApiError } from '../../../lib/api/client';
   import type { SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
+  import { joinNames } from '../../../lib/cardcopy';
   import { config } from '../../../lib/config.svelte';
   import { date, fullTime, relTime } from '../../../lib/format';
   import { session } from '../../../lib/stores/session.svelte';
-  import { joinNames, keyName, storedName, usedBy } from './keyNames';
+  import { keyName, storedName, usedBy } from './keyNames';
   import { focusInvalid, relLower, securityBack } from './page.svelte';
   import PageState from './PageState.svelte';
   import UnlockDialog from './UnlockDialog.svelte';
@@ -193,7 +194,7 @@
   {/if}
 </Page>
 
-<Dialog bind:open={editing} title={target ? `Replace ${keyName(target.name)}` : 'Add key'} size="md" busy={saving} dirty={!!(name || value)} onclose={resetForm}>
+<Dialog bind:open={editing} title={target ? `Replace ${keyName(target.name)}` : 'Add key'} size="md" busy={saving} dirty={!!(name || value)} onclose={resetForm} cancel>
   <form id="{uid}-key" class="space-y-5" onsubmit={submit} novalidate>
     {#if !target}
       <TextField
@@ -206,22 +207,20 @@
       />
     {/if}
     <TextField label={target ? 'New value' : 'Value'} type="password" autocomplete="off" bind:value help={helpFor(target)} error={tried ? valueError : ''} />
-    {#if formError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{formError}</p>{/if}
+    <FieldError text={formError} />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-key" loading={saving} loadingLabel="Saving…">Save key</Button>
   {/snippet}
 </Dialog>
 
-<Dialog open={!!deleting} title={deleting ? `Delete ${keyName(deleting.name)}?` : ''} initialFocus="cancel" busy={saving} onclose={() => (deleting = null)}>
+<Dialog open={!!deleting} title={deleting ? `Delete ${keyName(deleting.name)}?` : ''} initialFocus="cancel" busy={saving} onclose={() => (deleting = null)} cancel>
   {#if deleting}
     {@const who = users(deleting)}
     <p class="text-body text-text">{who ? `${who} will stop working until you add a new key. ` : ''}This can't be undone.</p>
   {/if}
-  {#if deleteError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{deleteError}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  <FieldError text={deleteError} />
+  {#snippet footer()}
     <Button variant="danger" loading={saving} loadingLabel="Deleting…" onclick={remove}>Delete key</Button>
   {/snippet}
 </Dialog>

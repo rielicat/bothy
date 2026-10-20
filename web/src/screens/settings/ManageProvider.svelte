@@ -163,7 +163,7 @@
   const lastError = $derived(status?.details ?? p?.health?.last_error);
 </script>
 
-<Dialog bind:open title={p?.name ?? ''} size="md">
+<Dialog bind:open title={p?.name ?? ''} size="md" cancel="Done">
   {#if p}
     <div class="grid gap-5">
       {#if !p.enabled}
@@ -210,9 +210,6 @@
       </div>
     </div>
   {/if}
-  {#snippet footer({ close })}
-    <Button onclick={close}>Done</Button>
-  {/snippet}
 </Dialog>
 
 <ConfirmDialog

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, Select, TextField } from '../../../components/ui';
+  import { Button, Dialog, FieldError, Select, TextField } from '../../../components/ui';
   import { config, saveErrorText } from '../../../lib/config.svelte';
   import { focusInvalid } from '../security/page.svelte';
   import { splitList, validRuleId, type Rule, type Verdict } from './rules';
@@ -90,7 +89,7 @@
   }
 </script>
 
-<Dialog open={open} title={original ? `Edit rule ${original.id}` : 'Add rule'} size="md" {busy} {dirty} onclose={() => (rule = null)}>
+<Dialog open={open} title={original ? `Edit rule ${original.id}` : 'Add rule'} size="md" {busy} {dirty} onclose={() => (rule = null)} cancel>
   <form id="{uid}-rule" class="space-y-5" onsubmit={save} novalidate>
     <div class="grid gap-5 sm:grid-cols-2">
       <TextField label="Name" placeholder="wiki-writes" autocomplete="off" spellcheck="false" bind:value={form.id} error={tried ? idError : ''} />
@@ -111,14 +110,13 @@
       />
       <TextField label="Reason shown" optional placeholder="Reading the wiki is fine" bind:value={form.reason} />
     </div>
-    {#if error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error}</p>{/if}
+    <FieldError text={error} />
     {#if original}
       <!-- In the body, not the footer: on phones the footer becomes the sheet's Cancel / Save header. -->
       <Button variant="danger-text" size="sm" class="-ml-3" onclick={() => original && ondelete(original)}>Delete rule…</Button>
     {/if}
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-rule" loading={busy} loadingLabel="Saving…">Save rule</Button>
   {/snippet}
 </Dialog>

@@ -18,6 +18,12 @@ export const workspaceGroups: SettingsGroup[] = [
   { id: 'advanced', label: 'Advanced' },
 ];
 
+/** The groups under their headings: "You", then "Workspace" for admins. */
+export const settingsSections = (admin: boolean) => [
+  { key: 'you', label: 'You', groups: personalGroups },
+  ...(admin ? [{ key: 'workspace', label: 'Workspace', groups: workspaceGroups }] : []),
+];
+
 /** The page name of an address only admins may open, or null. */
 export function adminOnlyTitle(path: string): string | null {
   if (/^\/activity\/audit\/?$/.test(path)) return 'Audit log';

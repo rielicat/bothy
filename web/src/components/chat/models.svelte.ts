@@ -3,6 +3,7 @@
 // admins can read; members see "Main model" without its name.
 import { api } from '../../lib/api/client';
 import type { ConfigView, ModelInfo, RefineInfo } from '../../lib/api/types.gen';
+import { capital } from '../../lib/format';
 import { friendlyModel } from '../../lib/providers';
 
 export type RefineConfig = Pick<RefineInfo, 'enabled' | 'drafts' | 'depth' | 'multiplier'>;
@@ -22,7 +23,7 @@ const providerNames: Record<string, string> = {
   lmstudio: 'LM Studio',
 };
 
-export const providerName = (id: string) => providerNames[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+export const providerName = (id: string) => providerNames[id] ?? capital(id);
 
 class Models {
   list: ModelInfo[] = $state([]);

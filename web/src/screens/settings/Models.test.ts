@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/sve
 import { beforeEach, describe, expect, it } from 'vitest';
 import { toaster } from '../../components/ui';
 import { setCsrf } from '../../lib/api/client';
+import { config } from '../../lib/config.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import Settings from './Settings.svelte';
@@ -18,7 +19,7 @@ describe('Settings → Models', () => {
     session.ready = false;
     await session.init();
     setCsrf('mock-csrf');
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'models', page: 'models' } });
     await screen.findByText('Main model');
     await screen.findByText(/Connected · 2 models/);

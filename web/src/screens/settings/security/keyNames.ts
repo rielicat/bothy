@@ -1,6 +1,7 @@
 // Saved keys by friendly name and by what uses them (§11.6): the stored name
 // "anthropic_api_key" reads "Anthropic API key · used by Anthropic".
 import type { Entry } from '../../../lib/api/types.gen';
+import { capital } from '../../../lib/format';
 
 const services: Record<string, string> = {
   anthropic: 'Anthropic',
@@ -35,7 +36,7 @@ const kinds: [RegExp, string][] = [
 ];
 
 export function serviceName(id: string): string {
-  return services[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+  return services[id] ?? capital(id);
 }
 
 const AWS_SM = 'aws-sm:';
@@ -66,7 +67,7 @@ export function keyName(name: string): string {
   }
   const words = lower.replace(/[_.-]+/g, ' ').replace(/\bapi\b/g, 'API').trim();
   if (services[prefix]) return services[prefix] + words.slice(prefix.length);
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return capital(words);
 }
 
 // The global key list also carries the server's aws-sm references (SPEC
@@ -101,12 +102,6 @@ export function usedBy(name: string, entries: Entry[]): string[] {
     else out.add(serviceName(area));
   }
   return [...out];
-}
-
-/** "Anthropic", "Slack and Discord", "Anthropic, OpenAI and Groq". */
-export function joinNames(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? '';
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
 /** The name stored in the vault for what someone typed: "Brave Search key" → "brave_search_key". */

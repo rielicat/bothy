@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Button, LinkButton, StatusLine, toast } from '../../../components/ui';
+  import { Button, LinkButton, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
   import type { Failure } from './connections';
+  import FailureLine from './FailureLine.svelte';
   import type { GitHubApp } from './types';
 
   // An app Bothy stopped using stays on GitHub, which Bothy never deletes it
@@ -34,5 +35,5 @@
       <span class="text-small"><LinkButton disabled={busy} onclick={dismiss}>Dismiss</LinkButton></span>
     </div>
   </div>
-  {#if problem}<StatusLine class="mt-2" tone="danger" alert text={problem.message} details={problem.details} />{/if}
+  <FailureLine class="mt-2" failure={problem} />
 </div>

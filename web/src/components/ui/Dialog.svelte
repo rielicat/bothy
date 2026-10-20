@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import Button from './Button.svelte';
   import IconButton from './IconButton.svelte';
   import { focusables, trapTab } from './layer';
 
@@ -12,6 +13,8 @@
     busy = false,
     onclose,
     children,
+    cancel = false,
+    lockCancel = false,
     footer,
   }: {
     open?: boolean;
@@ -26,6 +29,10 @@
     busy?: boolean;
     onclose?: () => void;
     children: Snippet;
+    /** Starts the footer with a button that closes the dialog: "Cancel", or the label given ("Close"). */
+    cancel?: boolean | string;
+    /** That Cancel greys out while busy too, though a busy dialog ignores it either way. */
+    lockCancel?: boolean;
     /** Cancel first, then the primary action; the footer right-aligns them. */
     footer?: Snippet<[{ close: () => void }]>;
   } = $props();
@@ -124,7 +131,7 @@
       >
         {@render children()}
       </div>
-      {#if footer}
+      {#if footer || cancel}
         <!-- Phones: 440 dialogs stack full-width buttons, primary on top; sheets move Cancel and the primary into the 56 px header bar, centred, 12 px from its edges. -->
         <div
           data-dialog-footer
@@ -132,7 +139,8 @@
             ? 'max-sm:contents max-sm:[&>*]:row-start-1 max-sm:[&>*]:self-center max-sm:[&>*]:px-3 max-sm:[&>:first-child:not(:last-child)]:col-start-1 max-sm:[&>:first-child:not(:last-child)]:ml-3 max-sm:[&>:last-child]:col-start-3 max-sm:[&>:last-child]:mr-3'
             : 'max-sm:flex-col-reverse max-sm:[&>*]:w-full'}"
         >
-          {@render footer({ close: requestClose })}
+          {#if cancel}<Button data-cancel disabled={lockCancel && busy} onclick={requestClose}>{cancel === true ? 'Cancel' : cancel}</Button>{/if}
+          {@render footer?.({ close: requestClose })}
         </div>
       {/if}
     {/if}

@@ -5,7 +5,7 @@
 // Details as "Exact action", so nothing the card leaves out is hidden.
 import { RequesterChannel, RequesterTeammate, type Action, type Approval, type ApprovalVotes, type Card } from './api/types.gen';
 import { fileLines, parseDiff } from '../components/ui/diff';
-import { date, expiresIn, plural, relTime, serviceName } from './format';
+import { capital, clock, date, expiresIn, plural, relTime, serviceName } from './format';
 import { commandOf, describeGrantParts, EXACT_GRANT, hostOf } from './grants';
 
 /** Text with identifiers (paths, hosts, commands) marked for `text-code` rendering through Verbatim. */
@@ -74,7 +74,6 @@ const changedLines = (diff: string) => {
   const d = parseDiff(diff);
   return Math.max(d.added, d.removed);
 };
-const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 // Decided lines are one line in a list; the card above them keeps the full value.
 const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 // A note quoted inside a question drops its own full stop: “…Tuesdays”? reads, “…Tuesdays.”? doesn't.
@@ -762,12 +761,6 @@ export function expiryOf(ap: Approval, now = Date.now()): { text: string; urgent
   return { text, urgent: at.getTime() - now < 2 * 60_000 };
 }
 
-/** "10:42" or "10:42 AM", as the browser's locale writes a time of day. */
-export function timeOfDay(t: string | undefined): string {
-  const d = date(t);
-  return d ? d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
-}
-
 export function isOpen(ap: Approval): boolean {
   return ap.status === 'pending' || ap.status === 'parked';
 }
@@ -849,7 +842,7 @@ export function decidedLine(ap: Approval, o: DecidedOpts): DecidedCopy {
   const day = at && new Date(at).toDateString();
   const recentDay = day === new Date(now).toDateString() || day === new Date(now - 86_400_000).toDateString();
   // The Done tab groups by Today, Yesterday and Earlier, so only the Earlier lines carry their date.
-  const time = at ? (!o.list || recentDay ? timeOfDay(at) : relTime(at, { now: o.now })) : undefined;
+  const time = at ? (!o.list || recentDay ? clock(at) : relTime(at, { now: o.now })) : undefined;
   const who = (id?: string, name?: string) => (id && id === o.me ? 'You' : name || (id ? o.name(id) : '') || 'Someone');
   // A chat approver's name already says which app: "Sam Patel · Slack".
   const via = ap.decided_via && !ap.decided_by_identity && !['web', 'api', 'timeout', 'stop', ''].includes(ap.decided_via) ? appName(ap.decided_via) : '';

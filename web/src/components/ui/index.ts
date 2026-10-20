@@ -14,6 +14,7 @@ export { default as Disclosure } from './Disclosure.svelte';
 export { default as Dot } from './Dot.svelte';
 export { default as Drawer } from './Drawer.svelte';
 export { default as EmptyState } from './EmptyState.svelte';
+export { default as FieldError } from './FieldError.svelte';
 export { default as FileToken } from './FileToken.svelte';
 export { default as IconButton } from './IconButton.svelte';
 export { default as KeyField, type CheckResult, type KeyStatus } from './KeyField.svelte';

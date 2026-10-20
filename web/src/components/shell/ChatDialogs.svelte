@@ -69,23 +69,21 @@
   }
 </script>
 
-<Dialog bind:open={() => !!chats.renaming, (v) => !v && (chats.renaming = null)} title="Rename chat" {busy} dirty>
+<Dialog bind:open={() => !!chats.renaming, (v) => !v && (chats.renaming = null)} title="Rename chat" {busy} dirty cancel>
   <form id="{uid}-rename" onsubmit={rename}>
     <TextField label="Name" bind:value={name} {error} maxlength={200} autocomplete="off" />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-rename" loading={busy} loadingLabel="Saving…">Save</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={() => !!chats.deleting, (v) => !v && (chats.deleting = null)} title="Delete “{deletingTitle}”?" initialFocus="cancel" {busy}>
+<Dialog bind:open={() => !!chats.deleting, (v) => !v && (chats.deleting = null)} title="Delete “{deletingTitle}”?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">
     {continued ? 'The messages will be deleted; the chats continued from it stay in your list.' : 'The messages will be deleted.'} Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.
   </p>
   {#if error}<p class="mt-3 text-small text-danger-text" role="alert">{error}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={remove}>Delete chat</Button>
   {/snippet}
 </Dialog>

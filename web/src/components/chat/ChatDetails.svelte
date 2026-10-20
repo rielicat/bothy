@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Session } from '../../lib/api/types.gen';
   import { clock, money } from '../../lib/format';
+  import { channelName } from '../../lib/labels';
   import { dayLabel } from '../../lib/transcript';
   import type { Conversation } from '../../screens/chat/conversation.svelte';
   import Disclosure from '../ui/Disclosure.svelte';
   import Drawer from '../ui/Drawer.svelte';
-  import { appName } from './people.svelte';
   import TechnicalDetails from './TechnicalDetails.svelte';
 
   let {
@@ -36,7 +36,7 @@
 
 <Drawer bind:open title="Chat details" onclose={() => (technical = false)}>
   <p class="text-body text-muted">
-    Started by {starter} · {dayLabel(session.created_at)} at {clock(session.created_at)} · {appName[session.origin] ?? session.origin}
+    Started by {starter} · {dayLabel(session.created_at)} at {clock(session.created_at)} · {channelName[session.origin] ?? session.origin}
   </p>
   <dl class="mt-4 grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-body">
     <dt class="text-muted">Model</dt>

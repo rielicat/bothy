@@ -1,13 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Button, KeyField, OptionList, StatusLine, TextField, toast, type CheckResult } from '../../../components/ui';
+  import Loading from '../../../components/ui/Loading.svelte';
   import { api, errorText } from '../../../lib/api/client';
   import type { SecretMeta } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { hostPort } from '../../../lib/providers';
   import ConnPage from './ConnPage.svelte';
   import { failureCode, saveConfig, searchFailure, secretName, type SearchProvider } from './connections';
-  import Loading from './Loading.svelte';
   import type { SearchCheck } from './types';
 
   type Line = { tone: 'progress' | 'success' | 'danger'; text: string; details?: string; allow?: string };

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, Select, SettingsSection, TextField } from '../../../components/ui';
+  import { Button, Dialog, FieldError, Select, SettingsSection, TextField } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { ModelInfo } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
@@ -99,7 +98,7 @@
   {/if}
 </SettingsSection>
 
-<Dialog open={editing !== null} title={editing ? `Prices for ${name(editing)}` : 'Add a price'} size="md" {busy} onclose={() => (editing = null)}>
+<Dialog open={editing !== null} title={editing ? `Prices for ${name(editing)}` : 'Add a price'} size="md" {busy} onclose={() => (editing = null)} cancel>
   <form id="{uid}-price" class="space-y-5" onsubmit={save} novalidate>
     {#if editing === ''}
       <Select label="Model" bind:value={pick} options={choices.map((r) => ({ value: r, label: `${name(r)} (${r})` }))} />
@@ -108,10 +107,9 @@
       <TextField label="Input per million" prefix="$" inputmode="decimal" bind:value={input} error={tried ? inError : ''} />
       <TextField label="Output per million" prefix="$" inputmode="decimal" bind:value={output} error={tried ? outError : ''} />
     </div>
-    {#if error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error}</p>{/if}
+    <FieldError text={error} />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-price" loading={busy} loadingLabel="Saving…">Save prices</Button>
   {/snippet}
 </Dialog>

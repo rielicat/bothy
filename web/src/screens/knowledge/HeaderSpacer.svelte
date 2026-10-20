@@ -1,3 +1,5 @@
+<svelte:options runes />
+
 <script lang="ts">
   // A zero-width button at the start of a page header's actions. PageHeader puts the title on the
   // baseline of a text button and centres icon-only actions, so without one the title sat 2 px higher

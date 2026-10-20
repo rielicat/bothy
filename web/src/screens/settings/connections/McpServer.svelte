@@ -17,15 +17,17 @@
     TextField,
     toast,
   } from '../../../components/ui';
+  import Loading from '../../../components/ui/Loading.svelte';
   import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { lineDiff } from '../../../lib/diff';
   import { plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
+  import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
   import { effects, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
-  import Loading from './Loading.svelte';
+  import FailureLine from './FailureLine.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
   const name = $derived(params.item.slice('mcp-'.length));
@@ -264,7 +266,7 @@
   {#if view === 'loading'}
     <Loading />
   {:else if view === 'failed'}
-    <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load, variant: 'secondary' }} />
+    <PageState kind="failed" onretry={load} />
   {:else if view === 'missing'}
     <EmptyState text="This tool was removed or never added." action={{ label: 'Go to Connections', href: '/settings/connections' }} />
   {:else}
@@ -296,7 +298,7 @@
         {#if status?.code === 'install_failed' && status.state !== 'error'}
           <StatusLine tone="warning" text="Bothy couldn't reinstall it, so it keeps using the earlier install.{retryText(status)}" details={status.error} action={fix} />
         {/if}
-        {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
+        <FailureLine failure={problem} />
       </div>
       <div class="flex min-h-6 shrink-0 items-center gap-2 pointer-coarse:-my-2.5">
         <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
@@ -346,7 +348,7 @@
   {/if}
 </ConnPage>
 
-<Dialog bind:open={reviewing} title={allNew ? `Review actions from ${title}` : `Review changes to ${title}`} size="lg" {busy}>
+<Dialog bind:open={reviewing} title={allNew ? `Review actions from ${title}` : `Review changes to ${title}`} size="lg" {busy} cancel>
   <div class="space-y-8">
     {#each pending as p (p.tool)}
       {@const d = drafts[p.tool]}
@@ -374,13 +376,12 @@
       {/if}
     {/each}
   </div>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={saveReview}>Save <span class="max-sm:hidden">review</span></Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy}>
+<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy} cancel>
   <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
     <TextField
       label="Key"
@@ -390,28 +391,25 @@
       error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
       help={keyHelp}
     />
-    {#if keyFailure}<StatusLine tone="danger" alert text={keyFailure.message} details={keyFailure.details} />{/if}
+    <FailureLine failure={keyFailure} />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="mcp-key" loading={busy} loadingLabel="Saving…">Save key</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={lending} title="Use your own key?" {busy}>
+<Dialog bind:open={lending} title="Use your own key?" {busy} cancel>
   <p class="text-body text-text">
     Bothy will send your own key{keyRef ? ` “${keyRef}”` : ''} to {hostOf(url)} when it checks what {title} can do. It's never used for anyone else.
   </p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={lend}>Use my key</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={removing} title="Remove {title}?" initialFocus="cancel" {busy}>
+<Dialog bind:open={removing} title="Remove {title}?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy loses these actions{ownKey ? ' and deletes its saved key' : ''}. You can add the server again later.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Removing…" onclick={remove}>Remove server</Button>
   {/snippet}
 </Dialog>

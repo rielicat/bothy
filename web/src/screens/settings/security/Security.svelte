@@ -2,7 +2,7 @@
   import { tick, untrack } from 'svelte';
   import Icon from '../../../components/Icon.svelte';
   import PauseDialog from '../../../components/shell/PauseDialog.svelte';
-  import { Button, CodeBlock, Disclosure, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
+  import { Button, CodeBlock, Disclosure, FieldError, LinkButton, OptionList, Page, Select, SettingsRow, SettingsSection, Switch, toast, type Option } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { DoctorReport, Finding, Grant, SandboxInfo, SecretMeta, SignInAdmin, VaultStatus } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
@@ -270,7 +270,7 @@
                   >
                 </div>
               </div>
-              {#if fixError?.i === i}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{fixError.text}</p>{/if}
+              <FieldError text={fixError?.i === i && fixError.text} />
               {#if c.action === 'how' && openFinding === i}
                 <div id="{uid}-finding-{i}" class="mt-2 max-w-prose" data-details>
                   {#if c.steps}<p class="text-body text-text">{c.steps}</p>{/if}
@@ -305,7 +305,7 @@
           value={config.value<string>('policy.preset', 'careful')}
           onchange={(v) => save('preset', { 'policy.preset': v })}
         />
-        {#if rows.preset?.error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{rows.preset.error}</p>{/if}
+        <FieldError text={rows.preset?.error} />
       </div>
       <SettingsRow label="If nobody answers a chat request" help={chatFixed ? FIXED_HELP : undefined} status={rows.chat?.status} error={rows.chat?.error}>
         {#snippet children(c)}
@@ -447,7 +447,7 @@
       {#if session.paused}
         <p class="text-body text-text">{pausedText}</p>
         <Button variant="primary" class="mt-3" loading={resuming} loadingLabel="Resuming…" onclick={resume}>Resume</Button>
-        {#if resumeError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{resumeError}</p>{/if}
+        <FieldError text={resumeError} />
       {:else}
         <p class="text-body text-muted">Stops everything that's running and keeps anything new from starting until someone resumes it.</p>
         <Button class="mt-3 text-danger-text" onclick={() => (pausing = true)}>Pause Bothy…</Button>

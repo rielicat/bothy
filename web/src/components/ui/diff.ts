@@ -108,6 +108,25 @@ export type ProseBlock =
 
 const MAX_TOKENS = 600;
 
+/** Walks the longest common subsequence of two token lists, calling `emit` with each token in order as kept, removed or added. */
+export function lcsDiff(a: string[], b: string[], emit: (kind: Segment['kind'], token: string) => void) {
+  const n = a.length;
+  const m = b.length;
+  const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      emit('same', a[i++]);
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) emit('del', a[i++]);
+    else emit('add', b[j++]);
+  }
+  while (i < n) emit('del', a[i++]);
+  while (j < m) emit('add', b[j++]);
+}
+
 /** Word-level difference between two strings; whitespace is kept as its own tokens. */
 export function wordDiff(before: string, after: string): Segment[] {
   const a = before.split(/(\s+)/).filter((t) => t !== '');
@@ -118,27 +137,12 @@ export function wordDiff(before: string, after: string): Segment[] {
       { kind: 'add', text: after },
     ];
   }
-  const n = a.length;
-  const m = b.length;
-  const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) lcs[i][j] = a[i] === b[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
   const out: Segment[] = [];
-  const push = (kind: Segment['kind'], text: string) => {
+  lcsDiff(a, b, (kind, text) => {
     const last = out[out.length - 1];
     if (last && last.kind === kind) last.text += text;
     else out.push({ kind, text });
-  };
-  let i = 0;
-  let j = 0;
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      push('same', a[i++]);
-      j++;
-    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) push('del', a[i++]);
-    else push('add', b[j++]);
-  }
-  while (i < n) push('del', a[i++]);
-  while (j < m) push('add', b[j++]);
+  });
   return out;
 }
 

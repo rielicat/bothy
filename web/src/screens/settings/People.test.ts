@@ -2,12 +2,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { describe, expect, it } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { setCsrf } from '../../lib/api/client';
+import { config } from '../../lib/config.svelte';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi } from '../../test/api';
 import { FakeEventSource } from '../../test/setup';
 import Settings from './Settings.svelte';
-import { settingsConfig } from './store.svelte';
 
 async function open(mock = '') {
   const calls = installApi();
@@ -15,7 +15,7 @@ async function open(mock = '') {
   session.ready = false;
   await session.init();
   setCsrf('mock-csrf');
-  settingsConfig.view = null;
+  config.view = null;
   render(Settings, { params: { group: 'people', page: 'people' } });
   return calls;
 }
@@ -289,7 +289,7 @@ describe('Settings → People → In chat apps', () => {
     session.ready = false;
     await session.init();
     setCsrf('mock-csrf');
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'people', page: 'people' } });
     const s = await section();
     const sw = await s.findByRole('switch', { name: 'Can approve: Alex Kim' });
@@ -369,7 +369,7 @@ describe('Settings → People → In chat apps', () => {
     session.ready = false;
     await session.init();
     setCsrf('mock-csrf');
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'people', page: 'people' } });
     expect(await screen.findByText('Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals.')).toBeTruthy();
   });
@@ -380,7 +380,7 @@ describe('Settings → People → In chat apps', () => {
     session.ready = false;
     await session.init();
     setCsrf('mock-csrf');
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'people', page: 'people' } });
     const find = await screen.findByLabelText('Find someone');
     await fireEvent.input(find, { target: { value: 'person 21' } });

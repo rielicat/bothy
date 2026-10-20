@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { flushSync } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DialogHarness from './test/DialogHarness.svelte';
@@ -55,6 +55,28 @@ describe('Dialog', () => {
     await waitFor(() => expect(dialog().open).toBe(true));
     await fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(dialog().open).toBe(false);
+  });
+
+  it('draws its own Cancel first in the footer, which closes it', async () => {
+    await openDialog({ cancel: true, initialFocus: 'cancel' });
+    const footer = dialog().querySelector('[data-dialog-footer]')!;
+    expect([...footer.children].map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Add person']);
+    expect(document.activeElement).toBe(footer.firstElementChild);
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(dialog().open).toBe(false);
+  });
+
+  it('greys its Cancel out while busy only when asked to', async () => {
+    await openDialog({ cancel: true, busy: true });
+    expect(screen.getByRole('button', { name: 'Cancel' }).getAttribute('aria-disabled')).toBeNull();
+    cleanup();
+    await openDialog({ cancel: true, busy: true, lockCancel: true });
+    expect(screen.getByRole('button', { name: 'Cancel' }).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('names its Cancel as asked', async () => {
+    await openDialog({ cancel: 'Keep editing' });
+    expect(dialog().querySelector('[data-dialog-footer] [data-cancel]')?.textContent?.trim()).toBe('Keep editing');
   });
 
   it('stays open while a request is in flight', async () => {

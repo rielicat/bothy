@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { resetMock } from '../../../mock/server';
 import { toaster } from '../../components/ui';
 import { setCsrf } from '../../lib/api/client';
+import { config } from '../../lib/config.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
 import Settings from './Settings.svelte';
@@ -21,9 +22,14 @@ describe('Settings → General', () => {
     session.ready = false;
     await session.init();
     setCsrf('mock-csrf');
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'general', page: 'general' } });
     await screen.findByText('Workspace');
+  });
+
+  it('shares its config with the pages that read the schema, so it is fetched once', async () => {
+    await config.load();
+    expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/config'))).toHaveLength(1);
   });
 
   it('says plain HTTP from another computer is a risk, with the advice in view', async () => {
@@ -151,7 +157,7 @@ describe("Settings → General, Bothy's picture", () => {
     session.ready = false;
     await session.init();
     setCsrf('mock-csrf');
-    settingsConfig.view = null;
+    config.view = null;
     toaster.dismiss();
     render(Settings, { params: { group: 'general', page: 'general' } });
     await screen.findByRole('button', { name: 'Change…' });
@@ -310,7 +316,7 @@ describe("Settings → General, Bothy's picture", () => {
     installApi({ override: (_m, url) => (url === '/api/agent/picture/info' && fail ? new Response(JSON.stringify({ error: { code: 'internal', message: 'x' } }), { status: 500 }) : undefined) });
     session.ready = false;
     await session.init();
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'general', page: 'general' } });
     const line = await screen.findByText("The picture didn't load. Check your connection and try again.");
     expect(within(picture()).queryByRole('button', { name: 'Change…' })).toBeNull();
@@ -324,7 +330,7 @@ describe("Settings → General, Bothy's picture", () => {
     installApi({ override: (_m, url) => (url === '/api/agent/picture/info' ? new Response(JSON.stringify({ error: { code: 'unavailable', message: 'x' } }), { status: 503 }) : undefined) });
     session.ready = false;
     await session.init();
-    settingsConfig.view = null;
+    config.view = null;
     render(Settings, { params: { group: 'general', page: 'general' } });
     await screen.findByText('Personality');
     expect(screen.queryByText('Picture', { selector: 'label' })).toBeNull();

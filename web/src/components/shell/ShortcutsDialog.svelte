@@ -1,3 +1,5 @@
+<svelte:options runes />
+
 <script lang="ts">
   import type { Attachment } from 'svelte/attachments';
   import { shell } from '../../lib/stores/ui.svelte';

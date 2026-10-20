@@ -14,8 +14,8 @@
   import Verbatim from '../components/Verbatim.svelte';
   import { api, ApiError } from '../lib/api/client';
   import type { Approval, Choice, List } from '../lib/api/types.gen';
-  import { appName, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, segText, timeOfDay } from '../lib/cardcopy';
-  import { date, relTime } from '../lib/format';
+  import { appName, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, segText } from '../lib/cardcopy';
+  import { clock as timeOfDay, date, relTime } from '../lib/format';
   import { choiceDone } from '../lib/labels';
   import { router } from '../lib/router.svelte';
   import { events } from '../lib/sse.svelte';

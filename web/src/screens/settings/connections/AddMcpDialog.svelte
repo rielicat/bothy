@@ -1,11 +1,12 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { Button, Checkbox, CommandBlock, Dialog, Disclosure, Notice, OptionList, StatusLine, TextField, toast } from '../../../components/ui';
+  import { Button, Checkbox, CommandBlock, Dialog, Disclosure, Notice, OptionList, TextField, toast } from '../../../components/ui';
   import { api, ApiError, errorText } from '../../../lib/api/client';
   import type { MCPResolveResp, SandboxInfo } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { session } from '../../../lib/stores/session.svelte';
   import { privateHost, saveConfig, type Failure } from './connections';
+  import FailureLine from './FailureLine.svelte';
 
   let { open = $bindable(false), onadded }: { open?: boolean; onadded?: () => void } = $props();
 
@@ -144,7 +145,7 @@
   }
 </script>
 
-<Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || pkg)} {busy}>
+<Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || pkg)} {busy} cancel>
   <form id="add-mcp" class="space-y-5" onsubmit={add} novalidate>
     <TextField label="Name" bind:value={name} error={show('name')} placeholder="Linear" autocomplete="off" spellcheck="false" />
     <div>
@@ -220,10 +221,9 @@
         {/snippet}
       </OptionList>
     </div>
-    {#if failure}<StatusLine tone="danger" alert text={failure.message} details={failure.details} />{/if}
+    <FailureLine {failure} />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="add-mcp" disabled={blocked} loading={busy} loadingLabel="Adding…">Add server</Button>
   {/snippet}
 </Dialog>

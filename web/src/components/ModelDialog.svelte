@@ -113,7 +113,7 @@
   }
 </script>
 
-<Dialog bind:open {title} size="md" {busy}>
+<Dialog bind:open {title} size="md" {busy} cancel lockCancel>
   {#if searchable}
     <TextField
       class="mb-3"
@@ -163,8 +163,7 @@
     {#if options.length && !shown.length}<p class="px-2 py-1.5 text-body text-muted">No model matches “{query.trim()}”.</p>{/if}
   </div>
   {#if failed}<Notice class="mt-3" tone="danger" text="Couldn't save. Try again." role="alert" />{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close} disabled={busy}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={save}>Save</Button>
   {/snippet}
 </Dialog>

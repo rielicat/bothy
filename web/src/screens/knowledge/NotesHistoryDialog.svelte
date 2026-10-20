@@ -17,7 +17,6 @@
 </script>
 
 <script lang="ts">
-  import Button from '../../components/ui/Button.svelte';
   import Dialog from '../../components/ui/Dialog.svelte';
   import DiffView from '../../components/ui/DiffView.svelte';
   import LinkButton from '../../components/ui/LinkButton.svelte';
@@ -36,7 +35,8 @@
     >“{c.title}”</a
   >{/snippet}
 
-<Dialog bind:open title="History" size="lg">
+<!-- On phones the sheet has no close button of its own; Close sits in its header bar. -->
+<Dialog bind:open title="History" size="lg" cancel="Close">
   {#if !entries}
     <Loading {failed} retry={onretry} text="The history didn't load. Check your connection and try again." />
   {:else if !entries.length}
@@ -60,6 +60,4 @@
       {/each}
     </ul>
   {/if}
-  <!-- On phones the sheet has no close button of its own; this one sits in its header bar. -->
-  {#snippet footer({ close })}<Button onclick={close}>Close</Button>{/snippet}
 </Dialog>

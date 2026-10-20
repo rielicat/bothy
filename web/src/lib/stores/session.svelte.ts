@@ -68,7 +68,6 @@ class Session {
   isAdmin = $derived(this.me?.user.role === 'owner' || this.me?.user.role === 'admin');
   multi = $derived(this.me?.mode === 'multi');
   principals: Principal[] = $derived((this.me?.principals ?? []).filter((p): p is Principal => !!p));
-  visibleBanners: BannerData[] = $derived(this.banners.filter((b) => !this.dismissed.includes(b.code)));
   /** Who paused Bothy and when, while it is paused: the live banner's, else what sign-in said. */
   pause: PauseInfo | null = $derived.by(() => {
     if (!this.paused) return null;

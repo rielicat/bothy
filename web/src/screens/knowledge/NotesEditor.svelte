@@ -95,7 +95,7 @@
 {#if actions}<div class="mt-3 flex gap-2">{@render actions()}</div>{/if}
 
 <!-- Cancel only closes; replacing the draft is a deliberate button in the body, never the slot where Cancel usually sits. -->
-<Dialog bind:open={comparing} title="Compare versions" size="lg" {busy}>
+<Dialog bind:open={comparing} title="Compare versions" size="lg" {busy} cancel lockCancel>
   <p class="mb-4 text-body text-muted">Struck-through text is only in their version. Underlined text is only in yours.</p>
   <DiffView mode="prose" diff={proseDiff(theirs ?? '', value)} />
   <Button
@@ -106,8 +106,7 @@
       onusetheirs();
     }}>Use their version</Button
   >
-  {#snippet footer({ close })}
-    <Button data-cancel disabled={busy} onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button
       variant="primary"
       loading={busy}
