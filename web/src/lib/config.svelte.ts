@@ -30,10 +30,13 @@ class Config {
 
   load(force = false): Promise<void> {
     if (this.view && !force) return Promise.resolve();
+    // The gateway builds the schema once at start-up, so only the first read asks for it;
+    // the Settings rows reload the config after every save.
+    const schema = this.view?.schema;
     this.#loading ??= api
-      .get<ConfigView>('/api/config?schema=1')
+      .get<ConfigView>(schema ? '/api/config' : '/api/config?schema=1')
       .then((v) => {
-        this.view = v;
+        this.view = schema ? { ...v, schema } : v;
         this.error = '';
       })
       .catch((e) => {
