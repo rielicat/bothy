@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { Button, Disclosure, OptionList, StatusLine, TextField } from '../../../components/ui';
+  import { Button, Disclosure, OptionList, TextField } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import { away } from '../../../lib/away';
   import { router } from '../../../lib/router.svelte';
   import { appStartFailure, defaultAppName, MAX_APP_NAME, orgPattern, type AppStartFailure } from './connections';
+  import FailureLine from './FailureLine.svelte';
   import type { GitHubAppStartResp, GitHubConnection } from './types';
 
   // The primary way to connect (§12.2): Bothy has GitHub create an app of
@@ -128,4 +129,4 @@
   {#if replacing && oncancel}<Button onclick={oncancel}>Cancel</Button>{/if}
 </div>
 <p class="mt-2 text-small text-muted">GitHub opens in this tab. Sign in there if asked, then create the app and install it.</p>
-{#if failure}<StatusLine class="mt-3" tone="danger" alert text={failure.message} details={failure.details} action={failureAction(failure)} />{/if}
+<FailureLine class="mt-3" {failure} action={failure ? failureAction(failure) : undefined} />

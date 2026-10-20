@@ -21,6 +21,7 @@
   import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
   import { appLanding, githubOutcome, saveConfig, type AppLandingFailure, type Failure, type GitHubOutcome } from './connections';
+  import FailureLine from './FailureLine.svelte';
   import GitHubAppPending from './GitHubAppPending.svelte';
   import GitHubAppRetired from './GitHubAppRetired.svelte';
   import GitHubCreateApp from './GitHubCreateApp.svelte';
@@ -410,7 +411,7 @@
             >
           </div>
         {/if}
-        {#if failure}<StatusLine class="mt-3" tone="danger" alert text={failure.message} details={failure.details} />{/if}
+        <FailureLine class="mt-3" {failure} />
       </Disclosure>
 
       <Disclosure class="mt-4" variant="section" label="Using GitHub Enterprise?">

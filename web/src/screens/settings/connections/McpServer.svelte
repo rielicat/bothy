@@ -27,6 +27,7 @@
   import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
   import { effects, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
+  import FailureLine from './FailureLine.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
   const name = $derived(params.item.slice('mcp-'.length));
@@ -297,7 +298,7 @@
         {#if status?.code === 'install_failed' && status.state !== 'error'}
           <StatusLine tone="warning" text="Bothy couldn't reinstall it, so it keeps using the earlier install.{retryText(status)}" details={status.error} action={fix} />
         {/if}
-        {#if problem}<StatusLine tone="danger" alert text={problem.message} details={problem.details} />{/if}
+        <FailureLine failure={problem} />
       </div>
       <div class="flex min-h-6 shrink-0 items-center gap-2 pointer-coarse:-my-2.5">
         <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
@@ -390,7 +391,7 @@
       error={keyTried && !newKey.trim() ? 'Enter the key.' : undefined}
       help={keyHelp}
     />
-    {#if keyFailure}<StatusLine tone="danger" alert text={keyFailure.message} details={keyFailure.details} />{/if}
+    <FailureLine failure={keyFailure} />
   </form>
   {#snippet footer()}
     <Button variant="primary" type="submit" form="mcp-key" loading={busy} loadingLabel="Saving…">Save key</Button>

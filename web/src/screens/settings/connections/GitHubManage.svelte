@@ -9,6 +9,7 @@
   import ConnPage from './ConnPage.svelte';
   import { approverLine, githubWeb, installationSettingsURL, readAt, saveConfig, type Failure } from './connections';
   import EnvironmentDialog from './EnvironmentDialog.svelte';
+  import FailureLine from './FailureLine.svelte';
   import RepoPicker from './RepoPicker.svelte';
   import type { GitHubApp, GitHubAppCheck, GitHubConnection, GitHubConnectionDetail, GitHubProbe, GitHubRepo, IndexedRepo, ReleaseEnvironment, Releases, Workflow } from './types';
 
@@ -232,7 +233,7 @@
       action={{ label: 'See progress in Knowledge ›', onclick: () => router.navigate('/knowledge') }}
     />
   {/if}
-  {#if problem}<StatusLine class="mb-6" tone="danger" alert text={problem.message} details={problem.details} />{/if}
+  <FailureLine class="mb-6" failure={problem} />
 
   <SettingsSection title="Account">
     <div class="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-3">

@@ -4,6 +4,7 @@
   import { api } from '../../../lib/api/client';
   import type { User } from '../../../lib/api/types.gen';
   import { approverShortfall, envConfig, envErrors, saveConfig, type EnvForm, type Failure } from './connections';
+  import FailureLine from './FailureLine.svelte';
   import type { ReleaseEnvironment, Workflow } from './types';
 
   let {
@@ -161,7 +162,7 @@
         <LinkButton onclick={() => f.inputs.push({ key: '', value: '' })}>Add an input</LinkButton>
       </div>
     </Disclosure>
-    {#if failure}<StatusLine tone="danger" alert text={failure.message} details={failure.details} />{/if}
+    <FailureLine {failure} />
     {#if env}
       <Button variant="danger-text" class="-ml-4" onclick={() => ((open = false), ondelete(env.name))}>Delete environment…</Button>
     {/if}
