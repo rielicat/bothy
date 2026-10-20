@@ -430,7 +430,7 @@ func (m *Manager) Set(ctx context.Context, changes map[string]json.RawMessage, b
 	if bad = newErrors(st, cand); len(bad) > 0 {
 		return nil, bad
 	}
-	if bad = systemKeyErrors(st.cfg, cand.cfg, src); len(bad) > 0 {
+	if bad = systemKeyErrors(ctx, st.cfg, cand.cfg, src); len(bad) > 0 {
 		return nil, bad
 	}
 	if c := checkOf(ctx); c != nil {
@@ -510,7 +510,7 @@ func (m *Manager) Reset(ctx context.Context, path, by string) error {
 	}
 	cand := m.build(st.file, st.fileErr, ui, nil).cfg
 	// Taking a UI value away may bring back bothy.yaml's, which wasn't in effect.
-	if bad := systemKeyErrors(st.cfg, cand, Source{Layer: LayerUI, File: m.uiPath}); len(bad) > 0 {
+	if bad := systemKeyErrors(ctx, st.cfg, cand, Source{Layer: LayerUI, File: m.uiPath}); len(bad) > 0 {
 		return bad
 	}
 	if c := checkOf(ctx); c != nil {

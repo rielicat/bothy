@@ -145,15 +145,8 @@ func buildBase(ctx context.Context) (*app, error) {
 // githubSecretRefs lists the secret references of the GitHub connections,
 // which live in the database rather than the configuration.
 func githubSecretRefs(ctx context.Context, gs core.GitHubStore) []string {
-	conns, err := gs.Connections(ctx)
-	if err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(conns))
-	for _, c := range conns {
-		out = append(out, c.SecretRef)
-	}
-	return out
+	refs, _ := core.GitHubSecretRefs(ctx, gs)
+	return refs
 }
 
 // close flushes pending audit rows and closes the store; serve's own
@@ -218,7 +211,8 @@ func (a *app) buildRest(ctx context.Context) error {
 	}
 	a.registry = tools.NewRegistry(tools.RegistryDeps{Config: a.cfg, Log: a.log})
 	if a.mcp, err = mcp.New(mcp.Deps{Config: a.cfg, Store: a.db, Sandbox: a.sandbox, Egress: a.egress, Registry: a.registry,
-		Vault: a.vault, Bus: a.bus, Audit: a.audit, WorkDir: dirs.Work, Clock: a.clock, Log: a.log}); err != nil {
+		Vault: a.vault, Bus: a.bus, Audit: a.audit, WorkDir: dirs.Work, Clock: a.clock, Log: a.log,
+		SystemRefs: func(ctx context.Context) ([]string, error) { return core.GitHubSecretRefs(ctx, a.db.GitHub()) }}); err != nil {
 		return err
 	}
 	if a.runner, err = agent.New(agent.Deps{Store: a.db, Config: a.cfg, LLM: a.llm, Tools: a.registry, Policy: a.policy,

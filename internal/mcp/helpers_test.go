@@ -56,6 +56,8 @@ type harness struct {
 	clock *fakes.Clock
 	work  string
 	logs  *syncBuffer
+	// systemRefs is Deps.SystemRefs.
+	systemRefs func(context.Context) ([]string, error)
 }
 
 type option func(*harness)
@@ -77,7 +79,7 @@ func newHarness(t *testing.T, servers []config.MCPServer, opts ...option) *harne
 		o(h)
 	}
 	m, err := New(Deps{Config: config.Static(cfg), Store: h.store, Sandbox: h.sb, Egress: h.eg, Registry: h.reg, Vault: h.vault,
-		Bus: h.bus, Audit: h.audit, WorkDir: h.work, Clock: h.clock,
+		Bus: h.bus, Audit: h.audit, WorkDir: h.work, Clock: h.clock, SystemRefs: h.systemRefs,
 		Log: slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))})
 	if err != nil {
 		t.Fatalf("New: %v", err)

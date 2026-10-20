@@ -296,3 +296,34 @@ func TestBothysOwnKeyIsNeverSent(t *testing.T) {
 		t.Fatalf("Bothy's own keys were read: %+v", h.vault.Uses)
 	}
 }
+
+// The keys Bothy's own settings and GitHub connections reference are its
+// own whatever they are called, aws-sm secrets included.
+func TestKeysBothysSettingsUseAreNeverSent(t *testing.T) {
+	f := newFakeServer()
+	ts := f.httpServer(t, false)
+	chat := httpServerCfg("chat", ts.URL)
+	chat.Headers = map[string]string{"Authorization": "Bearer secret:tg_main"}
+	aws := httpServerCfg("aws", ts.URL)
+	aws.Headers = map[string]string{"Authorization": "aws-sm:bothy/discord#token"}
+	conn := httpServerCfg("conn", ts.URL)
+	conn.Headers = map[string]string{"Authorization": "secret:gh_pat"}
+	h := newHarness(t, []config.MCPServer{chat, aws, conn}, withClient(ts.Client()),
+		withSecrets(map[string]string{"tg_main": "qa-bot-token-0001", "gh_pat": "qa-gh-pat-0001"}),
+		func(h *harness) {
+			h.cfg.Channels.Telegram.Token = "secret:tg_main"
+			h.cfg.Channels.Discord.Token = "aws-sm:arn:aws:secretsmanager:us-east-1:123456789012:secret:bothy/discord-AbCdEf"
+			h.systemRefs = func(context.Context) ([]string, error) { return []string{"secret:gh_pat"}, nil }
+		})
+	h.start()
+	for _, name := range []string{"chat", "aws", "conn"} {
+		if st := h.status(name); st.State != stError || st.Code != "bothy_key" {
+			t.Fatalf("%s: status = %+v", name, st)
+		}
+	}
+	for _, a := range f.authHeadersAll() {
+		if strings.Contains(a, "qa-") {
+			t.Fatalf("the server was sent %q", a)
+		}
+	}
+}

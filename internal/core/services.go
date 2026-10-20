@@ -85,7 +85,7 @@ type MCPStatus struct {
 	// (needs allow_private), needs_https (plain http with a key to a name
 	// that resolves to a public address), not_installed (a command server to
 	// install or reinstall), bothy_key (a header or its address names one of
-	// Bothy's own keys, IsSystemSecret, which is never sent; not tried again
+	// Bothy's own keys, config.SystemKeys, which is never sent; not tried again
 	// until the entry changes), install_failed (its install failed; also with
 	// State ready or pins_pending when a reinstall of the version it runs
 	// failed and that install keeps serving, Err saying why); "" otherwise.

@@ -502,7 +502,7 @@ type SecretMeta struct {
 	Hint      string    `json:"hint"`   // last 4 chars; always "" for aws-sm
 	UpdatedAt time.Time `json:"updated_at"`
 	LastUsed  time.Time `json:"last_used_at"`
-	// System marks one of Bothy's own keys (IsSystemSecret) in the global
+	// System marks one of Bothy's own keys (config.SystemKeys) in the global
 	// list: never offered for a connected tool.
 	System bool `json:"system,omitempty"`
 }

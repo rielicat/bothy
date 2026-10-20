@@ -469,14 +469,19 @@ type httpAuth struct {
 // header whose key still doesn't exist, for a server whose people each use
 // their own key.
 func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, skipMissing bool, own core.UserID) (*httpAuth, error) {
-	// Config refuses these when they are written; a bothy.yaml entry, or one
-	// written before, still reaches here.
+	// Config refuses these when they are written; a bothy.yaml entry, one
+	// written before, or one a later change to Bothy's own settings made
+	// one, still reaches here.
+	keys, err := m.systemKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("mcp server %s: %w", s.name, err)
+	}
 	for _, k := range slices.Sorted(maps.Keys(s.spec.headers)) {
-		if config.SendsSystemKey(s.spec.headers[k]) {
+		if keys.Sends(s.spec.headers[k]) {
 			return nil, &codedErr{code: "bothy_key", err: fmt.Errorf("mcp server %s: header %s: %w", s.name, k, errSystemKey)}
 		}
 	}
-	if config.SendsSystemKey(s.spec.url) {
+	if keys.Sends(s.spec.url) {
 		return nil, &codedErr{code: "bothy_key", err: fmt.Errorf("mcp server %s: address: %w", s.name, errSystemKey)}
 	}
 	a := &httpAuth{headers: make(map[string]core.Secret, len(s.spec.headers))}
@@ -517,6 +522,19 @@ func (m *Manager) resolveHTTP(ctx context.Context, s *server, u core.UserID, ski
 	}
 	h.Sum(a.sum[:0])
 	return a, nil
+}
+
+// systemKeys is what no server may be sent (config.SystemKeys).
+func (m *Manager) systemKeys(ctx context.Context) (config.SystemKeys, error) {
+	refs := m.d.Config.Current().SystemSecretRefs()
+	if m.d.SystemRefs != nil {
+		more, err := m.d.SystemRefs(ctx)
+		if err != nil {
+			return config.SystemKeys{}, fmt.Errorf("listing Bothy's own keys: %w", err)
+		}
+		refs = append(refs, more...)
+	}
+	return config.NewSystemKeys(refs...), nil
 }
 
 // keyErr marks a key that is missing or locked, which the status names.

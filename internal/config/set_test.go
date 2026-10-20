@@ -500,3 +500,51 @@ func TestBothysOwnKeyInTheFileStillLoads(t *testing.T) {
 		t.Fatalf("header %q", h)
 	}
 }
+
+// Bothy's own keys are whatever its chat apps and sign-in use, under any
+// name or as aws-sm secrets, and the GitHub connections' references the
+// caller passes; an environment secret answers to '-' and '.' spellings too.
+func TestSetRefusesKeysBothysSettingsUse(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "bothy.yaml"), "version: 1\nsecrets:\n  aws:\n    region: us-east-1\nchannels:\n"+
+		"  telegram: {token: \"secret:tg_main\"}\n"+
+		"  discord: {token: \"aws-sm:arn:aws:secretsmanager:us-east-1:123456789012:secret:bothy/discord-AbCdEf#token\"}\n")
+	m := load(t, dir)
+	if errs := m.Effective().Errors; len(errs) != 0 {
+		t.Fatalf("errors %+v", errs)
+	}
+	server := func(header string) string {
+		b, _ := json.Marshal(map[string]any{"transport": "http", "url": "https://mcp.example.com/mcp", "headers": map[string]string{"Authorization": header}})
+		return string(b)
+	}
+	ctx := WithSystemRefs(context.Background(), []string{"aws-sm:github/pat", "secret:gh_conn_key"})
+	for name, header := range map[string]string{
+		"chat app's own name":        "Bearer secret:tg_main",
+		"aws-sm by name":             "aws-sm:bothy/discord",
+		"aws-sm by ARN, another key": "aws-sm:arn:aws:secretsmanager:us-east-1:123456789012:secret:bothy/discord-AbCdEf#other",
+		"environment spelling":       "secret:telegram-bot-token",
+		"GitHub connection, aws-sm":  "aws-sm:github/pat",
+		"GitHub connection, vault":   "secret:gh-conn-key",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := m.Set(ctx, map[string]json.RawMessage{"mcp.servers.docs": json.RawMessage(server(header))}, "user:alice")
+			if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), SystemKeyMessage) {
+				t.Fatalf("error %q lacks %q", fe.Error(), SystemKeyMessage)
+			}
+		})
+	}
+	// Changing a chat app's key to the tool's in the same change counts too.
+	_, err := m.Set(ctx, map[string]json.RawMessage{
+		"mcp.servers.docs":        json.RawMessage(server("secret:docs_key")),
+		"channels.telegram.token": json.RawMessage(`"secret:docs_key"`),
+	}, "user:alice")
+	if fe := fieldErrors(t, err); !strings.Contains(fe.Error(), SystemKeyMessage) {
+		t.Fatalf("error %q", fe.Error())
+	}
+	if _, err := m.Set(ctx, map[string]json.RawMessage{
+		"mcp.servers.docs":  json.RawMessage(server("aws-sm:bothy/discord-tools")),
+		"mcp.servers.other": json.RawMessage(server("secret:docs_key")),
+	}, "user:alice"); err != nil {
+		t.Fatal(err)
+	}
+}

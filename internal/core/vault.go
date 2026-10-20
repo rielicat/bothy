@@ -38,9 +38,10 @@ func GitHubAppClientSecretName(appID string) string { return "github_" + appID +
 
 // IsSystemSecret reports whether name is one of Bothy's own keys. They are
 // never offered for, or sent to, an MCP server: a key a person saves for a
-// connected tool has any other name.
+// connected tool has any other name. The settings that name Bothy's own keys
+// (config.SystemKeys) and the GitHub connections' references add to it.
 func IsSystemSecret(name string) bool {
-	n := strings.ToLower(name)
+	n := FoldSecretName(name)
 	switch n {
 	case SecretTelegramBotToken, SecretDiscordBotToken, SecretSlackAppToken, SecretSlackBotToken:
 		return true
@@ -64,6 +65,22 @@ func IsSystemSecret(name string) bool {
 		}
 	}
 	return false
+}
+
+// FoldSecretName is the form in which two vault names reach the same
+// value: an environment secret answers to every name whose
+// BOTHY_SECRET_<NAME> matches, so secret:telegram-bot-token reads
+// BOTHY_SECRET_TELEGRAM_BOT_TOKEN.
+func FoldSecretName(name string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '.' || r == '-':
+			return '_'
+		case r >= 'A' && r <= 'Z':
+			return r - 'A' + 'a'
+		}
+		return r
+	}, name)
 }
 
 func onlyOf(s, chars string) bool { return s != "" && strings.Trim(s, chars) == "" }

@@ -11,6 +11,8 @@ func TestIsSystemSecret(t *testing.T) {
 		SignInSecretName(SignInGoogle),
 		// Environment secrets are listed lower-cased, but a reference may not be.
 		"TELEGRAM_BOT_TOKEN",
+		// BOTHY_SECRET_TELEGRAM_BOT_TOKEN answers to these spellings too.
+		"telegram-bot-token", "telegram.bot.token", "google-sign-in-client-secret", "github-" + conn,
 	} {
 		if !IsSystemSecret(name) {
 			t.Errorf("IsSystemSecret(%q) = false", name)

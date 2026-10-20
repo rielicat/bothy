@@ -962,40 +962,6 @@ func (v *vctx) mcpURLKeys(path, raw string) {
 	}
 }
 
-// SystemKeyMessage is why an MCP server may not send a key.
-const SystemKeyMessage = "this key belongs to Bothy and can't be sent to other services"
-
-// SendsSystemKey reports whether a header value or address references one
-// of Bothy's own keys (core.IsSystemSecret).
-func SendsSystemKey(v string) bool {
-	return slices.ContainsFunc(SecretNames(v), core.IsSystemSecret)
-}
-
-// systemKeyErrors refuses a change that has an MCP server send one of
-// Bothy's own keys, in a header or its address. It runs on writes only, not
-// in validate: a value already in effect is left as it is, so a file that
-// had one still loads and the server's status says why it can't start
-// (SPEC §2.11) rather than the entry vanishing.
-func systemKeyErrors(old, next *Config, src Source) FieldErrors {
-	var out FieldErrors
-	for _, s := range next.MCP.Servers {
-		var was MCPServer
-		if i := slices.IndexFunc(old.MCP.Servers, func(o MCPServer) bool { return o.Name == s.Name }); i >= 0 {
-			was = old.MCP.Servers[i]
-		}
-		base := "mcp.servers." + s.Name
-		for _, h := range keysOf(s.Headers) {
-			if v := s.Headers[h]; v != was.Headers[h] && SendsSystemKey(v) {
-				out = append(out, newIssue(base+".headers."+h, "", src, SystemKeyMessage).FieldError)
-			}
-		}
-		if s.URL != was.URL && SendsSystemKey(s.URL) {
-			out = append(out, newIssue(base+".url", "", src, SystemKeyMessage).FieldError)
-		}
-	}
-	return out
-}
-
 func validateGitHub(c *Config, v *vctx) {
 	g := c.GitHub
 	v.url("github.api_base", g.APIBase, true, "http", "https")

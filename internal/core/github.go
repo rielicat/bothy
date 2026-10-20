@@ -59,6 +59,25 @@ type GitHubRepo struct {
 
 func (r GitHubRepo) FullName() string { return r.Owner + "/" + r.Name }
 
+// GitHubSecretRefs lists the references of the GitHub connections that
+// use a key of their own (GitHubConnection.SecretRef), which live in the
+// database rather than the configuration. gs is a GitHubStore or GitHub.
+func GitHubSecretRefs(ctx context.Context, gs interface {
+	Connections(ctx context.Context) ([]*GitHubConnection, error)
+}) ([]string, error) {
+	conns, err := gs.Connections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, c := range conns {
+		if c.SecretRef != "" {
+			out = append(out, c.SecretRef)
+		}
+	}
+	return out, nil
+}
+
 // GitHubStore persists connections, repositories (migration 0002) and
 // Bothy-made apps (0012). It is not part of Store: *store.DB and memstore
 // provide it through GitHub().

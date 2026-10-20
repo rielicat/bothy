@@ -700,7 +700,11 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 		return badRequest("set is empty")
 	}
 	before := s.d.Config.Current().MCP.Servers
-	restart, err := s.d.Config.Set(configCtx(r, a), req.Set, byString(a))
+	ctx, err := s.configCtx(r, a)
+	if err != nil {
+		return err
+	}
+	restart, err := s.d.Config.Set(ctx, req.Set, byString(a))
 	if err != nil {
 		return err
 	}
@@ -715,7 +719,11 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 
 func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Actor) error {
 	before := s.d.Config.Current().MCP.Servers
-	if err := s.d.Config.Reset(configCtx(r, a), r.PathValue("path"), byString(a)); err != nil {
+	ctx, err := s.configCtx(r, a)
+	if err != nil {
+		return err
+	}
+	if err := s.d.Config.Reset(ctx, r.PathValue("path"), byString(a)); err != nil {
 		return err
 	}
 	s.forgetMCP(r.Context(), r.PathValue("path"), before)
@@ -725,12 +733,27 @@ func (s *Server) resetConfig(w http.ResponseWriter, r *http.Request, a core.Acto
 // configCtx gives an API token's config change the check that refuses what
 // could let people in. Like letting in one person (PATCH /api/identities),
 // that needs an admin signed in on the web; everything else stays open to
-// admin tokens.
-func configCtx(r *http.Request, a core.Actor) context.Context {
-	if a.Via != "token" {
-		return r.Context()
+// admin tokens. Every change also learns the GitHub connections' keys, which
+// no MCP server may send (config.WithSystemRefs).
+func (s *Server) configCtx(r *http.Request, a core.Actor) (context.Context, error) {
+	refs, err := s.githubSecretRefs(r.Context())
+	if err != nil {
+		return nil, err
 	}
-	return config.WithCheck(r.Context(), admitsMore)
+	ctx := config.WithSystemRefs(r.Context(), refs)
+	if a.Via != "token" {
+		return ctx, nil
+	}
+	return config.WithCheck(ctx, admitsMore), nil
+}
+
+// githubSecretRefs lists the GitHub connections' own key references; none
+// without the GitHub service.
+func (s *Server) githubSecretRefs(ctx context.Context) ([]string, error) {
+	if s.d.GitHub == nil {
+		return nil, nil
+	}
+	return core.GitHubSecretRefs(ctx, s.d.GitHub)
 }
 
 var (
@@ -913,8 +936,17 @@ func (s *Server) vaultList(w http.ResponseWriter, r *http.Request, a core.Actor)
 		return err
 	}
 	if sc == core.GlobalScope {
-		for i := range metas {
-			metas[i].System = metas[i].Source != "aws-sm" && core.IsSystemSecret(metas[i].Name)
+		refs, err := s.githubSecretRefs(r.Context())
+		if err != nil {
+			return err
+		}
+		keys := config.NewSystemKeys(append(s.d.Config.Current().SystemSecretRefs(), refs...)...)
+		for i, m := range metas {
+			ref := "secret:" + m.Name
+			if m.Source == "aws-sm" {
+				ref = m.Name // the reference itself
+			}
+			metas[i].System = keys.Sends(ref)
 		}
 	}
 	return ok(w, nonNil(metas))

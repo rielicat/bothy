@@ -2345,7 +2345,7 @@ export interface MCPStatus {
    * (needs allow_private), needs_https (plain http with a key to a name
    * that resolves to a public address), not_installed (a command server to
    * install or reinstall), bothy_key (a header or its address names one of
-   * Bothy's own keys, IsSystemSecret, which is never sent; not tried again
+   * Bothy's own keys, config.SystemKeys, which is never sent; not tried again
    * until the entry changes), install_failed (its install failed; also with
    * State ready or pins_pending when a reinstall of the version it runs
    * failed and that install keeps serving, Err saying why); "" otherwise.
@@ -2879,7 +2879,7 @@ export interface SecretMeta {
   updated_at: string /* RFC 3339 */;
   last_used_at: string /* RFC 3339 */;
   /**
-   * System marks one of Bothy's own keys (IsSystemSecret) in the global
+   * System marks one of Bothy's own keys (config.SystemKeys) in the global
    * list: never offered for a connected tool.
    */
   system?: boolean;

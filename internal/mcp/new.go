@@ -26,6 +26,10 @@ type Deps struct {
 	WorkDir  string // resolved work dir: install trees under <WorkDir>/mcp/<server>/<install_id>
 	Clock    core.Clock
 	Log      *slog.Logger
+	// SystemRefs lists the references to Bothy's own keys kept outside the
+	// configuration (the GitHub connections'), never sent to a server; nil
+	// = none.
+	SystemRefs func(ctx context.Context) ([]string, error)
 }
 
 // Manager implements core.MCP and core.CheckProvider.
