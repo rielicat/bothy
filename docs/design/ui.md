@@ -1308,16 +1308,18 @@ What should Bothy work on?                                         text-title (2
 Bothy can read your code, draft and research, and it asks          text-reading muted, max 480 px
 before doing anything you'd want to check.
 
-Summarise the open pull requests in acme/web                       suggestions: ghost rows, h-10,
-What changed in acme/web this week?                                text-body, hover bg-subtle,
-What can you do for our team?                                      left-aligned at the column edge
+┌──────────────────────────────────────────────┐
+│ Summarise the open pull requests in acme/web │                   suggestions: rows on one group card
+│ What changed in acme/web this week?          │                   (`list-card`), 44 px, text-body,
+│ What can you do for our team?                │                   hover bg-subtle, hairlines between
+└──────────────────────────────────────────────┘
                                                                    (composer at the bottom as usual)
 ```
 
 - One "New chat" control only, in the sidebar. `/chat` is the new chat itself, not a "pick a chat" screen.
 - Starters (at most four, `GET /api/starters`, SPEC §14.10; the copy comes from the server): two prompts for what is set up (with a repository and GitHub connected, "Summarise the open pull requests in {owner/repo}" and "What changed in {owner/repo} this week?"; with a repository Bothy has only read, "How is {owner/repo} organised?" and "Find where something is handled in {owner/repo}"; with web search, "Research a topic on the web" and "Draft a release checklist for our next version"; otherwise that checklist and "Turn meeting notes into a list of tasks"), at most one link to something not set up yet ("Connect GitHub so Bothy can read your code", "Choose which repositories Bothy can read", "Connect Slack, Discord or Telegram so your team can ask Bothy there", "Add people so they get their own sign-in" for admins; "Have Bothy do something on a schedule" for anyone without schedules of their own), and always "What can you do for our team?". A link row is an accent link; members never get a settings link.
 - Clicking a prompt puts its words in the composer (a row may carry longer words than it shows, such as "Research this on the web and give me a short summary with links to sources: ") and focuses it. It never sends.
-- While the rows load the list keeps the height of four, so nothing moves; if they fail, only "What can you do for our team?" shows.
+- The rows share one group card (§11.1) so they read as choices, not as more text under the title. While they load, the space of four rows is kept (no empty card), so nothing moves; if they fail, only "What can you do for our team?" shows.
 - The same rows sit under the welcome chat's message until the person writes (§7.3).
 - Nothing is stored until the first message is sent (S14). The sidebar row appears then, titled with the first 48 characters until the generated title arrives. Attaching a file first gives the chat its id, since uploads need one, but the screen stays this one (heading, suggestions, no header) until the message is sent.
 

@@ -23,24 +23,27 @@
     <h1 class="text-title text-text" tabindex="-1">What should Bothy work on?</h1>
     <p class="mt-2 max-w-[30rem] text-reading text-muted">Bothy can read your code, draft and research, and it asks before doing anything you'd want to check.</p>
   {/if}
-  <!-- Room for four rows while they load, so the list doesn't push the page around. -->
-  <ul class="mt-6 min-h-40">
-    {#each rows as r (r.text)}
-      <li>
-        {#if r.href}
-          <a
-            href={r.href}
-            onclick={router.link}
-            class="-mx-3 flex min-h-10 items-center rounded-md px-3 text-body text-accent-text underline decoration-accent-text/40 underline-offset-2 hover:bg-subtle hover:decoration-accent-text pointer-coarse:min-h-11">{r.text}</a
-          >
-        {:else}
-          <button
-            type="button"
-            class="-mx-3 flex min-h-10 w-[calc(100%+1.5rem)] cursor-pointer items-center rounded-md px-3 text-left text-body text-text hover:bg-subtle pointer-coarse:min-h-11"
-            onclick={() => onpick(r.fill || r.text)}>{r.text}</button
-          >
-        {/if}
-      </li>
-    {/each}
-  </ul>
+  <!-- Room for four rows while they load, so the list doesn't push the page around. The rows share
+       one group card, so they read as choices rather than as more text (§7.2). -->
+  <div class="mt-6 min-h-44">
+    <ul class={rows.length ? 'list-card overflow-hidden' : ''}>
+      {#each rows as r (r.text)}
+        <li class="border-b border-border">
+          {#if r.href}
+            <a
+              href={r.href}
+              onclick={router.link}
+              class="-mx-4 flex min-h-11 items-center px-4 text-body text-accent-text underline decoration-accent-text/40 underline-offset-2 hover:bg-subtle hover:decoration-accent-text focus-visible:-outline-offset-2">{r.text}</a
+            >
+          {:else}
+            <button
+              type="button"
+              class="-mx-4 flex min-h-11 w-[calc(100%+2rem)] cursor-pointer items-center px-4 text-left text-body text-text hover:bg-subtle focus-visible:-outline-offset-2"
+              onclick={() => onpick(r.fill || r.text)}>{r.text}</button
+            >
+          {/if}
+        </li>
+      {/each}
+    </ul>
+  </div>
 </div>
