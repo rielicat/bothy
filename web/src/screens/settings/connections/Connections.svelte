@@ -100,7 +100,8 @@
       {@render row('GitHub', githubStatus(github[0], repos.length, githubApps.find((a) => a.state === 'pending')), '/settings/connections/github')}
     </SettingsSection>
 
-    <SettingsSection title="Tools" bare>
+    {#snippet addServer()}<Button size="sm" onclick={() => (adding = true)}>Add an MCP server</Button>{/snippet}
+    <SettingsSection title="Tools" bare action={servers.length ? addServer : undefined}>
       <div class="list-card">
         {#each servers as name (name)}
           {@const st = toolStatus(mcp.find((s) => s.name === name))}
@@ -108,9 +109,7 @@
         {/each}
         {@render row('Web search', { text: search, tone: 'muted', action: 'Change' }, '/settings/connections/search')}
       </div>
-      {#if servers.length}
-        <Button class="mt-4" onclick={() => (adding = true)}>Add an MCP server</Button>
-      {:else}
+      {#if !servers.length}
         <EmptyState
           class="mt-4"
           text="No other tools connected."

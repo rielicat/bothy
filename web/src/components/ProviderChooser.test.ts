@@ -52,6 +52,11 @@ describe('ProviderChooser in setup', () => {
     await fireEvent.click(radio("Use this server's AWS access"));
     expect(screen.getByText(/isn't allowed to use Bedrock\. Ask your AWS admin to allow it\./)).toBeTruthy();
     expect(tests(calls)).toHaveLength(1);
+    // Its fix is a permission or another region, so it keeps the region and offers no sign-in advice.
+    expect(screen.getByRole('combobox', { name: 'Region' })).toBeTruthy();
+    expect(screen.queryByText(/sign in with the AWS CLI/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(tests(calls)).toHaveLength(2));
   });
 
   it('keeps AWS settings whose sign-in expired, says how to fix them and checks only when asked', async () => {

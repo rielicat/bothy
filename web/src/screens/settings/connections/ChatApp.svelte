@@ -173,7 +173,7 @@
 </script>
 
 {#snippet step(n: number, title: string, body: Snippet, optional?: boolean)}
-  <li class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 [&+li]:mt-10">
+  <li class="grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 border-b border-border py-5">
     <span class="text-heading text-muted tabular-nums" aria-hidden="true">{n}</span>
     <div>
       <h2 class="section-title"><span class="sr-only">Step {n}:{' '}</span>{title}{#if optional}<span class="font-normal text-muted">{' (optional)'}</span>{/if}</h2>
@@ -267,7 +267,7 @@
     {#if view === 'failed'}
       <PageState kind="failed" onretry={() => load(true)} />
     {:else if view === 'steps'}
-      <ol>
+      <ol class="list-card">
         {#if app === 'slack'}
           {@render step(1, 'Create the Slack app', one)}
           <!-- Replacing tokens: the app, and whatever icon it has, exist already. -->
@@ -283,7 +283,7 @@
         {/if}
       </ol>
       {#if connected}
-        <div class="mt-10 space-y-3 pl-8">
+        <div class="mt-6 space-y-3">
           <!-- Telegram can't say who is in the team, nor Discord before a channel is on, so the admin waits to be let in like anyone. -->
           <p class="text-body text-text">
             {#if app === 'slack'}Message Bothy in {name} to try it.{:else}Message Bothy in {name}, then let yourself in from <a class="link" href="/approvals" onclick={router.link}

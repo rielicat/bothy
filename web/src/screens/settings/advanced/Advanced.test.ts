@@ -30,6 +30,13 @@ describe('Advanced', () => {
     expect(titles).toEqual(['Health check', 'Configuration file', 'Backup', 'Rules', 'Limits', 'Running code', 'Network', 'Model prices', 'Built-in safety rules', 'Logs']);
   });
 
+  it('keeps every setting on a group card, the per-kind rule overrides too (§11.1)', async () => {
+    await open();
+    expect(screen.getByRole('combobox', { name: 'Changing files' }).closest('.list-card')).toBeTruthy();
+    const loose = [...document.querySelectorAll<HTMLElement>('select, input:not([type="hidden"]), textarea')].filter((el) => !el.closest('.list-card'));
+    expect(loose.map((el) => el.id || el.outerHTML.slice(0, 60))).toEqual([]);
+  });
+
   it('runs the health check on open and says when nothing is wrong', async () => {
     await open({ mock: 'no-findings' });
     expect(await screen.findByText('No problems found.')).toBeTruthy();

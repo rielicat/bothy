@@ -9,7 +9,6 @@
   import { config, saveErrorText } from '../../../lib/config.svelte';
   import { plural } from '../../../lib/format';
   import { pausedSentence } from '../../../components/shell/banners';
-  import { router } from '../../../lib/router.svelte';
   import { session } from '../../../lib/stores/session.svelte';
   import { describeFinding, needsAttention } from './findings';
   import LinkRow from './LinkRow.svelte';
@@ -436,29 +435,23 @@
       <LinkRow label="Websites Bothy can reach" value={plural(sites, 'site')} href="/settings/security/websites" />
     </SettingsSection>
 
-    <!-- The heading and its one value share a line, so the whole line is the link (§11.6 wireframe). -->
-    <section class="mt-10" aria-labelledby="{uid}-keys">
-      <a
-        href="/settings/security/keys"
-        onclick={router.link}
-        class="-mx-2 -my-1 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 rounded-md px-2 py-1 hover:bg-subtle focus-visible:outline-offset-[-2px] pointer-coarse:min-h-11 sm:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]"
-      >
-        <h2 id="{uid}-keys" class="section-title">Saved keys</h2>
-        <span class="inline-flex items-center gap-1 text-body {vault?.sealed ? 'text-danger-text' : 'text-muted'}"
-          >{vault?.sealed ? 'Locked' : keys === null ? '' : keys.length ? plural(keys.length, 'saved key') : 'None'}<Icon name="chevron-right" /></span
-        >
-      </a>
-    </section>
+    <!-- One value and nothing else to set, so the row is its own card without a heading over it (§11.6). -->
+    <div class="list-card mt-10">
+      <LinkRow label="Saved keys" value={vault?.sealed ? 'Locked' : keys === null ? '' : keys.length ? plural(keys.length, 'saved key') : 'None'} tone={vault?.sealed ? 'danger' : 'muted'} href="/settings/security/keys" />
+    </div>
 
-    <SettingsSection title="Pause Bothy" bare>
-      {#if session.paused}
-        <p class="text-body text-text">{pausedText}</p>
-        <Button variant="primary" class="mt-3" loading={resuming} loadingLabel="Resuming…" onclick={resume}>Resume</Button>
-        <FieldError text={resumeError} />
-      {:else}
-        <p class="text-body text-muted">Stops everything that's running and keeps anything new from starting until someone resumes it.</p>
-        <Button class="mt-3 text-danger-text" onclick={() => (pausing = true)}>Pause Bothy…</Button>
-      {/if}
+    <SettingsSection title="Pause Bothy">
+      <div class="action-row">
+        <p class="text-body {session.paused ? 'text-text' : 'text-muted'}">
+          {session.paused ? pausedText : "Stops everything that's running and keeps anything new from starting until someone resumes it."}
+        </p>
+        {#if session.paused}
+          <Button variant="primary" size="sm" loading={resuming} loadingLabel="Resuming…" onclick={resume}>Resume</Button>
+        {:else}
+          <Button size="sm" class="text-danger-text" onclick={() => (pausing = true)}>Pause Bothy…</Button>
+        {/if}
+      </div>
+      <FieldError class="pb-3" text={resumeError} />
     </SettingsSection>
   {/if}
 </Page>

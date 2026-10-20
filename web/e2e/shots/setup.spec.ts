@@ -193,6 +193,9 @@ const states: ShotState[] = [
   ...awsFailures.map((code) =>
     step2(`model-aws-${code.replaceAll('_', '-')}`, `detect-aws,provider-fail:${code}`, async (page) => {
       await account(page);
+      // A pre-selected row whose check fails is deselected (§5.6.1); choosing it shows the reason.
+      await page.getByText("Found, but it can't use Bedrock right now.").waitFor();
+      await page.getByRole('radio', { name: /^Use this server's AWS access/ }).check();
       await failed(page);
       await page.getByRole('button', { name: 'Details' }).click();
     }),

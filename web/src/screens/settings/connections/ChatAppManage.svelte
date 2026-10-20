@@ -210,8 +210,8 @@
         {/snippet}
       </SettingsRow>
     {/if}
-    <div class="py-2">
-      <Button variant="danger-text" class="-ml-3" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
+    <div class="py-3">
+      <Button variant="danger-text" size="sm" class="-ml-3" onclick={() => (leaving = true)}>Disconnect {name}…</Button>
     </div>
   </SettingsSection>
 
@@ -265,51 +265,53 @@
     {#if groupError}<StatusLine class="mt-2" tone="danger" alert text={groupError} />{/if}
   </SettingsSection>
 
-  <SettingsSection title="Who can use Bothy" bare>
-    {#if app === 'slack'}
-      <p class="text-body text-text">
-        {status.org ? 'Everyone in your Slack organization, across all its workspaces,' : `Everyone in ${status.team || 'your workspace'}`} can message Bothy and use what it can
-        read, such as your repositories and connected tools. Guests and people from other companies can't. Anything that changes something waits for an approver.
-      </p>
-    {:else if app === 'discord'}
-      <p class="text-body text-text">
-        {#if status.member_check === 'no_access'}
-          Bothy can't check who's in your servers, so only people you let in from Approvals can message it.
+  <SettingsSection title="Who can use Bothy">
+    <div class="action-row">
+      <div class="min-w-0">
+        {#if app === 'slack'}
+          <p class="text-body text-text">
+            {status.org ? 'Everyone in your Slack organization, across all its workspaces,' : `Everyone in ${status.team || 'your workspace'}`} can message Bothy and use what it can
+            read, such as your repositories and connected tools. Guests and people from other companies can't. Anything that changes something waits for an approver.
+          </p>
+        {:else if app === 'discord'}
+          <p class="text-body text-text">
+            {#if status.member_check === 'no_access'}
+              Bothy can't check who's in your servers, so only people you let in from Approvals can message it.
+            {:else}
+              Members of a server where Bothy answers in a channel can message Bothy and use what it can read, such as your repositories and connected tools. Bots can't.
+              Anything that changes something waits for an approver.
+            {/if}
+          </p>
+          {#if status.idle_servers}
+            <p class="mt-2 text-body text-muted">Bothy is in {plural(status.idle_servers, 'server')} where it isn't on in any channel. Remove it from servers you don't use.</p>
+          {/if}
         {:else}
-          Members of a server where Bothy answers in a channel can message Bothy and use what it can read, such as your repositories and connected tools. Bots can't. Anything
-          that changes something waits for an approver.
+          <p class="text-body text-text">People you let in from Approvals.</p>
         {/if}
-      </p>
-      {#if status.idle_servers}
-        <p class="mt-2 text-body text-muted">Bothy is in {plural(status.idle_servers, 'server')} where it isn't on in any channel. Remove it from servers you don't use.</p>
-      {/if}
-    {:else}
-      <p class="text-body text-text">People you let in from Approvals.</p>
-    {/if}
-    {#if app !== 'slack'}
-      <div class="list-card mt-3">
-        <SettingsRow
-          label="When someone new messages Bothy"
-          help="Either way, they're listed in Approvals. Applies to Telegram and Discord."
-          status={unknownStatus}
-          error={unknownError}
-        >
-          {#snippet children(c)}
-            <Select
-              id={c.id}
-              aria-describedby={c.describedBy}
-              bind:value={unknown}
-              onchange={() => setUnknown(unknown)}
-              options={[
-                { value: 'pair', label: 'Ask an admin (recommended)' },
-                { value: 'ignore', label: "Don't reply or notify anyone" },
-              ]}
-            />
-          {/snippet}
-        </SettingsRow>
       </div>
+      <Button size="sm" href="/settings/people">Manage people</Button>
+    </div>
+    {#if app !== 'slack'}
+      <SettingsRow
+        label="When someone new messages Bothy"
+        help="Either way, they're listed in Approvals. Applies to Telegram and Discord."
+        status={unknownStatus}
+        error={unknownError}
+      >
+        {#snippet children(c)}
+          <Select
+            id={c.id}
+            aria-describedby={c.describedBy}
+            bind:value={unknown}
+            onchange={() => setUnknown(unknown)}
+            options={[
+              { value: 'pair', label: 'Ask an admin (recommended)' },
+              { value: 'ignore', label: "Don't reply or notify anyone" },
+            ]}
+          />
+        {/snippet}
+      </SettingsRow>
     {/if}
-    <Button class="mt-4" href="/settings/people">Manage people</Button>
   </SettingsSection>
 </ConnPage>
 

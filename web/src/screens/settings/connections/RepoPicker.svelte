@@ -5,9 +5,12 @@
   let {
     repos,
     selected = $bindable([]),
+    card = false,
   }: {
     repos: { owner: string; name: string; description?: string }[];
     selected?: string[];
+    /** On a page the choices sit on a group card; a dialog is a card already. */
+    card?: boolean;
   } = $props();
 
   let q = $state('');
@@ -26,7 +29,7 @@
   <Icon name="search" class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
   <input class="input pl-9 [&::-webkit-search-cancel-button]:appearance-none" type="search" placeholder="Filter repositories" aria-label="Filter repositories" bind:value={q} />
 </div>
-<div class="mt-2" data-copy-ignore>
+<div class="mt-2 {card ? 'list-card [&>label]:border-b [&>label]:border-border [&>label]:py-3' : ''}" data-copy-ignore>
   {#each shown as r (full(r))}
     <Checkbox label={full(r)} description={r.description} checked={selected.includes(full(r))} onchange={(e) => toggle(full(r), e.currentTarget.checked)} />
   {:else}

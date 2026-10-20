@@ -166,31 +166,33 @@
       <Notice class="mb-6" tone="danger" text="Saved keys are locked, so {name} sign-in can't work. Unlock them in Saved keys." action={{ label: 'Open saved keys', onclick: () => router.navigate('/settings/security/keys') }} />
     {/if}
 
-    <!-- The address notice above says why the switch is off, so the reason isn't printed a second time; screen readers still get it. -->
-    <SettingsRow label="Sign in with {name}" inline help={(!noticed && reason) || undefined} status={switchRow.status} error={switchRow.error}>
-      {#snippet children(c)}
-        <Switch
-          id={c.id}
-          label="Sign in with {name}"
-          hideLabel
-          aria-describedby={noticed && reason ? `${uid}-why` : c.describedBy}
-          checked={st.enabled}
-          disabled={!!reason}
-          onchange={toggle}
-        />
-        {#if noticed && reason}<span id="{uid}-why" class="sr-only">{reason}</span>{/if}
-      {/snippet}
-    </SettingsRow>
-    <LinkRow
-      label="Who can sign in"
-      value={github ? addressSummary(adm.allow) : listSummary(adm.allow)}
-      href="/settings/security"
-      help={github ? undefined : 'A domain on the list lets in the Google Workspace accounts on it.'}
-    />
+    <div class="list-card">
+      <!-- The address notice above says why the switch is off, so the reason isn't printed a second time; screen readers still get it. -->
+      <SettingsRow label="Sign in with {name}" inline help={(!noticed && reason) || undefined} status={switchRow.status} error={switchRow.error}>
+        {#snippet children(c)}
+          <Switch
+            id={c.id}
+            label="Sign in with {name}"
+            hideLabel
+            aria-describedby={noticed && reason ? `${uid}-why` : c.describedBy}
+            checked={st.enabled}
+            disabled={!!reason}
+            onchange={toggle}
+          />
+          {#if noticed && reason}<span id="{uid}-why" class="sr-only">{reason}</span>{/if}
+        {/snippet}
+      </SettingsRow>
+      <LinkRow
+        label="Who can sign in"
+        value={github ? addressSummary(adm.allow) : listSummary(adm.allow)}
+        href="/settings/security"
+        help={github ? undefined : 'A domain on the list lets in the Google Workspace accounts on it.'}
+      />
+    </div>
 
     <form class="mt-10" novalidate onsubmit={save}>
       <SettingsSection title={github ? 'GitHub OAuth app' : 'Google Cloud'} bare>
-        <div class="space-y-5 pt-2">
+        <div class="card space-y-5">
           <div>
             <p class="field-label">{github ? 'Callback URL' : 'Redirect URI'}</p>
             {#if st.redirect_uri && !noticed}
@@ -228,34 +230,34 @@
           {:else}
             <TextField label="Client secret" type="password" bind:value={secret} autocomplete="off" spellcheck="false" help="Stored encrypted. Only sent to {name}." error={errors.secret} />
           {/if}
+          {#if github}
+            <div>
+              <TextField
+                label="Organizations"
+                optional
+                bind:value={orgsText}
+                placeholder="acme-inc"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="none"
+                disabled={fixed(`${base}.orgs`)}
+                help={fixed(`${base}.orgs`) ? FIXED_HELP : 'Members of these GitHub organizations can also sign in. Other GitHub accounts need their exact email address on the list.'}
+                error={errors.orgs}
+              />
+              <Disclosure class="mt-2">
+                <p class="text-small text-muted">
+                  If an organization restricts OAuth apps, an owner approves Bothy the first time a member signs in. Someone whose invitation is still pending can't sign in until they accept
+                  it.
+                </p>
+              </Disclosure>
+            </div>
+          {/if}
+          <div class="pt-1">
+            <Button type="submit" variant="primary" loading={saving || checking} loadingLabel={checking ? `Checking with ${name}…` : 'Saving…'}>Save</Button>
+            {#if result}<StatusLine class="mt-3" tone={result.tone} text={result.text} details={result.details} alert={result.tone === 'danger'} />{/if}
+          </div>
         </div>
       </SettingsSection>
-
-      {#if github}
-        <div class="mt-5">
-          <TextField
-            label="Organizations"
-            optional
-            bind:value={orgsText}
-            placeholder="acme-inc"
-            autocomplete="off"
-            spellcheck="false"
-            autocapitalize="none"
-            disabled={fixed(`${base}.orgs`)}
-            help={fixed(`${base}.orgs`) ? FIXED_HELP : 'Members of these GitHub organizations can also sign in. Other GitHub accounts need their exact email address on the list.'}
-            error={errors.orgs}
-          />
-          <Disclosure class="mt-2">
-            <p class="text-small text-muted">
-              If an organization restricts OAuth apps, an owner approves Bothy the first time a member signs in. Someone whose invitation is still pending can't sign in until they accept
-              it.
-            </p>
-          </Disclosure>
-        </div>
-      {/if}
-
-      <Button type="submit" variant="primary" class="mt-8" loading={saving || checking} loadingLabel={checking ? `Checking with ${name}…` : 'Saving…'}>Save</Button>
-      {#if result}<StatusLine class="mt-3" tone={result.tone} text={result.text} details={result.details} alert={result.tone === 'danger'} />{/if}
     </form>
   {/if}
 </Page>

@@ -49,31 +49,36 @@
         <h3 class="text-body font-medium text-text">{s.title}</h3>
         <span class="text-small text-muted" aria-live="polite">{rowStatus(saver.status)}</span>
       </div>
-      <ol class="mt-1 list-card">
-        {#each c.slice(1) as ref, k (ref)}
-          {@const m = label(ref)}
-          <li class="flex min-h-10 items-center gap-3 border-b border-border py-1 pointer-coarse:min-h-12">
-            <span class="w-4 shrink-0 text-small text-muted tabular-nums">{k + 1}</span>
-            <span class="min-w-0 flex-1 truncate text-body text-text">{m.name} <span class="text-muted">· {m.provider}</span></span>
-            <Menu items={items(s.path, k + 1, c.length)} placement="bottom-end">
-              {#snippet trigger(props)}<IconButton icon="more" label="Options for {m.name}" size="sm" variant="quiet" {...props} />{/snippet}
-            </Menu>
-          </li>
-        {:else}
-          <li class="py-3 text-body text-muted">No backups yet.</li>
-        {/each}
-      </ol>
+      <!-- The rows pad themselves rather than the list, so their hairlines still run edge to edge. -->
+      <div class="mt-1 list-card">
+        <ol class="px-0">
+          {#each c.slice(1) as ref, k (ref)}
+            {@const m = label(ref)}
+            <li class="flex min-h-10 items-center gap-3 border-b border-border px-4 py-1 last:border-b-0 pointer-coarse:min-h-12">
+              <span class="w-4 shrink-0 text-small text-muted tabular-nums">{k + 1}</span>
+              <span class="min-w-0 flex-1 truncate text-body text-text">{m.name} <span class="text-muted">· {m.provider}</span></span>
+              <Menu items={items(s.path, k + 1, c.length)} placement="bottom-end">
+                {#snippet trigger(props)}<IconButton icon="more" label="Options for {m.name}" size="sm" variant="quiet" {...props} />{/snippet}
+              </Menu>
+            </li>
+          {:else}
+            <li class="px-4 py-3 text-body text-muted">No backups yet.</li>
+          {/each}
+        </ol>
+        {#if free.length}
+          <div class="border-t border-border py-3">
+            <Select
+              class="sm:max-w-80"
+              label={s.add}
+              hideLabel
+              value={adding[s.path]}
+              options={[{ value: '', label: 'Add backup' }, ...free.map((o) => ({ value: o.value, label: `${o.label} · ${o.group}` }))]}
+              onchange={(e: Event) => add(s.path, (e.currentTarget as HTMLSelectElement).value)}
+            />
+          </div>
+        {/if}
+      </div>
       {#if saver.error}<p class="field-error" role="alert">{saver.error}</p>{/if}
-      {#if free.length}
-        <Select
-          class="mt-2 sm:max-w-80"
-          label={s.add}
-          hideLabel
-          value={adding[s.path]}
-          options={[{ value: '', label: 'Add backup' }, ...free.map((o) => ({ value: o.value, label: `${o.label} · ${o.group}` }))]}
-          onchange={(e: Event) => add(s.path, (e.currentTarget as HTMLSelectElement).value)}
-        />
-      {/if}
     </div>
   {/each}
 </Disclosure>

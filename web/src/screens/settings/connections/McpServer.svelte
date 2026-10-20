@@ -274,38 +274,40 @@
     <EmptyState text="This tool was removed or never added." action={{ label: 'Go to Connections', href: '/settings/connections' }} />
   {:else}
     <!-- The switch sits on the status line: one place says whether Bothy uses this server. -->
-    <div class="flex items-start gap-4">
-      <div class="min-w-0 flex-1 space-y-3">
-        {#if off}
-          <p class="text-body text-muted">Off</p>
-        {:else if !status || status.state === 'connecting' || status.state === 'installing'}
-          <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
-        {:else if status.state === 'error' || status.state === 'no_sandbox' || status.state === 'disabled'}
-          <StatusLine tone="danger" text="Can't start: {toolProblem(status)}.{retryText(status)}" details={status.error} action={fix} />
-        {:else if pending.length}
-          <StatusLine
-            tone="warning"
-            text={allNew
-              ? pending.length === 1
-                ? '1 new action needs a review before Bothy can use it.'
-                : `${plural(pending.length, 'new action')} need a review before Bothy can use them.`
-              : pending.length === 1
-                ? '1 action changed and needs a review before Bothy can use it.'
-                : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
-          />
-          <Button onclick={openReview}>{allNew ? 'Review actions' : 'Review changes'}</Button>
-        {:else}
-          <p class="text-body text-muted">Ready · {plural(status.tools, 'action')}</p>
-        {/if}
-        <!-- A failed reinstall of the version it runs: the earlier install keeps serving. -->
-        {#if status?.code === 'install_failed' && status.state !== 'error'}
-          <StatusLine tone="warning" text="Bothy couldn't reinstall it, so it keeps using the earlier install.{retryText(status)}" details={status.error} action={fix} />
-        {/if}
-        <FailureLine failure={problem} />
-      </div>
-      <div class="flex min-h-6 shrink-0 items-center gap-2 pointer-coarse:-my-2.5">
-        <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
-        <Switch label="Turn on {title}" hideLabel bind:checked={enabled} onchange={setEnabled} />
+    <div class="list-card">
+      <div class="flex items-start gap-4 py-4">
+        <div class="min-w-0 flex-1 space-y-3">
+          {#if off}
+            <p class="text-body text-muted">Off</p>
+          {:else if !status || status.state === 'connecting' || status.state === 'installing'}
+            <StatusLine tone="progress" text={status?.state === 'installing' ? 'Installing…' : 'Connecting…'} />
+          {:else if status.state === 'error' || status.state === 'no_sandbox' || status.state === 'disabled'}
+            <StatusLine tone="danger" text="Can't start: {toolProblem(status)}.{retryText(status)}" details={status.error} action={fix} />
+          {:else if pending.length}
+            <StatusLine
+              tone="warning"
+              text={allNew
+                ? pending.length === 1
+                  ? '1 new action needs a review before Bothy can use it.'
+                  : `${plural(pending.length, 'new action')} need a review before Bothy can use them.`
+                : pending.length === 1
+                  ? '1 action changed and needs a review before Bothy can use it.'
+                  : `${plural(pending.length, 'action')} changed and need a review before Bothy can use them.`}
+            />
+            <Button onclick={openReview}>{allNew ? 'Review actions' : 'Review changes'}</Button>
+          {:else}
+            <p class="text-body text-muted">Ready · {plural(status.tools, 'action')}</p>
+          {/if}
+          <!-- A failed reinstall of the version it runs: the earlier install keeps serving. -->
+          {#if status?.code === 'install_failed' && status.state !== 'error'}
+            <StatusLine tone="warning" text="Bothy couldn't reinstall it, so it keeps using the earlier install.{retryText(status)}" details={status.error} action={fix} />
+          {/if}
+          <FailureLine failure={problem} />
+        </div>
+        <div class="flex min-h-6 shrink-0 items-center gap-2 pointer-coarse:-my-2.5">
+          <span class="text-small text-muted" aria-live="polite">{saving ? 'Saving…' : ''}</span>
+          <Switch label="Turn on {title}" hideLabel bind:checked={enabled} onchange={setEnabled} />
+        </div>
       </div>
     </div>
 

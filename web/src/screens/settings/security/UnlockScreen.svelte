@@ -29,7 +29,7 @@
     <p class="text-reading text-muted">
       {first ? CHOOSE : "Bothy can't reach its models or connections until you enter the passphrase."}
     </p>
-    <form class="mt-6 max-w-[30rem]" onsubmit={(e) => fields?.submit(e)} novalidate>
+    <form class="card mt-6 [&>*]:max-w-[30rem]" onsubmit={(e) => fields?.submit(e)} novalidate>
       <PassphraseFields bind:this={fields} {first} bind:busy onunlocked={() => onunlocked?.()} />
       <Button variant="primary" type="submit" class="mt-4 max-sm:w-full" loading={busy} loadingLabel={first ? 'Saving…' : 'Unlocking…'}>{first ? 'Save passphrase' : 'Unlock'}</Button>
     </form>

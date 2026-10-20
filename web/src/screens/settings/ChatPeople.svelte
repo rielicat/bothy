@@ -208,20 +208,22 @@
     <StatusLine class="mt-3" tone="danger" text="This list didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => load() }} />
   {:else if phase === 'ready'}
     {#if daily > 0 && !noApps}
-      <SettingsRow label="Share of the daily limit for chat apps" help="Leaves the rest of Bothy's {dollars(daily)} daily limit for the web." status={share.status} error={share.error}>
-        {#snippet children(c)}
-          <Select
-            id={c.id}
-            aria-describedby={c.describedBy}
-            value={shareValue}
-            options={shareOptions}
-            onchange={(e) => {
-              const v = Number(e.currentTarget.value);
-              void share.run(() => settingsConfig.save({ 'budgets.chat_share_pct': v }));
-            }}
-          />
-        {/snippet}
-      </SettingsRow>
+      <div class="list-card mt-3">
+        <SettingsRow label="Share of the daily limit for chat apps" help="Leaves the rest of Bothy's {dollars(daily)} daily limit for the web." status={share.status} error={share.error}>
+          {#snippet children(c)}
+            <Select
+              id={c.id}
+              aria-describedby={c.describedBy}
+              value={shareValue}
+              options={shareOptions}
+              onchange={(e) => {
+                const v = Number(e.currentTarget.value);
+                void share.run(() => settingsConfig.save({ 'budgets.chat_share_pct': v }));
+              }}
+            />
+          {/snippet}
+        </SettingsRow>
+      </div>
     {/if}
     {#if !people.length}
       {#if noApps}
@@ -237,7 +239,7 @@
     {:else}
       {#if nobodyApproves}<p class="mt-3 text-body text-text">Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals.</p>{/if}
       {#if people.length > 20}<TextField class="mt-3" label="Find someone" type="search" bind:value={q} />{/if}
-      <ul class="list-card mt-2">
+      <ul class="list-card mt-4">
         {#each shown as t (key(t))}
           <li class="border-b border-border last:border-b-0">
             <div class="flex min-h-14 items-center gap-3 py-2">

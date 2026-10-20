@@ -85,7 +85,7 @@
   </div>
 
   <h3 class="mt-8 text-body font-medium text-text">For each kind of action</h3>
-  <div class="mt-1">
+  <div class="list-card mt-2">
     {#each classes as [c, label] (c)}
       <AdvancedField path="policy.defaults.{c}" {label} type="select" options={overrideOptions} />
     {/each}
