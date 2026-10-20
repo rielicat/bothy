@@ -73,23 +73,25 @@
 
 <section class={compact ? 'mb-8' : 'mt-10'} aria-labelledby="gh-pending">
   <h2 id="gh-pending" class="section-title">Finish installing {app.name} on GitHub</h2>
-  {#if requested}
-    <p class="mt-1 text-body text-text">An owner of {owner} needs to approve {app.name} on GitHub. Once they have, choose Check again.</p>
-  {:else if compact}
-    <p class="mt-1 text-body text-text">Finish installing {app.name} on GitHub to switch Bothy to it.</p>
-  {:else}
-    <p class="mt-1 text-body text-text">GitHub created the app. Install it on {owner} and choose the repositories Bothy can use.</p>
-  {/if}
-  {#if failed}
-    <StatusLine class="mt-3" tone="danger" alert text="Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again." />
-  {/if}
-  <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-    <Button variant="primary" href={app.install_url} external>Install on GitHub</Button>
-    <Button loading={checking} loadingLabel="Checking…" onclick={() => check(false)}>Check again</Button>
+  <div class="card mt-2">
+    {#if requested}
+      <p class="text-body text-text">An owner of {owner} needs to approve {app.name} on GitHub. Once they have, choose Check again.</p>
+    {:else if compact}
+      <p class="text-body text-text">Finish installing {app.name} on GitHub to switch Bothy to it.</p>
+    {:else}
+      <p class="text-body text-text">GitHub created the app. Install it on {owner} and choose the repositories Bothy can use.</p>
+    {/if}
+    {#if failed}
+      <StatusLine class="mt-3" tone="danger" alert text="Bothy couldn't confirm the app's installation with GitHub. Choose Check again, or install it again." />
+    {/if}
+    <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <Button variant="primary" href={app.install_url} external>Install on GitHub</Button>
+      <Button loading={checking} loadingLabel="Checking…" onclick={() => check(false)}>Check again</Button>
+    </div>
+    {#if result}<StatusLine class="mt-3" tone={result.tone} alert={result.tone === 'danger'} text={result.text} details={result.details} />{/if}
+    <FailureLine class="mt-3" failure={problem} />
+    <div class="mt-3"><Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Start over…</Button></div>
   </div>
-  {#if result}<StatusLine class="mt-3" tone={result.tone} alert={result.tone === 'danger'} text={result.text} details={result.details} />{/if}
-  <FailureLine class="mt-3" failure={problem} />
-  <div class="mt-3"><Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Start over…</Button></div>
 </section>
 
 <Dialog bind:open={leaving} title="Start over?" initialFocus="cancel" {busy} cancel>

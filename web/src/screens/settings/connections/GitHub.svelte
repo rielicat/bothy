@@ -243,7 +243,7 @@
     </div>
   {/if}
   {#if retired.length}
-    <div class={manage ? 'mb-6' : 'mt-6'}>
+    <div class="list-card {manage ? 'mb-6' : 'mt-6'}">
       {#each retired as a (a.id)}<GitHubAppRetired app={a} ondismissed={load} />{/each}
     </div>
   {/if}
@@ -401,7 +401,7 @@
 
         {#if probe?.repos.length}
           <h2 class="mt-10 section-title">Which repositories can Bothy use?</h2>
-          <div class="mt-2"><RepoPicker repos={probe.repos.filter((r) => !r.archived)} bind:selected={chosen} /></div>
+          <div class="mt-2"><RepoPicker repos={probe.repos.filter((r) => !r.archived)} bind:selected={chosen} card /></div>
           <div class="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
             <Button
               variant="primary"
