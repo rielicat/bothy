@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
@@ -567,14 +568,8 @@ func schemaFields(spec core.ToolSpec, doc any) []core.CardField {
 	if !ok || len(spec.Def.Schema) == 0 {
 		return nil
 	}
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	if json.Unmarshal(spec.Def.Schema, &schema) != nil {
-		return nil
-	}
 	var out []core.CardField
-	for _, k := range slices.Sorted(maps.Keys(schema.Properties)) {
+	for _, k := range propertyOrder(spec.Def.Schema) {
 		if len(out) == maxSchemaFields {
 			break
 		}
@@ -592,6 +587,45 @@ func schemaFields(spec core.ToolSpec, doc any) []core.CardField {
 		if v != "" {
 			out = append(out, core.CardField{Label: humanLabel(k), Value: visible(v)})
 		}
+	}
+	return out
+}
+
+// propertyOrder lists a JSON schema's top-level property names in the order
+// the schema declares them, which is the order its author meant (title
+// before body); a map would sort them. A duplicate name counts once.
+func propertyOrder(schema json.RawMessage) []string {
+	dec := json.NewDecoder(bytes.NewReader(schema))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil
+	}
+	var out []string
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return out
+		}
+		if k != "properties" {
+			var skip json.RawMessage
+			if dec.Decode(&skip) != nil {
+				return out
+			}
+			continue
+		}
+		if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+			return out
+		}
+		for dec.More() {
+			name, err := dec.Token()
+			var skip json.RawMessage
+			if err != nil || dec.Decode(&skip) != nil {
+				return out
+			}
+			if n, ok := name.(string); ok && !slices.Contains(out, n) {
+				out = append(out, n)
+			}
+		}
+		return out
 	}
 	return out
 }
