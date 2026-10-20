@@ -269,11 +269,14 @@ const serviceNames: Record<string, string> = {
 /** The first letter up: "deploy" → "Deploy". */
 export const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** An id in words, sentence case: "create_issue" → "Create issue". */
+export const humanise = (s: string) => capital(s.replace(/[-_]+/g, ' ').trim());
+
 /** A configured MCP server's name for people: "deepwiki" → "DeepWiki", "team-docs" → "Team docs". */
 export function serviceName(id: string): string {
   const known = serviceNames[id.toLowerCase()];
   if (known) return known;
-  return capital(id.replace(/[-_]+/g, ' ').trim());
+  return humanise(id);
 }
 
 /**

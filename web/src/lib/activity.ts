@@ -7,7 +7,7 @@
 // 'repo' segment, then the path inside it ("acme/web · src/a.ts").
 import type { Action, ApprovalStatus, ToolCallStatus } from './api/types.gen';
 import { chatName } from './cardcopy';
-import { capital, serviceName, skillName } from './format';
+import { capital, humanise, serviceName, skillName } from './format';
 
 export type SegKind = 'text' | 'code' | 'name' | 'repo';
 export interface Seg {
@@ -78,12 +78,6 @@ T.skill_read = T.skill_load;
 
 
 const CODE = new Set(['path', 'dir', 'command', 'host', 'hostpath', 'ref']);
-
-/** "create_issue" → "Create issue". */
-export function humanise(s: string): string {
-  const t = s.replace(/[_-]+/g, ' ').trim();
-  return capital(t);
-}
 
 export function shellCommand(action?: Action, args?: Record<string, unknown>): string {
   const argv = action?.argv;
