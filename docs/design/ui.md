@@ -73,7 +73,7 @@ The second round (2026-10) chose between three directions, "Soft focus", **"Frie
 | D46 | The Friendly look | Oat canvas, white panel, raised selection, bigger titles | **Inset panel** (D3) drawn by a fixed overlay so the document still scrolls; the current nav row is a **raised** white row; page titles 28 px; settings rows in **group cards**; ember (`warning`) for what needs you; moss for the one action and what is on or done | The owner's choice. Each element maps to a token or a recipe, so it is the same on every screen. |
 | D47 | Nav icons | Outline at rest, filled when current | **One 18 px outline icon on every nav and settings-nav row**, the current one in `accent-text`; never filled, never on headings, settings rows, menu items or empty states. All icons are one inline SVG sprite in `index.html` (§3.7) | Icons make the destinations scannable. State shown by colour alone keeps one shape per icon; a filled twin would double the set. The sprite costs no JavaScript. |
 | D48 | Brand marks | Google "G" and GitHub mark on white buttons | **The official marks on the sign-in buttons and the Account → Sign-in methods rows only**, at 18 and 16 px; Google keeps its four colours, GitHub follows the text colour | The owner asked for them by name; people recognise a provider by its mark before its name. |
-| D49 | Bothy's picture | The hound on every Bothy message | **Bothy's picture (the hound unless an admin changed it) at the start of each of Bothy's turns**: 28 px in a 40 px gutter at ≥ 640 px, 20 px above the turn on phones; the logo above the empty-chat title and beside the empty Approvals sentence; nowhere else | The web shows Bothy as the chat apps do. One picture per turn, not per block, keeps the transcript quiet. |
+| D49 | Bothy's picture | The hound on every Bothy message | **Bothy's picture (the hound unless an admin changed it) at the start of each of Bothy's turns**: 28 px in a 40 px gutter at ≥ 640 px, 20 px above the turn on phones; the logo above the empty-chat title and beside the empty Approvals and not-found sentences, and in the picture's place when it doesn't load; nowhere else | The web shows Bothy as the chat apps do. One picture per turn, not per block, keeps the transcript quiet. |
 | D50 | Cards and status | Amber border + "Waiting for you" + checks + tinted field box | **At most one status signal per card or row.** In chat it is the waiting line above the card; the card border stays neutral, the card has no status word, fields are a plain key/value grid. Cards get a type icon in a 20 px column | The judge's main concern: four signals at once read as alarm. The type icon says what kind of request it is, which none of the others did. |
 | D51 | "Changes saved" | One line in the settings header | **A settings page says "Changes saved" in its header for 2 s after any save**; a row says "Saving…" while it saves and "Saved" only while that header is out of view | One confirmation per page instead of one per row, and one is always in view. |
 | D52 | Related-chat breadcrumb | Parent / title in the chat header | **At ≥ 1024 px the chat header leads with the parent chat as a link, then "/"**; phones, and every other origin (schedule, check-in, a deleted chat), keep the line at the top of the transcript | The family is visible where the title is, without a new component; it reads `conv.detail.from`. |
@@ -133,9 +133,9 @@ Three hues: moss (accent), ember (warning, "needs you") and red (danger). Everyt
 | `bg` | `#FFFDFA` | The page panel | text 16.6 |
 | `sidebar` | `#F4F0E8` | The oat canvas: sidebar, the frame around the panel, the sign-in page | text 14.8, muted 5.4 |
 | `surface` | `#FFFFFF` | Cards, groups, dialogs, menus, inputs, composer | text 16.8, muted 6.1 |
-| `raised` | `#FFFFFF` | Current nav row, New chat, the open chat row, tab and segment thumbs | text 16.8, accent-text 6.4, warning-text 5.9 |
+| `raised` | `#FFFFFF` | Current nav row, the open chat row, tab and segment thumbs | text 16.8, accent-text 6.4, warning-text 5.9 |
 | `subtle` | `#F4EEE4` | User message, inline code, code blocks, notices, hover on cards and rows, the tab track | text 14.6, muted 5.3, faint 4.6 |
-| `hover` | `#ECE6DB` | Hover on sidebar rows | muted 4.9 |
+| `hover` | `#ECE6DB` | Hover on sidebar rows | muted 4.9, accent-text 5.1 |
 | `selected` | `#E9E2D5` | Selected list row | text 13.1, muted 4.8 |
 | `border` | `#ECE5D9` | Hairlines, card and group edges | decorative |
 | `border-strong` | `#DDD4C5` | Composer, secondary button, tone cards, the related-chats guide line | decorative |
@@ -146,7 +146,7 @@ Three hues: moss (accent), ember (warning, "needs you") and red (danger). Everyt
 | `accent` | `#2A6A54` | Primary button fill, switch on, send, meter fill | white on it 6.4 |
 | `accent-hover` | `#225A47` | Primary hover | white 8.0 |
 | `accent-active` | `#1C4B3B` | Primary pressed | white 9.9 |
-| `accent-text` | `#2A6A54` | Links, the current nav icon, New chat's icon, Refine on, success check, `+` in diffs | 6.3 on bg, 5.6 on sidebar |
+| `accent-text` | `#2A6A54` | Links, the current nav icon, New chat's icon and label, Refine on, success check, `+` in diffs | 6.3 on bg, 5.6 on sidebar |
 | `accent-subtle` | `#E6F0EA` | Refine on, the chosen tone card | accent-text 5.5, muted 5.3 |
 | `on-accent` | `#FFFFFF` | Text and icons on `accent` and `danger`, switch thumb | |
 | `focus` | `#2A6A54` | Focus ring and the field focus border | 6.3 on bg |
@@ -170,7 +170,7 @@ Three hues: moss (accent), ember (warning, "needs you") and red (danger). Everyt
 | `surface` | `#211F1D` | text 13.8, muted 6.1 |
 | `raised` | `#2A2826` | text 12.3, accent-text 7.9, warning-text 8.1 |
 | `subtle` | `#272522` | muted 5.7, faint 4.8 |
-| `hover` | `#2F2D2A` | muted 5.1 |
+| `hover` | `#2F2D2A` | muted 5.1, accent-text 7.4 |
 | `selected` | `#35322E` | text 10.7, muted 4.7 |
 | `border` | `#2E2B28` | |
 | `border-strong` | `#3D3A36` | |
@@ -212,7 +212,7 @@ System fonts, no web fonts (`font-src 'self'`; lint bans `@font-face`). Sans: `u
 
 | Utility | Size / line height | Weight | Use |
 |---|---|---|---|
-| `text-caption` | 12 / 16 | 500 | Sidebar group labels, chart axis labels, day separators, keys in the shortcuts dialog. Never sentences. |
+| `text-caption` | 12 / 16 | 500 | Sidebar group labels, the shortcuts dialog's group labels, chart axis labels, day separators. Never sentences. |
 | `text-small` | 13 / 18 | 400 | Help, meta lines, status words, card field labels, toasts on phones |
 | `text-body` | 14 / 20 | 400, 500 | UI default: rows, buttons (500), inputs, labels (500), menus, settings |
 | `text-reading` | 15 / 24 | 400 | Chat messages, project notes, memory, setup body copy, empty states |
@@ -274,7 +274,7 @@ Always use a named radius; bare `rounded` is not allowed.
 - Borders are 1 px. `border` for hairlines and the edges of cards and groups, `border-strong` for the composer, secondary buttons and tone cards, `control` for form controls. The only 2 px lines are the focus outline.
 - Three elevation levels, all from named shadows (lint bans literal `shadow-[…]`; the G4 probe accepts only these values):
   - **Flat:** page content that is not a card: headings, text, rows inside a group.
-  - **Raised:** `shadow-raised` on the current nav row, New chat, the open chat row and tab and segment thumbs; `shadow-card` on cards, groups, inbox rows and the composer; `shadow-primary` on the primary button.
+  - **Raised:** `shadow-raised` on the current nav row (New chat only while it is the page), the open chat row and tab and segment thumbs; `shadow-card` on cards, groups, inbox rows and the composer; `shadow-primary` on the primary button.
   - **Floating:** `shadow-overlay` on menus, popovers, tooltips, toasts, dialogs and drawers (with a `border`); `shadow-pop` on the sign-in card.
   - `shadow-frame` draws the inset panel's edge and the canvas around it (§6.1), on that overlay only. `shadow-focus` is the field focus halo (§3.5).
   - Light uses warm brown shadows (`rgb(74 58 33 / …)`); dark uses black ones with a 1 px ring (`#262422`–`#34312D`) and a faint top highlight, so raised things read without glowing. The values are in §3.8.
@@ -286,7 +286,7 @@ Always use a named radius; bare `rounded` is not allowed.
 - Every focusable element: `:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px }`.
 - Text inputs, selects and textareas show focus on mouse focus too (`:focus`), because a field must show where typing goes.
 - Rows in lists (settings rows, list rows, sidebar rows) use `outline-offset: -2px`, so focus draws inside the row and never looks like a second card. Inbox rows are cards themselves, so their focus draws outside them (`outline-offset: 2px`).
-- Inputs and the composer show focus as a `focus` border plus a 4 px halo (`shadow-focus`, accent at 14 % in light, 18 % in dark). A transparent 2 px outline stays underneath, so forced-colours mode, which drops shadows, still draws a ring.
+- Inputs and the composer show focus as a `focus` border plus a 4 px halo (`shadow-focus`, accent at 14 % in light, 18 % in dark). A transparent 2 px outline stays underneath, so forced-colours mode, which drops shadows, still draws a ring. The composer takes focus by itself (§7.1), so it adds the halo only when the keyboard brought focus there (`ui/modality.ts`, the way browsers decide `:focus-visible`); focus from a click, a route change or a starter is the `focus` border alone.
 - Focus moves on purpose: a dialog focuses its first field, or Cancel in a destructive dialog; closing returns focus to the trigger; after an approval decision focus goes to the next waiting item or to the decided line, and a polite live region announces the result.
 
 ### 3.6 Motion
@@ -318,7 +318,7 @@ Always use a named radius; bare `rounded` is not allowed.
 
 **Sizes.** 16 px inline and in small buttons; 18 px on nav rows, approval types, the brand buttons and the eye toggle's neighbours; 20 px inside 36 px icon buttons; 12 px for disclosure chevrons.
 
-**State is colour.** An icon is never filled to show state. The current nav row's icon and New chat's icon are `text-accent-text`; every other nav icon is `text-muted`. Lint bans `fill-*` utilities and any `<svg>` in a component other than `Icon.svelte`.
+**State is colour.** An icon is never filled to show state. The current nav row's icon and New chat's icon (and its label) are `text-accent-text`; every other nav icon is `text-muted`. Lint bans `fill-*` utilities and any `<svg>` in a component other than `Icon.svelte`.
 
 **Placements** (the only places icons appear; a new icon needs a row here):
 
@@ -332,6 +332,9 @@ Always use a named radius; bare `rounded` is not allowed.
 | Reply actions | `copy`, `refresh`, `more` | 16 |
 | Composer | Attach `paperclip`, Refine `target` (moss when on), model `chevron-down`, Stop `stop`, Send `arrow-up` | 16 |
 | Activity and decided lines | `spinner`, `clock` (`warning-text`), `alert` (`danger-text`), `close` (muted), `check` (accent) on decided lines only; done steps have none (D11) | 16 |
+| Task detail step rows (§10.2) | the activity glyphs above in a 16 px column, kept only when some step in the list has one; a trailing `chevron-right` (12, muted) turns 90° when the row is open | 16 / 12 |
+| Chat notices on a tint (§7.6) | `alert` (`danger-text` or `warning-text`) | 16 |
+| Loading (§13.2) and "Reconnecting…" | `spinner` | 16 / 12 |
 | Approval card, review card and inbox row type | `pull-request` (repo_open_pr, github_comment), `deploy` (release_deploy), `terminal` (shell, python), `file` (fs_*, notes, memory, skill_*; skill reviews), `mail` (message), `globe` (web_fetch, net_allow), `calendar` (schedule_*), `plug` (MCP actions and reviews), `users` (someone new, a new group chat), else `approvals` | 18, `text-muted`; hidden on cards under 640 px |
 | "Waiting for others" row status | `clock` | 16, muted |
 | Sign-in | provider buttons `google` / `github`; password field `eye` / `eye-off` | 18 / 16 |
@@ -341,9 +344,9 @@ Always use a named radius; bare `rounded` is not allowed.
 | The chosen tone card | `check` | 16, `accent-text` |
 | Disclosures, selects, menus | `chevron-right` (12), `chevron-down`, `check` in menu gutters | 12 / 16 |
 
-**Never:** on headings, settings rows, menu items, empty states, tiles, approval buttons, banners or toasts. No filled variants and no icon-only status. Every icon-only button has an `aria-label` and a tooltip with the same text.
+**Never:** on headings, settings rows, menu items, empty states, tiles, approval buttons or toasts (a banner keeps its tone's `alert`). No filled variants and no icon-only status. Every icon-only button has an `aria-label` and a tooltip with the same text.
 
-**Pictures.** The logo, the mascot (a white robot hound with a dark visor and warm eyes on a near-black tile, `public/icon.svg`), sits at 28 px beside the wordmark "Bothy" (`text-heading`) in the sidebar, 56 px on the sign-in card, 28 px on the setup frame, 40 px above the empty-chat title and 32 px beside the empty Approvals sentence; in dark mode it gets a 1 px `border-strong` ring where it sits on a card. It is also the favicon and the manifest's icons; `icon-maskable.svg` is the same dog full bleed for the maskable and Apple touch icons and Bothy's default chat-app picture. `make icons` renders the PNGs. **Bothy's picture** (`/api/agent/picture`, the default unless an admin changed it) is round, 28 px in chat (D49) and 48 px in Settings → General. Neither is an icon; nothing else sits on a tile.
+**Pictures.** The logo, the mascot (a white robot hound with a dark visor and warm eyes on a near-black tile, `public/icon.svg`), sits at 28 px beside the wordmark "Bothy" (`text-heading`) in the sidebar, 56 px on the sign-in card and on "Bothy isn't responding" (§13.2), 28 px on the setup frame, 40 px above the empty-chat title and 32 px beside the empty Approvals sentence and the not-found sentences (§13.1); in dark mode it gets a 1 px `border-strong` ring where it sits on a card. It is also the favicon and the manifest's icons; `icon-maskable.svg` is the same dog full bleed for the maskable and Apple touch icons and Bothy's default chat-app picture. `make icons` renders the PNGs. **Bothy's picture** (`/api/agent/picture`, the default unless an admin changed it) is round, 28 px in chat (D49) and 48 px in Settings → General. When it doesn't load, the chat shows the logo in its place, round, for every turn of that chat. Neither is an icon; nothing else sits on a tile.
 
 ### 3.8 `app.css` (final state)
 
@@ -593,7 +596,7 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 ```
 ┌──────────────────────────┐
 │ ▣ Bothy                  │  48 px row, 28 px mascot and wordmark text-heading, links to /chat
-│ ✎ New chat               │  always a raised white row, compose icon in moss (not a filled button)
+│ ✎ New chat               │  moss icon and label on the canvas; raised only while it is the page
 │ ⌕ Search            ⌘K   │  hint text-caption muted, fine pointer only
 │ ☑ Approvals         • 2  │  6 px ember dot + count in warning-text; hidden at 0
 │ ▯ Knowledge              │
@@ -612,12 +615,13 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 │ Show more                │  after 30 rows, text-muted
 │ ──────────────────────── │  border-t border-border, pinned to the bottom
 │ ⚙ Settings             • │  admins only; attention dot (§4.10)
-│ (MC) Maya Chen         ⋯ │  avatar 24, name text-body 500, ⋯ opens the account menu
+│ (MC) Maya Chen         ⋯ │  avatar 24, name text-body 500 over the role (Owner, Admin, Member)
+│      Owner               │  in text-small muted; ⋯ opens the account menu
 └──────────────────────────┘
 ```
 
 - Container: 256 px, full height, `sticky top-0 z-40 h-dvh`, `bg-sidebar` (the canvas), `px-2`, own scroll, no edge line: the canvas meets the page panel's frame (§6.1). The phone drawer (§4.4) has the same rows; there titles get about 200 px, with the full title in the tooltip and the chat's header.
-- Nav rows (New chat, Search, Approvals, Knowledge, Activity, Settings): `h-9 rounded-md px-2.5 gap-2.5 text-body font-medium text-text` (44 px on coarse pointers), each led by its 18 px outline icon (§3.7) in `text-muted`. Hover `bg-hover`. The current row is `bg-raised shadow-raised` with `aria-current="page"` and its icon in `text-accent-text`. New chat is always raised, with its `compose` icon in `text-accent-text`: starting a chat is the sidebar's main action. Labels stay ink; only the icon changes colour (D47).
+- Nav rows (New chat, Search, Approvals, Knowledge, Activity, Settings): `h-9 rounded-md px-2.5 gap-2.5 text-body font-medium text-text` (44 px on coarse pointers), each led by its 18 px outline icon (§3.7) in `text-muted`. Hover `bg-hover`. The current row is `bg-raised shadow-raised` with `aria-current="page"` and its icon in `text-accent-text`, and it is the only raised row. New chat is the sidebar's one action, so its `compose` icon and its label are `text-accent-text` on the canvas; it is raised like any current row only on `/chat`. Every other label stays ink; only the icon changes colour (D47).
 - The Approvals count: a 6 px ember dot (`Dot size={6}`) and the number in `text-small font-medium text-warning-text tabular-nums`, then visually hidden " waiting"; nothing at 0 (D23).
 - Group labels: `text-caption text-muted`, 16 px above, 4 px below.
 - Chat rows: `h-8 rounded-md px-2.5`, one line, truncate with a `title` tooltip. The open chat (and the head of a closed family holding it) is `bg-raised shadow-raised`; hover `bg-hover`. Running: spinner at the right. Waiting for approval: 8 px ember dot with visually hidden "Waiting for approval". On hover (always on coarse pointers) a `⋯` replaces the trailing slot with Rename and Delete chat….
@@ -630,7 +634,7 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 - **State of a closed family:** the strongest of its chats, the waiting dot over the spinner, with hidden words "Waiting for approval in a related chat" or "Bothy is working in a related chat" when it isn't the head's own.
 - **Row menu:** Rename and Delete chat…, as for any row; New related chat is in the chat's own menu (§7.1). Search (⌘K) still lists chats one by one.
 - Sidebar scroll position is kept across navigation.
-- **Account menu** (`Menu`, opens upward): "Your account", "Theme ▸" (System, Light, Dark as `menuitemradio`), "Keyboard shortcuts", separator, "Pause Bothy…" (admins, `danger-text`), "Sign out".
+- **Account menu** (`Menu`, opens upward): "Your account", "Theme ▸" with the current choice in `text-small muted` before the chevron (shown, not part of the item's name; System, Light, Dark as `menuitemradio`), "Keyboard shortcuts", separator, "Pause Bothy…" (admins, `danger-text`), "Sign out".
 
 ### 4.3 Settings navigation
 
@@ -668,7 +672,7 @@ On phones and tablets `/settings` is a list page of the same groups, each row le
 └────────────────────────────────────┘
 ```
 
-- `[≡]` opens the sidebar as a drawer from the left: `min(320px, 85vw)`, full height, `shadow-overlay`, scrim behind. It closes on scrim tap, Escape or navigation. An 8 px ember dot on the button means approvals are waiting (hidden text "{n} approvals waiting").
+- `[≡]` opens the sidebar as a drawer from the left: `min(320px, 85vw)`, full height, its outer corners `rounded-r-lg`, `shadow-overlay`, scrim behind. It closes on scrim tap, Escape or navigation. An 8 px ember dot on the button means approvals are waiting (hidden text "{n} approvals waiting").
 - Title: `text-heading`, truncate. On pages it is the page title, shown once the page's own heading has scrolled under the bar (or under a banner, §4.9); in a chat the chat title. Renaming a chat happens in this slot, on the same row: the field takes the title's place (`flex-1 min-w-0`, `h-11`), and no second bar opens over the transcript.
 - "{n} waiting": a small ghost text button in `warning-text` (ember: it needs this person), shown only when something waits for them; opens `/approvals`. Under 640 px it is hidden on chat routes, where the chat title needs the room: the dot on `[≡]` and the Approvals count in the drawer still say it. A bare count without the word would be ambiguous, so the link is hidden rather than shortened.
 - Right slot by page: chat `⋯` (chat menu); Knowledge project "Edit"; elsewhere nothing.
@@ -809,7 +813,7 @@ Never behind Details, on any approval card: the full command, the full outgoing 
 
 ### 4.9 Banners
 
-A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. `min-h-10 px-6 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session. It is sticky (under the phone top bar), so a chat that opens at its latest reply still shows it, and the chat header sticks below it; the chat fills the window under it, so a short chat never scrolls. The page's scroll padding clears the banner and the phone top bar, so a request opened from its link (§8.8) or a control reached with the keyboard is never hidden under them.
+A banner sits at the top of the main area (not over the sidebar), full main width, one at a time, highest priority first. The tint spans the main area; its words keep to the content column (`max-w-3xl px-6`, `px-4` on phones), so they start at the page's left edge (x = 408 at 1280 px). `min-h-10 py-2 text-body`, one sentence, at most one action. It cannot be dismissed while the condition stops work; otherwise it can be dismissed for the session. It is sticky (under the phone top bar), so a chat that opens at its latest reply still shows it, and the chat header sticks below it; the chat fills the window under it, so a short chat never scrolls. The page's scroll padding clears the banner and the phone top bar, so a request opened from its link (§8.8) or a control reached with the keyboard is never hidden under them.
 
 | Condition (SPEC `banner` event) | Who | Tone | Copy | Action |
 |---|---|---|---|---|
@@ -1248,15 +1252,15 @@ Opened by the sidebar Search item, ⌘K / Ctrl K, or "/" when focus is not in a 
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- 640 px dialog, 15vh from the top, `shadow-overlay`, scrim, no blur; full-screen sheet under 640 px.
+- 640 px dialog, 15vh from the top, `shadow-overlay`, scrim, no blur; full-screen sheet under 640 px. The field is the dialog's only control and takes focus as it opens, so the hairline under it stays `border` (the caret shows where typing goes), as the composer stays calm (§3.5).
 - Before typing: "Recent chats" (5 rows). Results: up to 5 chats, 3 notes, 3 code results. Notes and Code groups appear only when Knowledge has a repository.
 - Snippets are plain text with `<mark>` (`bg-warning-subtle text-text rounded-sm`) on matches (S15). Chat titles follow the sidebar rule, never "Untitled chat".
 - Keyboard: ↑ ↓ move, Enter opens, Esc closes. `role="combobox"` + `listbox`.
-- No results: "No results for “{q}”."
+- No results: "No results for “{q}”." No chats at all, before typing: "No chats yet. The ones you start show up here."
 
 ### 6.4 Keyboard shortcuts dialog
 
-From the account menu, or "?" when focus is not in a text field. A 440 px dialog listing: ⌘K / Ctrl K Search; / Search; ⌘⇧O / Ctrl Shift O New chat; Esc Stop Bothy (in a running chat) or close; in Approvals: A approve, S allow for this chat, D deny, J / K move, Enter open. Keys render with `Kbd`. This is the only place `Kbd` is used.
+From the account menu, or "?" when focus is not in a text field. A 440 px dialog listing: ⌘K / Ctrl K Search; / Search; ⌘⇧O / Ctrl Shift O New chat; Esc Stop Bothy (in a running chat) or close; in Approvals: A approve, S allow for this chat, D deny, J / K move, Enter open. Two groups, "Anywhere" and "In Approvals", each under a `text-caption muted` label, rows on hairlines. Keys render with `Kbd`: tinted sans keycaps (`.kbd`, §15.2). This is the only place `Kbd` is used.
 
 ---
 
@@ -1295,7 +1299,7 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 - **Where it came from:** the first row of the transcript, above "Load earlier messages" (`lg:hidden` when the header names the parent, so phones still see it), in `text-small muted` with the name as a `.link`: "Continued from “{title}”" (→ that chat), "Continued from a deleted chat", "From the schedule “{name}”" (→ the schedule), "From your check-in" (the link is on "your check-in", → the check-in form), "From a deleted schedule". A chat that came from nowhere has none.
 - **Transcript:** turns 24 px apart; a person's message 16 px above Bothy's reply; activity lines 12 px above the text that follows them.
 - **Composer:** `sticky bottom-(--inset)` on a solid `bg-bg` strip (`pt-2`), 16 px below it plus `env(safe-area-inset-bottom)`. No gradient fade.
-- **Bothy's picture** (D49): a turn is the blocks between two person messages. Its first reply, stream or steps block gets Bothy's picture (`/api/agent/picture`, `alt=""`, round); with no such block yet, the "Working…" line gets it. At ≥ 640 px every Bothy block sits in the reply column (`pl-10`) and the picture is 28 px at the column's left (`absolute top-0 left-0`); under 640 px it is 20 px on its own line above the turn, so the text keeps the full width. Notices, summaries, outcome lines, queued and paused lines and stray approval cards sit in the reply column with no picture; person messages and day separators keep the full width. In dark mode the picture gets a 1 px `border-strong` ring.
+- **Bothy's picture** (D49): a turn is the blocks between two person messages. Its first reply, stream or steps block gets Bothy's picture (`/api/agent/picture`, `alt=""`, round); with no such block yet, the "Working…" line gets it. At ≥ 640 px every Bothy block sits in the reply column (`pl-10`) and the picture is 28 px at the column's left (`absolute top-0 left-0`); under 640 px it is 20 px on its own line above the turn, so the text keeps the full width. If the picture doesn't load, every turn of the chat shows the logo (`/icon.svg`) in its place, round. Notices, summaries, outcome lines, queued and paused lines and stray approval cards sit in the reply column with no picture; person messages and day separators keep the full width. In dark mode the picture gets a 1 px `border-strong` ring.
 - **Scroll:** the transcript follows new output only while the reader is within 120 px of the bottom; otherwise a small secondary button "Jump to latest" appears centred above the composer.
 - **Day separators:** centred `text-caption muted` "Today", "Yesterday", "Saturday 12 October", when the date changes. Per-message times appear in a tooltip on the message actions, not printed.
 
@@ -1446,7 +1450,7 @@ Refine is on: Bothy writes 3 drafts, checks them and sends the best. About $0.20
 
 | Part | Spec |
 |---|---|
-| Box | `border border-border-strong rounded-lg bg-surface p-3 shadow-card`; focus is the `focus` border plus the 4 px halo (`shadow-focus`, §3.5) |
+| Box | `border border-border-strong rounded-lg bg-surface p-3 shadow-card`. Focus is the `focus` border; the 4 px halo (`shadow-focus`) is added only when the keyboard brought focus there (§3.5), since the composer takes focus by itself on fine pointers. A transparent 2 px outline stays for forced colours |
 | Placeholder | "Message Bothy". While Bothy works: "Add to the current task". Paused: "Bothy is paused". No helper line. |
 | Keys | Fine pointer: Enter sends, Shift+Enter adds a line. Coarse pointer: Enter adds a line, send with the button. "/" at the start opens commands. Esc stops a running task. ↑ in an empty composer edits the last message where supported. |
 | Commands | Menu above the composer (`rounded-lg`, `shadow-overlay`): "/new New chat", "/stop Stop", "/pin Keep a file in mind", "/model Change model", "/compact Summarise this chat so far" |
@@ -1461,7 +1465,7 @@ Refine is on: Bothy writes 3 drafts, checks them and sends the best. About $0.20
 
 ### 7.6 Notices and errors in the chat
 
-A notice is a system line at the column edge: `text-small muted`, no box, at most one action as a link button, optional Details. Errors use `danger-text` and the alert glyph. Every error is said once.
+A notice is a system line at the column edge: `text-small muted`, no box, at most one action as a link button, optional Details. Two kinds sit on a tint sized to their words instead, as chat apps show their notices (`w-fit rounded-lg px-3 py-2 text-body text-text`, the alert glyph in a 16 px column, Details indented under the words): failures on `bg-danger-subtle` with the glyph in `danger-text`, and stops the person can lift or route around (the step limit, the task and daily spending limits, code that's off) on `bg-warning-subtle` with the glyph in `warning-text`. The words stay ink, so the tint and the glyph are the one signal. Every error is said once.
 
 | Event | Copy | Action |
 |---|---|---|
@@ -1488,11 +1492,13 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
 - **Chat details** (`Drawer`, 400 px, full screen on phones):
   ```
   Chat details                                         ×
-  Started by Maya Chen · Today at 10:02 · Web
-  Model          Claude Sonnet 4.5
-  Refine         Off
-  Cost so far    $0.42
-  Length         Getting long. Bothy will summarise older messages soon.   ← only above 70 %
+  Started by Maya Chen · Today at 10:02 · Web           text-small muted
+  ┌──────────────────────────────────────────────┐
+  │ Model                       Claude Sonnet 4.5 │      one group card (`list-card`),
+  │ Refine                                    Off │      label muted, value right-aligned
+  │ Cost so far                             $0.42 │
+  │ Length    Getting long. Bothy will summarise… │      ← only above 70 %
+  └──────────────────────────────────────────────┘
   › Technical details
       Context: 23,104 of 200,000 tokens (12%)
       Breakdown table (Part · Tokens), plain rows, no colours: Built-in rules, Personality,
@@ -1503,7 +1509,8 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
       Chat id ses_01m… [Copy]
   ```
   The Model row and the model picker never show a model id: a model without a name from the server reads as its friendly name ("Claude Sonnet 4.5"), and a chat's model that is no longer connected reads "A model that's no longer connected".
-- **Pinned** (`Drawer`): title "Pinned to this chat", sentence "Bothy keeps these in mind for every reply in this chat.", list of pins (name, "Unpin" ghost), secondary "Pin a file".
+- **Pinned** (`Drawer`): title "Pinned to this chat", sentence "Bothy keeps these in mind for every reply in this chat." (`text-small muted`), the pins as rows of one group card (name, "Unpin" quiet), secondary "Pin a file"; the form's Pin button is full width on phones.
+- Drawers sit on the panel colour (`bg-bg`), so their group cards read as they do on a page.
 - **New related chat**: no dialog, since nothing is lost: a clean chat of this one opens at once, listed under it and selected in the sidebar (D42). It starts with the notice every clean chat has; its first message names it. A failure says "Couldn't start a new chat. Try again." in a toast.
 - **Delete chat** (`Dialog` 440, one dialog for the chat menu and the sidebar's ⋯): title "Delete “{chat title}”?" in curly quotes, so it names the chat when opened from a sidebar row while another page shows; body "The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.", whose first sentence becomes "The messages will be deleted; the chats continued from it stay in your list." when listed chats came from it; buttons [Delete chat] (danger) [Cancel] (focused). Then toast "Chat deleted." Those chats stay where they are; a schedule's next newest result heads its series.
 - **Rename**: inline in the header.
@@ -1932,13 +1939,14 @@ Answer
 › Technical details
 ```
 
-- Steps are `ActivityLine`s (§7.4) with approvals included; each expands its Details.
-- "Technical details" (closed, `text-small`) holds the old trace as plain tables. A refined answer's Refine block comes first, since every model call of a refinement reads "agent" and its drafts would otherwise sit under a dozen tables: "3 drafts, 2 rounds. Draft 2 was sent; 2 of 3 drafts reached its answer.", then each draft, critique and correction in its own nested disclosure, rendered as Markdown with links off rather than as code (a disclosure inside a disclosure is allowed, a card inside a card is not). Then Model calls (Model id · Started · Time to first word · Duration · Tokens in / cached / out · Cost · Fallback attempts); Tool calls (Tool · Exact action · Decision · Rule · Approval id · Sites contacted · Duration); Task id [Copy].
+- Steps are rows of one group card (`list-card`), in the chat's words (§7.4) with approvals included, in ink (`warning-text` while waiting). Each row is a button with a trailing 12 px chevron that turns when it opens its Details below it. The state glyph column is kept only when some step in the list has a glyph, so a task whose steps all finished starts its words at the card's edge.
+- The answer sits on a `.card`, clamped to three lines with "Show all" inside it.
+- "Technical details" (closed, `text-small`) holds the old trace as plain tables. A refined answer's Refine block comes first, since every model call of a refinement reads "agent" and its drafts would otherwise sit under a dozen tables: "3 drafts, 2 rounds. Draft 2 was sent; 2 of 3 drafts reached its answer.", then each draft, critique and correction in its own nested disclosure, rendered as small Markdown (`.md-small`) with links off rather than as code, on a guide line under its toggle (`border-l border-border-strong pl-4`, as related chats hang) (a disclosure inside a disclosure is allowed, a card inside a card is not). Then Model calls (Model id · Started · Time to first word · Duration · Tokens in / cached / out · Cost · Fallback attempts); Tool calls (Tool · Exact action · Decision · Rule · Approval id · Sites contacted · Duration); Task id [Copy].
 - Refined answers add "Refined from 3 drafts · 2 of 3 agreed" to the meta line.
 - A task still going ends the meta line with "Working…" ("Waiting to start" while queued), since it may have no step to show yet; one waiting for approval says so on its waiting step instead.
 - Next step: when the viewer can decide a waiting step, its line ends with a "Review it" link to `/approvals/{id}`. A task that failed because GitHub stopped accepting Bothy's access gets "Check the GitHub connection ›" on the failed step (admins only, to Connections → GitHub), since "Open chat" can't fix it.
 - Details follow the chat's order (§7.4): Result, How it was allowed, What Bothy asked for, Technical.
-- Not found: title "Can't open this task", "This task was deleted, or it belongs to someone else." + "Go to Activity". The server answers another person's task as it does a deleted one (404, so nobody learns which tasks exist), so the copy names both.
+- Not found: title "Can't open this task", "This task was deleted, or it belongs to someone else." with the logo beside it + "Go to Activity". The server answers another person's task as it does a deleted one (404, so nobody learns which tasks exist), so the copy names both.
 
 ### 10.3 Schedules (`/activity/schedules`)
 
@@ -2526,7 +2534,7 @@ Connect Slack
 
 ### 13.1 Empty states
 
-One sentence in `text-reading text`, an optional second sentence in `muted`, then at most one button 16 px below. Left-aligned at the column edge, 24 px under the page header. Only the empty chat is a heading. No icon, no illustration; Bothy's logo appears only beside the Approvals → Waiting sentence (`EmptyState picture`, 32 px) and above the empty-chat title (40 px).
+One sentence in `text-reading text`, an optional second sentence in `muted`, then at most one button 16 px below. Left-aligned at the column edge, 24 px under the page header. Only the empty chat is a heading. No icon, no illustration; Bothy's logo appears only beside the Approvals → Waiting sentence and the not-found sentences below (`EmptyState picture`, 32 px) and above the empty-chat title (40 px).
 
 | Where | Copy | Action |
 |---|---|---|
@@ -2549,27 +2557,27 @@ One sentence in `text-reading text`, an optional second sentence in `muted`, the
 | People → In chat apps | "Nobody uses Bothy in a chat app yet." + "Message Bothy in Slack or Telegram to appear here. On Telegram, let yourself in from Approvals first." (no chat app connected: "No chat app is connected yet.") | Open Approvals (Telegram or Discord connected) / Connect a chat app |
 | Activity → Schedules → In chat apps | (the section is left out) | — |
 | Search dialog | "No results for “{q}”." | — |
-| Route not found | Title "Page not found"; "Check the address, or go back to your chats." | Go to chat |
-| Chat, task or approval not found | "This chat doesn't exist or was deleted." / "This task was deleted, or it belongs to someone else." / "This request was already decided or doesn't exist." | Go to chat / Go to Activity / Go to Approvals |
-| Member on an admin page | "Only admins can see this page." | Go to chat |
+| Route not found | Title "Page not found"; "Check the address, or go back to your chats.", with the logo | Go to chat |
+| Chat, task or approval not found | "This chat doesn't exist or was deleted." (with the logo; the chat has no composer and no menu then) / "This task was deleted, or it belongs to someone else." (with the logo) / "This request was already decided or doesn't exist." | Start a new chat / Go to Activity / Go to Approvals |
+| Member on an admin page | "Only admins can see this page.", with the logo | Go to chat |
 
 ### 13.2 Loading and errors
 
-- No skeletons. Lists and pages keep their layout and show "Loading…" (`text-body muted`) only after 400 ms.
+- No skeletons. Lists and pages keep their layout and show a 16 px spinner and "Loading…" (`text-body muted`) only after 400 ms; so does the app while it starts, centred, and a chat while it opens.
 - Buttons doing work show a spinner and an "-ing" label ("Saving…"), with the width locked.
 - Streaming never shows a spinner after the first word.
 
 | Where | Copy | Action |
 |---|---|---|
-| Page failed to load | "This page didn't load. Check your connection and try again." | Try again |
+| Page failed to load | "This page didn't load. Check your connection and try again." (a chat: "This chat didn't load. …", without the raw error) | Try again |
 | Part of a page failed to load | Names the part, never "This page": "The history didn't load. …" (a dialog's list), "The search didn't finish. …", "This file didn't load. …" (a skill file), each ending "Check your connection and try again."; a later page of a list: "Couldn't load more. Check your connection and try again." under Show earlier, with the list kept | Try again (Show earlier stays) |
-| Live updates lost | A muted line at the top of the main area: "Reconnecting…"; after 30 s "You're offline. This page will update when you're back."; on reconnect "Connected" fades after 2 s | — |
+| Live updates lost | A muted line at the top of the main area, its words on the content column like a banner's: "Reconnecting…" after a 12 px spinner; after 30 s "You're offline. This page will update when you're back."; on reconnect "Connected" fades after 2 s | — |
 | Session expired (401) | Redirect to sign in with "You were signed out. Sign in again to continue." | — |
 | Forbidden action (403) | Inline: "You can't do this. Ask an admin." | — |
 | Settings save failed | Under the control: "Couldn't save. {plain reason or "Try again."}" | — |
 | Edit conflict | "Someone else changed this while you were editing." | See their version / Reload |
 | Vault sealed (admins, blocking screen) | Title "Unlock saved keys" (every other surface calls them saved keys); text "Bothy can't reach its models or connections until you enter the passphrase."; field "Passphrase". A refusal the passphrase can't fix shows the server's sentence on the field ("A passphrase can't unlock these saved keys: …", or for a first passphrase "This sets the passphrase for the saved keys, so it needs at least 12 characters.") instead of "Try again". Locked by a key file (`kek_source` not `passphrase`): no field, "Bothy can't reach its models or connections: its saved keys are locked because the key file it was set up with is missing or doesn't match, so a passphrase can't unlock them. Put that key file back on the server, then restart Bothy." (Saved keys' locked row says the same, without Unlock). No passphrase chosen yet (`new_passphrase`): title "Choose a passphrase", "Bothy keeps its saved keys locked with a passphrase. Choose one of at least 12 characters and keep it safe: without it, nobody can unlock them.", fields "Passphrase" and "Type it again" ("The two passphrases don't match.", "Use at least 12 characters."), button "Save passphrase" | Unlock |
-| Server unreachable | "Bothy isn't responding. It may be restarting." Also when the app opens and `GET /api/auth/me` gets no answer or a 5xx: that screen replaces sign-in, which would wrongly say "You were signed out" and fail the same way | Try again (reloads) |
+| Server unreachable | It takes sign-in's place, so it sits on sign-in's canvas (`bg-sidebar` from 640 px), centred: the logo at 56 px, the title "Bothy isn't responding" (`text-title`), "It may be restarting." (`text-reading muted`). Also when the app opens and `GET /api/auth/me` gets no answer or a 5xx: that screen replaces sign-in, which would wrongly say "You were signed out" and fail the same way | Try again (reloads) |
 
 ### 13.3 Phones (360 px) and narrow layouts
 
@@ -2876,8 +2884,9 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
   .meta {
     @apply text-small text-muted tabular-nums;
   }
+  /* Tinted sans keycaps: the preflight sets kbd in mono, where ⌘ and ⇧ shrink and O reads as 0. */
   .kbd {
-    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-border px-1 font-mono text-caption text-muted;
+    @apply inline-flex h-6 min-w-6 items-center justify-center rounded-sm bg-subtle px-1.5 font-sans text-small font-medium text-text;
   }
 }
 
@@ -2910,7 +2919,7 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
 | 16 | `Tabs` | `.tabs` | `tabs: {label, href, count?}[]` | route links on a track with a raised thumb (§6.2), `aria-current="page"`; count as muted text after the label; horizontal scroll on phones |
 | 17 | `Disclosure` | scattered `<details>` | `label = 'Details'`, `open` (bindable), `variant: 'details'\|'inline'\|'section'`, `children` | button with a 12 px chevron rotating 90°, `aria-expanded`, `aria-controls`; content animates `grid-template-rows`; nesting allowed |
 | 18 | `Dialog` | `Dialog.svelte` | `open` (bindable), `title`, `size: 'sm'\|'md'\|'lg' = 'sm'` (440/560/720), `initialFocus: 'first'\|'cancel'`, `dirty?`, `children`, `footer: Snippet` | native `<dialog>` + `showModal()`; `bg-surface border border-border rounded-lg shadow-overlay`; header `px-5 pt-5` title `text-heading` + close IconButton; body `px-5 py-4`; footer `px-5 pb-5` right-aligned, Cancel left of primary; scrim, no blur; Esc closes; scrim click closes only when not `dirty`; nothing closes while a request is in flight; phone rules §13.3 |
-| 19 | `Drawer` | context and pins drawers, mobile nav | `open` (bindable), `title`, `side: 'right'\|'left' = 'right'`, `width = 400` | `shadow-overlay`, scrim, focus trap, Esc, returns focus; full screen under 640 px |
+| 19 | `Drawer` | context and pins drawers, mobile nav | `open` (bindable), `title`, `side: 'right'\|'left' = 'right'`, `width = 400` | `bg-bg` (the panel colour, so group cards inside read as on a page), `shadow-overlay`, scrim, focus trap, Esc, returns focus; full screen and borderless under 640 px |
 | 20 | `Toast` | `Toasts.svelte` | `toast(text, {action?, duration = 4000, or 8000 with an action})` | `bg-text text-bg rounded-lg px-4 py-2.5 text-body shadow-overlay`; one at a time, bottom-left of the main area (16 px), above the composer on phones; pauses on hover/focus; `role="status"`; never errors |
 | 21 | `Banner` | banner markup | `tone: 'warning'\|'danger'\|'neutral'`, `text`, `action?`, `dismissible?` | §4.9; `role="status"`, danger uses `role="alert"` on first appearance only; chosen by the banner store |
 | 22 | `Notice` | `.alert-*` | `tone: 'neutral'\|'warning'\|'danger'`, `text`, `action?` | inline block `rounded-md px-3 py-2 text-body`, `bg-subtle` / `bg-warning-subtle` / `bg-danger-subtle`, glyph for warning and danger; no success notice |
@@ -2927,9 +2936,9 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
 | 33 | `Tooltip` | `title=` attributes | `text`, `children` | `bg-text text-bg rounded-sm px-2 py-1 text-small`; 400 ms delay on hover, immediate on focus, Esc dismisses; fine pointers only; never the only place information lives |
 | 34 | `Spinner` | ad hoc | `size: 12\|16` | 1.5 px arc, 800 ms linear; static "…" under reduced motion; paired with text for screen readers |
 | 35 | `ProgressBar` | spend bars | `value`, `max`, `tone?`, `valueText` | 4 px `rounded-full`, track `bg-border`, fill `bg-accent` / `bg-warning-text` / `bg-danger`; `role="progressbar"` with `aria-valuetext` in money |
-| 36 | `EmptyState` | `Empty.svelte` | `text`, `more?`, `picture?` (Bothy's logo beside the text; Approvals → Waiting only), `action?` | §13.1 |
+| 36 | `EmptyState` | `Empty.svelte` | `text`, `more?`, `picture?` (Bothy's logo beside the text; Approvals → Waiting and the not-found pages only), `action?` | §13.1 |
 | 37 | `Page`, `PageHeader` | `.page`, page headers | `title`, `back?: {href, label}`, `actions?: Snippet`, `tabs?`, `saves?` (the "Changes saved" line; on by default under `/settings/`) | §6.2 |
-| 38 | `Kbd` | `.kbd` | `keys` | shortcuts dialog only |
+| 38 | `Kbd` | `.kbd` | `keys` | shortcuts dialog only; tinted sans keycaps, 24 px |
 | 39 | `Sidebar`, `ChatList`, `TopBar`, `AccountMenu`, `BannerHost`, `SearchDialog`, `ShortcutsDialog`, `PauseDialog` | `Shell.svelte`, `chat/Sidebar.svelte` | — | §4.2–4.4, §6.3–6.4, §11.6. Mobile drawer: `role="dialog"`, `aria-modal`, focus trap. |
 | 40 | `Composer`, `ModelPicker`, `RefineToggle` | `chat/Composer.svelte` | `running`, `paused`, `refine` (bindable), `model` (bindable), `models`, `estimate?: {usd?, multiplier?, drafts}`, `onsend(text, files, opts)`, `onstop` | §7.5; states: empty, typing, sending, running, running with text, paused, drag-over, uploading, upload failed |
 | 41 | `ActivityLine`, `ActivityGroup` | `chat/ToolRow.svelte` | `step: ToolStep`; `steps: ToolStep[]`, `live` | §7.4; line is a `<button aria-expanded>`; live state changes to waiting and failed announced politely (1 s throttle) |
@@ -2937,7 +2946,7 @@ As they ship. The Friendly changes: `shadow-primary` on the primary button (none
 | 43 | `ProviderChooser` | `ProviderSetup.svelte`, `StepModels.svelte` | `mode: 'setup'\|'settings'`, `onconnected?` | §5.6; in settings mode lives in a 560 dialog with `framed=false` lists |
 | 44 | `BarChart` | `BarChart.svelte` | `data: {label, value, title}[]`, `format`, `height = 160` | §10.5 |
 | 45 | `Verbatim`, `Markdown` | kept | unchanged APIs | restyled to tokens; Markdown gets the heading map (§3.2). `QRCode` and `Pairing` went with linking. |
-| 46 | `Loading` | per-screen loading lines | `failed?`, `retry?`, `text?` ("This page didn't load. Check your connection and try again." unless it names a dialog's list or a search) | §13.2: "Loading…" after 400 ms; failed: `role="alert"` EmptyState with secondary "Try again". `ScreenLoading` wraps it for a chunk still on its way. |
+| 46 | `Loading` | per-screen loading lines | `failed?`, `retry?`, `text?` ("This page didn't load. Check your connection and try again." unless it names a dialog's list or a search) | §13.2: a 16 px spinner and "Loading…" after 400 ms; failed: `role="alert"` EmptyState with secondary "Try again". `ScreenLoading` wraps it for a chunk still on its way. |
 | 47 | `Icon` | inline `<path>` icons | `name: IconName`, `size = 16`, `class?` | `<svg><use href="#i-{name}"></svg>` from the `index.html` sprite (§3.7); the stroke settings sit on the outer `<svg>` and inherit; `aria-hidden`, `focusable="false"`. The only component that may write `<svg>` |
 
 ---
