@@ -1254,7 +1254,7 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 
 **State and tense.** A line uses the past tense only after the tool's result event has arrived. State comes from the transcript part when the server provides it (S11), otherwise it is derived: approval requested and unresolved → waiting; approved or auto, no result → running; result ok → done; result error → failed; approval denied or expired → denied/expired; decision deny → blocked.
 
-**Phrase table** (`lib/activity.ts`). `{…}` values are inserted verbatim through `Verbatim` (paths, hosts, branches and commands in `text-code`). Waiting = "Waiting for approval to {ask}". Denied, expired and blocked = "Didn't {ask}". The *-ing* column feeds decided lines ("You approved {ing}").
+**Phrase table** (`lib/activity.ts`). `{…}` values are inserted verbatim through `Verbatim` (paths, hosts, branches and commands in `text-code`). A step's `{command}` is short: no leading `cd … &&`, only the first line of a multi-line one (a heredoc's body is not its name: "cat > /tmp/t.js <<'E' …"), cut at its first separator outside quotes once over 60 characters; Details keep the whole command. Waiting = "Waiting for approval to {ask}". Denied, expired and blocked = "Didn't {ask}". The *-ing* column feeds decided lines ("You approved {ing}").
 
 | Tool | ask | -ing | doing | done | failed |
 |---|---|---|---|---|---|

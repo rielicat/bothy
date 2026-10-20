@@ -268,4 +268,10 @@ describe('shortCommand', () => {
     );
     expect(shortCommand('go build ./... 2>&1 && go vet ./... 2>&1 && go test -race -count=1 ./internal/...')).toBe('go build ./... 2>&1 …');
   });
+  // A heredoc's body used to fill the step's line: "cat > /tmp/t.js <<'E' function safeNext…".
+  it('names a multi-line command by its first line', () => {
+    expect(shortCommand("cat > /tmp/t.js <<'E'\nfunction safeNext(n) {\n  return n\n}\nE\nnode /tmp/t.js")).toBe("cat > /tmp/t.js <<'E' …");
+    expect(shortCommand('cd repos/web && python3 - <<EOF\nprint(1)\nEOF')).toBe('python3 - <<EOF …');
+    expect(shortCommand('find . -type f | head; echo --- && some very long tail that goes on and on\nmore')).toBe('find . -type f …');
+  });
 });
