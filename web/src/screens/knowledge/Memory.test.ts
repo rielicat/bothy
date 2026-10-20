@@ -57,6 +57,14 @@ describe('Memory', () => {
     expect(calls.some((c) => c.method === 'PUT')).toBe(false);
   });
 
+  it('shows each document on a card, and edits it in the card’s place', async () => {
+    await start();
+    const about = section('About you');
+    expect(within(about).getByText(/Sam runs engineering/).closest('.card')).toBeTruthy();
+    await fireEvent.click(within(about).getByRole('button', { name: 'Edit' }));
+    expect(within(about).getByLabelText('About you').closest('.card')).toBeNull();
+  });
+
   it('says what each empty section is for, with Write where Edit sits', async () => {
     await start('memory-empty');
     expect(within(section('About you')).getByText('Tell Bothy about your role and how you like answers.')).toBeTruthy();
@@ -138,7 +146,11 @@ describe('Memory', () => {
     expect(within(dialog).getByText('You')).toBeTruthy();
     expect(within(dialog).getByRole('link', { name: '“Fix login redirect”' })).toBeTruthy();
     // Changes to what's remembered for everyone are listed under that name; a chat the reader can't open isn't named.
-    expect(within(dialog).getAllByText(/· Remembered for everyone ·/).length).toBe(2);
+    expect(within(dialog).getAllByText(/^Remembered for everyone ·/).length).toBe(2);
+    // Each change reads as a sentence, with where and when on the line under it.
+    const bothy = within(dialog).getAllByText('Bothy')[0].closest('p')!;
+    expect(bothy.textContent).toMatch(/^Bothy added \d+ lines?$/);
+    expect(bothy.nextElementSibling!.textContent).toMatch(/^Things Bothy remembers · .+ · In “Fix login redirect” · Show$/);
     expect(dialog.textContent).not.toMatch(/usr_|run_|ses_|apr_|TEAM/);
   });
 

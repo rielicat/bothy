@@ -327,24 +327,29 @@
         <Notice class="mb-6" text="Bothy suggested {plural(suggestions.length, 'change')} to these notes." action={{ label: 'Review', onclick: () => (review = true) }} />
       {/if}
 
-      {#if editing}
-        <NotesEditor
-          label="Notes for {name}"
-          bind:value={draft}
-          busy={saving}
-          error={editError}
-          errorId="{uid}-error"
-          theirs={theirs?.content ?? null}
-          conflictText="Someone else changed these notes while you were editing."
-          bind:comparing
-          actions={narrow.current ? editButtons : undefined}
-          onsave={() => save()}
-          oncancel={cancel}
-          onkeepmine={() => theirs && save(theirs.etag)}
-          onusetheirs={useTheirs}
-        />
-      {:else if content.trim()}
-        <Markdown text={content} />
+      {#if editing || content.trim()}
+        <!-- Editing, the text box takes the card's place, so the notes never sit in two frames. -->
+        <div class={editing ? '' : 'card'}>
+          {#if editing}
+            <NotesEditor
+              label="Notes for {name}"
+              bind:value={draft}
+              busy={saving}
+              error={editError}
+              errorId="{uid}-error"
+              theirs={theirs?.content ?? null}
+              conflictText="Someone else changed these notes while you were editing."
+              bind:comparing
+              actions={narrow.current ? editButtons : undefined}
+              onsave={() => save()}
+              oncancel={cancel}
+              onkeepmine={() => theirs && save(theirs.etag)}
+              onusetheirs={useTheirs}
+            />
+          {:else}
+            <Markdown text={content} />
+          {/if}
+        </div>
       {:else if unread}
         <EmptyState
           text="Bothy hasn't read {name} for you yet."
@@ -368,7 +373,7 @@
       {/if}
 
       {#if byline && !editing}
-        <p class="mt-10 text-small text-muted">
+        <p class="mt-3 text-small text-muted">
           <span title={fullTime(notes?.updated_at)}>{byline}</span>{#if entries}{' · '}<LinkButton onclick={() => (showHistory = true)}>History</LinkButton>{/if}
         </p>
       {/if}

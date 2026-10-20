@@ -97,17 +97,17 @@
         />
         {#if approveError}<p class="field-error -mt-4 mb-6" role="alert"><Icon name="alert" class="mt-px" /><span>{approveError}</span></p>{/if}
       {/if}
-      <Markdown text={body} />
+      <div class="card"><Markdown text={body} /></div>
       <!-- While the changes wait for approval the files start open, so they are seen before approving. -->
       <Disclosure class="mt-10" label="Files" variant="section" open={review}>
         <!-- The disclosure's panel is a grid item that would grow to the longest line of an open file;
              without an intrinsic width of its own the list stays in the column and the file scrolls instead. -->
-        <ul class="[contain:inline-size]">
+        <ul class="list-card overflow-hidden [contain:inline-size]">
           {#each skill.files as f (f)}
             <li class="border-b border-border last:border-b-0">
               <button
                 type="button"
-                class="flex min-h-10 w-full cursor-pointer items-center gap-2 py-2 text-left text-text pointer-coarse:min-h-12"
+                class="row-link flex min-h-10 w-[calc(100%+2rem)] cursor-pointer items-center gap-2 py-2 text-left text-text pointer-coarse:min-h-12"
                 aria-expanded={!!open[f]}
                 onclick={() => toggle(f)}
                 ><Icon name="chevron-right" size={12} class="shrink-0 text-muted transition-transform duration-160 {open[f] ? 'rotate-90' : ''}" /><span class="min-w-0 font-mono text-code [overflow-wrap:anywhere]" data-path

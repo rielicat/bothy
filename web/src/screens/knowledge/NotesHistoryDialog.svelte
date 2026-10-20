@@ -9,7 +9,7 @@
     /** Which document, when the history covers more than one. */
     section?: string;
     chat?: { id: string; title: string };
-    /** "Bothy in “Fix login redirect”" (memory) rather than "… · from “Login bug”" (notes). */
+    /** "In “Fix login redirect”" (memory: Bothy changed it there) rather than "From “Login bug”" (notes). */
     chatIn?: boolean;
     before: string;
     after: string;
@@ -45,13 +45,13 @@
     <ul>
       {#each entries as e (e.key)}
         <li class="border-b border-border py-3 first:pt-0 last:border-b-0">
-          <p class="text-body text-text">
-            <span class="font-medium">{e.who}</span>{#if e.chat && e.chatIn}{' in '}{@render chatLink(e.chat)}{/if}
-            <span class="text-muted"
-              >{' · '}{e.what}{' · '}<time datetime={e.at} title={fullTime(e.at)}>{relTime(e.at)}</time>{#if e.section}{' · '}{e.section}{/if}{#if e.chat && !e.chatIn}{' · from '}{@render chatLink(
-                  e.chat,
-                )}{/if}{' · '}</span
-            ><LinkButton aria-expanded={!!shown[e.key]} onclick={() => (shown = { ...shown, [e.key]: !shown[e.key] })}>{shown[e.key] ? 'Hide' : 'Show'}</LinkButton>
+          <p class="text-body text-text"><span class="font-medium">{e.who}</span>{' '}{e.what}</p>
+          <p class="mt-0.5 text-small text-muted [overflow-wrap:anywhere]">
+            {#if e.section}{e.section}{' · '}{/if}<time datetime={e.at} title={fullTime(e.at)}>{relTime(e.at)}</time>{#if e.chat}{e.chatIn ? ' · In ' : ' · From '}{@render chatLink(
+                e.chat,
+              )}{/if}{' '}<span class="whitespace-nowrap"
+              >·{' '}<LinkButton aria-expanded={!!shown[e.key]} onclick={() => (shown = { ...shown, [e.key]: !shown[e.key] })}>{shown[e.key] ? 'Hide' : 'Show'}</LinkButton></span
+            >
           </p>
           {#if shown[e.key]}
             <DiffView class="mt-3" mode="prose" diff={proseDiff(e.before, e.after)} />

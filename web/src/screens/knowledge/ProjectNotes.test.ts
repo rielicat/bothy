@@ -46,6 +46,20 @@ describe('Project notes', () => {
     expect(screen.getByText('Keep pull requests small.')).toBeTruthy();
   });
 
+  it('shows the notes on a card, edits them in its place and lists changes as sentences', async () => {
+    await start();
+    expect(screen.getByText('How to build and test').closest('.card')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'History' }));
+    const dialog = screen.getByRole('dialog', { name: 'History' });
+    const first = within(dialog).getByText('wrote the first version', { exact: false });
+    expect(first.textContent).toBe('Bothy wrote the first version');
+    expect(first.nextElementSibling!.textContent).toMatch(/^.+ · Show$/);
+    expect(within(dialog).getByRole('link', { name: '“Login bug”' }).parentElement!.textContent).toMatch(/ · From “Login bug” · Show$/);
+    await fireEvent.click(within(dialog).getAllByRole('button', { name: 'Close' })[0]);
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByLabelText('Notes for acme/web').closest('.card')).toBeNull();
+  });
+
   it('on an If-Match conflict, keeps the edit and saves over their version only when asked', async () => {
     const calls = await start('notes-conflict');
     await editAndSave('- Keep pull requests small.');

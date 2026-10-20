@@ -129,7 +129,8 @@
     {/if}
   </div>
   {#if note}<p id="{uid}-note" class="text-small text-muted">{note}</p>{/if}
-  <div class="mt-2">
+  <!-- Editing, the text box takes the card's place, so the document never sits in two frames. -->
+  <div class="mt-2 {editing ? '' : 'card'}">
     {#if editing}
       <NotesEditor
         label={title}
