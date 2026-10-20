@@ -437,7 +437,7 @@ on('POST', '/api/knowledge/repos/{id}/reindex', (req, res, m) => {
   const r = findRepo(req, m[1]);
   if (!r) return fail(res, 404, 'not_found', 'not found');
   if (viewer(req).role === 'member') return fail(res, 403, 'forbidden', 'admins only');
-  Object.assign(r, { status: 'queued', stale: false, error: undefined, truncated: false, progress: { done: 0, total: r.files || 1000 } });
+  Object.assign(r, { status: 'queued', stale: false, error: undefined, truncated: false, progress: { done: 0, total: r.files || 1000 }, updated_at: nowISO() });
   emit('knowledge.updated', { repo: r });
   json(res, 202, r);
 });

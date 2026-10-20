@@ -7,6 +7,7 @@ import {
   githubState,
   githubUrl,
   knowledge,
+  newerRepo,
   linesLabel,
   marks,
   plainText,
@@ -109,5 +110,19 @@ describe('knowledge API', () => {
     expect(await githubState(false)).toEqual({ connected: null, allowed: ['acme/web', 'acme/api'] });
     expect(calls.some((c) => c.url === '/api/github/connections')).toBe(false);
     expect((await githubState(true)).connected).toBe(true);
+  });
+});
+
+describe('newerRepo', () => {
+  const at = (status: string, updated_at: string) => ({ status, updated_at }) as Parameters<typeof newerRepo>[0];
+  it('goes by the update time', () => {
+    expect(newerRepo(at('ready', '2026-10-20T10:00:01.000Z'), at('queued', '2026-10-20T10:00:00.000Z'))).toBe(true);
+    expect(newerRepo(at('ready', '2026-10-20T10:00:00.000Z'), at('queued', '2026-10-20T10:00:01.000Z'))).toBe(false);
+  });
+  it('gives a tie to a reading that has ended, and otherwise to the other row', () => {
+    const t = '2026-10-20T10:00:00.000Z';
+    expect(newerRepo(at('ready', t), at('indexing', t))).toBe(true);
+    expect(newerRepo(at('indexing', t), at('ready', t))).toBe(false);
+    expect(newerRepo(at('ready', t), at('ready', t))).toBe(false);
   });
 });

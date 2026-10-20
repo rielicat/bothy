@@ -2,6 +2,7 @@
   import { untrack, type Snippet } from 'svelte';
   import { Button, Dialog, Disclosure, EmptyState, IconButton, Menu, SettingsSection, StatusLine, Switch, toast } from '../../../components/ui';
   import { api, errorText } from '../../../lib/api/client';
+  import { newerRepo } from '../../../lib/api/knowledge';
   import type { User } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { fullTime, plural } from '../../../lib/format';
@@ -67,12 +68,18 @@
   async function load() {
     const get = <T,>(p: string, d: T) => api.get<T>(p).catch(() => d);
     let detail: GitHubConnectionDetail | null;
-    [detail, indexed, envs, users] = await Promise.all([
+    let fetched: IndexedRepo[];
+    [detail, fetched, envs, users] = await Promise.all([
       get<GitHubConnectionDetail | null>(`/api/github/connections/${id}`, null),
       get<{ items: IndexedRepo[] }>('/api/knowledge/repos', { items: [] }).then((r) => r.items ?? []),
       get<Releases>('/api/releases', { environments: [], deploys: [] }).then((r) => r.environments ?? []),
       get<User[]>('/api/users', []),
     ]);
+    // A reading that ends in milliseconds sends its events before this list arrives.
+    indexed = fetched.map((x) => {
+      const live = indexed.find((y) => y.id === x.id);
+      return live && newerRepo(live, x) ? live : x;
+    });
     repos = (detail?.repos ?? []).filter((r): r is GitHubRepo => !!r).sort((a, b) => Number(b.allowed) - Number(a.allowed) || full(a).localeCompare(full(b)));
     const lists = await Promise.all(
       [...new Set(envs.map((e) => e.repo))].map((repo) =>

@@ -158,6 +158,31 @@ describe('GitHub manage view', () => {
     expect(await within(row()).findByText(/^Read today at /)).toBeTruthy();
   });
 
+  // Reading can end before the page's reload returns: the reload's older list must not put "Reading…" back.
+  it('keeps the new read time when reading again ends before the page reloads', async () => {
+    let posted = false;
+    let release = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    await setup((m, url) => {
+      if (m === 'POST' && url.endsWith('/reindex')) posted = true;
+      if (!posted || m !== 'GET' || url !== '/api/users') return undefined;
+      const body = new ReadableStream({ start: (c) => void gate.then(() => (c.enqueue(new TextEncoder().encode('[]')), c.close())) });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const repo = (await api.get<{ items: IndexedRepo[] }>('/api/knowledge/repos')).items.find((r) => r.repo === 'acme/web')!;
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for acme/web' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Read again' }));
+    const row = () => screen.getByTitle('acme/web').parentElement!;
+    await waitFor(() => expect(posted).toBe(true));
+    const at = new Date(Date.now() + 60_000).toISOString();
+    FakeEventSource.last.emit('knowledge.updated', { seq: 9, type: 'knowledge.updated', at, data: { repo: { ...repo, status: 'ready', indexed_at: at, updated_at: at } } });
+    release();
+    await waitFor(() => expect(toaster.current?.text).toBe('Started reading again.'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(within(row()).queryByText('Reading…')).toBeNull();
+    expect(within(row()).getByText(/^Read today at /)).toBeTruthy();
+  });
+
   it('says deleting an environment is permanent before it does', async () => {
     const calls = await setup();
     await fireEvent.click(await screen.findByRole('button', { name: 'Options for staging' }));

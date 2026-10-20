@@ -10,6 +10,7 @@
     failReason,
     githubState,
     knowledge,
+    newerRepo,
     progressPct,
     projectHref,
     queuedRepo,
@@ -61,7 +62,7 @@
     rowError = { ...rowError, [r.repo]: '' };
     try {
       const next = await knowledge.reindex(r.id);
-      rows = (rows ?? []).map((x) => (x.repo === r.repo ? next : x));
+      rows = (rows ?? []).map((x) => (x.repo === r.repo && !newerRepo(x, next) ? next : x));
     } catch {
       rowError = { ...rowError, [r.repo]: "Couldn't start reading. Try again." };
     }

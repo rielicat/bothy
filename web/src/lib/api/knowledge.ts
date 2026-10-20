@@ -7,6 +7,18 @@ export type { KnowledgeNotes, NotesChange };
 
 export type KnowledgeRepo = IndexedRepo;
 
+const settled = (r: KnowledgeRepo) => r.status === 'ready' || r.status === 'error';
+
+/**
+ * Whether a is a later state of the repository than b. A reading can end before a reload or the
+ * reindex reply comes back; the live event's row is then the newer one and must not be undone.
+ * Ties (the same millisecond) go to a reading that has ended.
+ */
+export const newerRepo = (a: KnowledgeRepo, b: KnowledgeRepo) => {
+  const d = Date.parse(a.updated_at) - Date.parse(b.updated_at);
+  return d !== 0 ? d > 0 : settled(a) && !settled(b);
+};
+
 const listRepos = async () => (await api.get<{ items: KnowledgeRepo[] | null }>('/api/knowledge/repos')).items ?? [];
 
 /** The server has no Knowledge API yet (S18): the screens show the empty state, not an error. */
