@@ -42,7 +42,9 @@ func TestMapErrorPlainMessages(t *testing.T) {
 
 type upstreamErr struct{}
 
-func (upstreamErr) Error() string       { return "GitHub rejected the credentials (wrong, expired or revoked token): Bad credentials" }
+func (upstreamErr) Error() string {
+	return "GitHub rejected the credentials (wrong, expired or revoked token): Bad credentials"
+}
 func (upstreamErr) UpstreamStatus() int { return http.StatusUnauthorized }
 
 // Another service refusing (GitHub rejecting the token) is a 502 with its
