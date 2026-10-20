@@ -70,6 +70,13 @@ services, so `knowledge-empty`, `github-none`, `github-no-repos`,
 `chat-apps-off`, `people-solo` and `member` change the rows; `starters-fail`
 fails it. `welcome` gives the account its welcome chat once.
 
+`hero` is the Friendly mockup's hero (docs/design/ui.md D46): “Release notes
+for v2.4”, continued from “Web v2.4 release”, whose turn ends on the pull
+request it waits for, and an inbox holding only that request, a newsletter
+for you and a deploy waiting for others. Its chats and requests are stored
+always and listed only with the scenario, so the default lists and counts
+stay as they are.
+
 Bothy's picture has `picture-custom` (an admin replaced the default),
 `picture-fail[:telegram|discord]` (a change fails in that chat app; Discord
 says it allows only a few changes an hour) and

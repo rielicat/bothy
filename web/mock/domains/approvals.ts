@@ -13,6 +13,12 @@ const requester = scenario('deploy-requester', 'You asked for the production dep
 const ineligible = scenario('deploy-ineligible', 'You are not one of the production deploy approvers.', 'approvals');
 const listDown = scenario('approvals-down', "Listing approvals fails, to show the page that didn't load.", 'approvals');
 const teamAsk = scenario('team-memory-ask', 'Alex asked Bothy to remember something for everyone; it waits for an admin.', 'approvals');
+/** The Friendly mockup's hero (docs/design/ui.md D46); chat.ts and inbox.ts read it too. */
+export const hero = scenario(
+  'hero',
+  "The Friendly mockup's hero: “Release notes for v2.4”, continued from “Web v2.4 release”, waits on its pull request; the inbox holds only that request, a newsletter for you and a deploy waiting for Priya.",
+  'approvals',
+);
 
 const maya = 'usr_01jmaya000000000000000000';
 const priya = 'usr_01jpriya00000000000000000';
@@ -240,6 +246,94 @@ function waitingList(): Approval[] {
   ];
 }
 
+// The release notes Bothy drafted in the hero chat, as the new file of its pull request.
+const releaseNotes = [
+  '# Web v2.4',
+  '',
+  '## Highlights',
+  '',
+  '### Faster checkout',
+  '',
+  'The payment step loads in about half the time. Card details, wallets and',
+  'saved addresses now load together instead of one after another.',
+  '',
+  '### Saved filters on the Orders page',
+  '',
+  'Save a set of filters once and pick it from the Filters menu. Saved filters',
+  'are shared with everyone on your team.',
+  '',
+  '## Fixes',
+  '',
+  '- The date picker opens on the right month in Safari.',
+  '- Order totals round the same way on the list and on the receipt.',
+  '- Exporting more than 10,000 orders no longer times out.',
+  '- The Orders page keeps its place after you close an order.',
+  '- Searching by email address ignores capital letters.',
+  "- Refund emails show the store's name instead of its id.",
+  '- Long product names wrap instead of hiding the price.',
+];
+export const heroNotesPath = 'docs/releases/v2.4.md';
+const heroDiff = [
+  'Repository: acme/web (private)',
+  'Branch: release-notes/v2.4 → main',
+  'Title: Release notes for v2.4',
+  '',
+  `diff --git a/${heroNotesPath} b/${heroNotesPath}`,
+  'new file mode 100644',
+  '--- /dev/null',
+  `+++ b/${heroNotesPath}`,
+  `@@ -0,0 +1,${releaseNotes.length} @@`,
+  ...releaseNotes.map((l) => `+${l}`),
+].join('\n');
+
+// ?mock=hero lists these and nothing else: the pull request of the hero chat, a schedule's newsletter, and a deploy someone else asked for.
+const HERO = 'apr_01jhero';
+function heroList(): Approval[] {
+  return [
+    make({
+      id: `${HERO}pr`.padEnd(30, '0'),
+      title: 'Open pull request',
+      act: action('repo_open_pr', 'send', 'external_send', { repo: 'acme/web', base: 'main', head: 'release-notes/v2.4', title: 'Release notes for v2.4', body: '', draft: false, files: [{ path: heroNotesPath, op: 'add' }] }, {
+        recipient: 'github:acme/web',
+        diff: heroDiff,
+      }),
+      context: 'Web · session “Release notes for v2.4”',
+      session: ids.heroNotes,
+      choices: ['allow_once', 'deny'],
+      created: 2,
+      expires: 13,
+      extra: { run_id: ids.heroRun, tool_call_id: ids.heroCall },
+    }),
+    make({
+      id: `${HERO}newsletter`.padEnd(30, '0'),
+      title: 'Send campaign',
+      act: action('mcp__mailchimp__send_campaign', 'mcp', 'external_send', { campaign: 'October product update', audience: 'Customers (214 people)' }, { mcp_server: 'mailchimp', mcp_tool: 'send_campaign' }),
+      context: 'Web · schedule · session “Monthly newsletter”',
+      session: 'ses_01jheronewsletter'.padEnd(30, '0'),
+      choices: ['allow_once', 'deny'],
+      // Newer than the pull request, so the inbox (oldest first) opens on the request the hero chat waits for.
+      created: 1,
+      expires: 60 * 2,
+      extra: { on_timeout: 'park' },
+    }),
+    make({
+      id: `${HERO}deploy`.padEnd(30, '0'),
+      title: 'Deploy a release',
+      act: deployAction('acme/web'),
+      context: 'Web · session “Web v2.4 release”',
+      session: 'ses_01jherodeploy'.padEnd(30, '0'),
+      created: 60,
+      expires: 120,
+      extra: {
+        principal_id: member.id,
+        approver: { user_id: '', admin_only: false, users: [maya, priya], roles: [], required: 2, requester: member.id },
+        votes: [{ approval_id: `${HERO}deploy`.padEnd(30, '0'), user_id: maya, choice: 'allow_once', via: 'web', at: ago(40) }],
+      },
+    }),
+  ];
+}
+const heroCard = (a: Approval) => a.id.startsWith(HERO);
+
 // A note for everyone (TEAM.md) waits for one admin, whoever asked (SPEC §14.9).
 const adminOnly = { user_id: '', admin_only: true };
 function forEveryone(s: Spec): Approval {
@@ -352,7 +446,7 @@ export const recentApprovals: Approval[] = recentList();
 export const state = { approvals: [] as Approval[], recent: [] as Approval[], deploys: [] as Deploy[] };
 onReset(() => {
   t0 = Date.now();
-  Object.assign(state, { approvals: [...waitingList(), teamAskCard(), ...everyKind()], recent: recentList(), deploys: deployList() });
+  Object.assign(state, { approvals: [...waitingList(), teamAskCard(), ...everyKind(), ...heroList()], recent: recentList(), deploys: deployList() });
 });
 
 // Scenarios ride along on every request (?mock= sets a cookie), so the every-kind cards and Alex's
@@ -379,7 +473,8 @@ function asSeen(a: Approval, req?: Req): Approval {
 const seesTeam = (a: Approval, req: Req) => !a.approver.team || (rank[viewer(req).role] ?? 0) >= rank.admin;
 
 export function list(req: Req): Approval[] {
-  return state.approvals.filter((a) => (all(req) || !everyKindCard(a)) && (teamAsk(req) || a.id !== TEAM_ASK) && seesTeam(a, req)).map((a) => asSeen(a, req));
+  if (hero(req)) return state.approvals.filter(heroCard);
+  return state.approvals.filter((a) => !heroCard(a) && (all(req) || !everyKindCard(a)) && (teamAsk(req) || a.id !== TEAM_ASK) && seesTeam(a, req)).map((a) => asSeen(a, req));
 }
 
 function votesOf(a: Approval, req: Req): ApprovalVotes {

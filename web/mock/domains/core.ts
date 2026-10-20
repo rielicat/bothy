@@ -39,6 +39,11 @@ export const ids = {
   brief: 'ses_01jbrief00000000000000000',
   briefRun: 'run_01jbrief1000000000000000',
   briefSchedule: 'sch_01jbrief00000000000000000',
+  // ?mock=hero: the chat domain answers /api/runs for run_0chat… ids only.
+  heroRelease: 'ses_0chatherorelease'.padEnd(30, '0'),
+  heroNotes: 'ses_0chatheronotes'.padEnd(30, '0'),
+  heroRun: 'run_0chatheronotes'.padEnd(30, '0'),
+  heroCall: 'tcl_0chatheropr'.padEnd(30, '0'),
 };
 
 export const owner: User = {

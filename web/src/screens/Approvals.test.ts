@@ -288,6 +288,23 @@ describe('Approvals inbox, other states', () => {
     }
   });
 
+  it("holds the Friendly mockup's three requests with ?mock=hero, the hero chat's pull request open", async () => {
+    await open('/approvals', {}, 'hero');
+    await screen.findByRole('heading', { name: 'For you' });
+    expect(expanded()?.dataset.approval).toBe('apr_01jheropr'.padEnd(30, '0'));
+    expect(within(expanded()!).getByRole('heading', { level: 3 }).textContent).toBe('Open a pull request in acme/web?');
+    const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span[title]')?.textContent).filter(Boolean);
+    expect(collapsed).toEqual(['Use Mailchimp: Send campaign?', 'Deploy acme/web to production?']);
+    const others = screen.getByRole('heading', { name: 'Waiting for others' }).closest('section')!;
+    await waitFor(() => expect(others.querySelector('span.shrink-0')!.textContent).toBe('1 of 2 approvals'));
+  });
+
+  it('keeps the hero requests out of the default inbox', async () => {
+    await open();
+    await screen.findByRole('heading', { name: 'For you' });
+    expect(document.querySelector('[data-row^="a:apr_01jhero"]')).toBeNull();
+  });
+
   it('counts only what waits for the viewer on the Waiting tab', async () => {
     await open('/approvals', {}, 'member');
     await screen.findByText('Nothing needs your approval.');

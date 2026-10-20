@@ -86,6 +86,8 @@ const states: ShotState[] = [
   { name: 'inbox-member', route: '/approvals', mock: 'member', ready: frame },
   { name: 'inbox-team-access', route: '/approvals', mock: 'team-access', ready: frame },
   { name: 'inbox-actions-only', route: '/approvals', mock: 'approvals-no-items', ready: frame },
+  // The Friendly mockup's inbox: the hero chat's pull request (the oldest, so it opens first), a newsletter for you and a deploy waiting for someone else.
+  { name: 'inbox-hero', route: '/approvals', mock: 'hero', ready: frame, setup: (p) => card('apr_01jheropr'.padEnd(30, '0'))(p).waitFor() },
   { name: 'empty-waiting', route: '/approvals', mock: 'approvals-empty', ready: frame },
   { name: 'empty-done', route: '/approvals?tab=done', mock: 'approvals-empty', ready: frame },
   { name: 'load-failed', route: '/approvals', mock: 'approvals-down', ready: frame },

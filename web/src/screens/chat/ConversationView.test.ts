@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { approvals as fixtureApprovals, sessions as fixtureSessions } from '../../../mock/fixtures';
+import { approvals as fixtureApprovals, ids as fixtureIds, sessions as fixtureSessions } from '../../../mock/fixtures';
 import { chatIds } from '../../../mock/domains/chat';
 import { resetMock } from '../../../mock/server';
 import { chats } from '../../components/shell/chats.svelte';
@@ -427,6 +427,36 @@ describe('where a chat came from (§7.1)', () => {
     expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('What can you do for our team?');
     emit('message.created', { message: { ...welcome, id: 2, seq: 2, role: 'user', kind: 'normal', provenance: 'user', sender: 'web:usr_1', parts: [{ t: 'text', text: 'What can you do for our team?' }] } }, '');
     await waitFor(() => expect(screen.queryByRole('button', { name: 'What can you do for our team?' })).toBeNull());
+  });
+});
+
+describe("the Friendly mockup's hero chat (?mock=hero)", () => {
+  const HERO = fixtureIds.heroNotes;
+
+  beforeEach(async () => {
+    installApi();
+    await session.init();
+  });
+
+  it("ends Bothy's turn on the pull request it waits for, as the product draws it", async () => {
+    resetMock({ mock: 'hero' });
+    render(ConversationView, { id: HERO });
+    const card = await screen.findByRole('article');
+    expect(card.dataset.approval).toBe('apr_01jheropr'.padEnd(30, '0'));
+    const reply = screen.getByText(/^14 pull requests merged since Monday/);
+    expect(reply.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // A waiting card ends its turn (docs/design/ui.md §2.1): nothing Bothy wrote comes after it.
+    expect([...document.querySelectorAll('.md')].every((el) => el.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy();
+    expect(screen.getByLabelText('Message').getAttribute('placeholder')).toBe('Add to the current task');
+  });
+
+  it('is no chat at all without the scenario', async () => {
+    render(ConversationView, { id: HERO });
+    expect(await screen.findByText("This chat doesn't exist or was deleted.")).toBeTruthy();
+    const { items } = await api.get<{ items: { id: string }[] }>('/api/sessions');
+    expect(items.map((s) => s.id)).not.toContain(HERO);
+    expect(items.map((s) => s.id)).not.toContain(fixtureIds.heroRelease);
   });
 });
 

@@ -4,7 +4,7 @@
 // (a clean chat under the chat it came from, a schedule's results, quiet
 // check-ins), starters and the welcome chat (SPEC §14.10).
 import type { Approval, IndexedRepo, Message, RunDetail, Schedule, Session, SessionFrom, StarterRow, ToolCallRecord, User } from '../../src/lib/api/types.gen.ts';
-import { state as approvalState, waiting } from './approvals.ts';
+import { state as approvalState, hero, heroNotesPath, waiting } from './approvals.ts';
 import { ago, ahead, body, clone, core, emit, fail, ids, isPaused, json, member, newId, nowISO, on, onReset, owner, routes, scenario, sleep, viewer, type Req, type Res } from './core.ts';
 
 const ses = (id: string, title: string, origin: string, minAgo: number, extra: Partial<Session> = {}): Session => ({
@@ -369,6 +369,62 @@ export const messages: Record<string, Message[]> = {
   ],
 };
 
+// ?mock=hero: the Friendly mockup's hero chat as the product draws it, so its
+// waiting pull request ends Bothy's turn (docs/design/ui.md §2.1). Stored
+// always and listed only with the scenario, so the default lists keep their
+// counts; approvals.ts holds the request.
+const H = { release: ids.heroRelease, notes: ids.heroNotes };
+const heroIds = new Set(Object.values(H));
+export const heroSessions: Session[] = [
+  ses(H.release, 'Web v2.4 release', 'web', 25),
+  ses(H.notes, 'Release notes for v2.4', 'web', 1, { parent_id: H.release, root_id: H.release }),
+];
+const heroAt = (min: number) => ({ created_at: ago(min) });
+export const heroMessages: Record<string, Message[]> = {
+  [H.release]: [
+    msg(H.release, 1, 'user', [text("What's left before we ship web v2.4?")], heroAt(32)),
+    msg(H.release, 2, 'assistant', [call('r1', 'github_runs', { repo: 'acme/web' })], { run_id: rid('herorelease'), ...heroAt(31) }),
+    msg(H.release, 3, 'tool', [result('r1', 'github_runs', 'main: 6 of 6 checks passed, 07:42 today', { untrusted: true })], { run_id: rid('herorelease'), provenance: 'untrusted', ...heroAt(31) }),
+    msg(
+      H.release,
+      4,
+      'assistant',
+      [
+        text(
+          'Two things are left before v2.4 ships:\n\n1. **Release notes**: nobody has written them yet.\n2. **The production deploy**: it needs an approval once the notes are up.\n\nThe checks on main passed this morning, so the code is ready.',
+        ),
+      ],
+      { run_id: rid('herorelease'), ...heroAt(25) },
+    ),
+  ],
+  [H.notes]: [
+    msg(H.notes, 1, 'assistant', [text(FORK_NOTICE)], { kind: 'notice', ...heroAt(6) }),
+    msg(H.notes, 2, 'user', [text('What merged in acme/web this week? Draft the v2.4 release notes and put them up as a pull request so the team can review.')], heroAt(5)),
+    msg(H.notes, 3, 'assistant', [call('h1', 'github_pr', { repo: 'acme/web', state: 'merged' }), call('h2', 'repo_checkout', { repo: 'acme/web', ref: 'main' })], { run_id: ids.heroRun, ...heroAt(5) }),
+    msg(
+      H.notes,
+      4,
+      'tool',
+      [result('h1', 'github_pr', '14 pull requests merged since Monday: #470 Load the payment step in one request, #474 Saved filters on Orders, …', { untrusted: true }), result('h2', 'repo_checkout', 'acme/web at main (9c1e2f4), 1,212 files')],
+      { run_id: ids.heroRun, provenance: 'untrusted', ...heroAt(4) },
+    ),
+    msg(
+      H.notes,
+      5,
+      'assistant',
+      [
+        text(
+          '14 pull requests merged since Monday. I left out the 5 internal refactors and grouped the rest:\n\n- **Faster checkout**: the payment step loads in about half the time.\n- **Saved filters** on the Orders page, shared across the team.\n- **7 fixes**, including the date picker on Safari.',
+        ),
+        call('h3', 'fs_write', { path: `repos/acme/web/${heroNotesPath}`, content: '…', mode: 'create' }),
+      ],
+      { run_id: ids.heroRun, ...heroAt(3) },
+    ),
+    msg(H.notes, 6, 'tool', [result('h3', 'fs_write', `Saved repos/acme/web/${heroNotesPath}`)], { run_id: ids.heroRun, ...heroAt(2) }),
+    msg(H.notes, 7, 'assistant', [call('h4', 'repo_open_pr', { repo: 'acme/web', head: 'release-notes/v2.4', base: 'main', title: 'Release notes for v2.4' })], { run_id: ids.heroRun, ...heroAt(2) }),
+  ],
+};
+
 export const pins: Record<string, { id: number; session_id: string; text: string; source: string; created_at: string }[]> = {
   ses_01jinbox00000000000000000: [{ id: 1, session_id: 'ses_01jinbox00000000000000000', text: "Don't email anyone without asking", source: 'auto', created_at: ago(90) }],
   [S.notices]: [{ id: 2, session_id: S.notices, text: 'Friday status format', source: 'auto', created_at: ago(129) }],
@@ -580,6 +636,18 @@ function fixtureDetail(id: string, req?: Req): RunDetail | null {
         ],
         approvals: [],
       };
+    case ids.heroRun:
+      return {
+        run: fixtureRun(id, H.notes, 'waiting_approval', { created_at: ago(5), started_at: ago(5), finished_at: undefined, steps: 4, tool_calls: 4 }),
+        llm_calls: [llm(1), llm(2), llm(3)],
+        tool_calls: [
+          record(id, H.notes, tcl('hero1'), 'h1', 'github_pr', { untrusted: true }),
+          record(id, H.notes, tcl('hero2'), 'h2', 'repo_checkout', { side_effect: 'local_write', duration: 2600e6 }),
+          record(id, H.notes, tcl('hero3'), 'h3', 'fs_write', { side_effect: 'local_write', rule: 'default:local_write' }),
+          record(id, H.notes, ids.heroCall, 'h4', 'repo_open_pr', { verdict: 'ask', rule: 'floor:always_ask', status: 'waiting', side_effect: 'external_send', approval_id: 'apr_01jheropr'.padEnd(30, '0') }),
+        ],
+        approvals: approvalState.approvals.filter((x) => x.tool_call_id === ids.heroCall),
+      };
     case R.notices: {
       const kind = outcome.arg(req) || 'provider';
       const over = { provider: 'anthropic', model: 'claude-sonnet-4-6', err: '529 overloaded: {"type":"error","error":{"type":"overloaded_error"}} (retry later).)', kind: 'overloaded' };
@@ -613,7 +681,9 @@ export const state = {
   refine: {} as Record<string, string>,
   seeded: false,
 };
-onReset(() => Object.assign(state, { sessions: clone(sessions), messages: clone(messages), pins: clone(pins), runs: {}, refine: {}, seeded: false }));
+onReset(() =>
+  Object.assign(state, { sessions: clone([...sessions, ...heroSessions]), messages: clone({ ...messages, ...heroMessages }), pins: clone(pins), runs: {}, refine: {}, seeded: false }),
+);
 
 // The approvals domain resets after this one, so the waiting card of 'Clean up
 // staging notes' joins its list (where a decision can find it) only once that
@@ -757,7 +827,10 @@ async function runScenario(id: string, words: string, req: Req) {
 }
 
 const session = (id: string) => state.sessions.find((s) => s.id === id);
-const visible = (req: Req) => (noChats(req) ? [] : state.sessions);
+const shown = (req: Req, id: string) => hero(req) || !heroIds.has(id);
+const visible = (req: Req) => (noChats(req) ? [] : state.sessions.filter((s) => shown(req, s.id)));
+// Chats whose waiting card belongs to a fixture run rather than a scripted one.
+const fixtureRuns: Record<string, string> = { [S.staging]: R.staging, [H.notes]: ids.heroRun };
 
 on('GET', '/api/sessions', (req, res, _m, q) => {
   const term = (q.get('q') ?? '').toLowerCase();
@@ -775,10 +848,10 @@ on('POST', '/api/sessions', (_q, res) => {
 on('GET', '/api/sessions/{id}', async (req, res, m) => {
   if (m[1] === S.staging) seed();
   const s = session(m[1]);
-  if (!s) return fail(res, 404, 'not_found', 'No such chat.');
+  if (!s || !shown(req, s.id)) return fail(res, 404, 'not_found', 'No such chat.');
   const pending = approvalState.approvals.filter((a) => a.session_id === s.id && (a.status === 'pending' || a.status === 'parked'));
   const live = Object.values(state.runs).find((d) => d.run?.session_id === s.id && ['running', 'waiting_approval'].includes(d.run.status));
-  const runId = live?.run?.id ?? (s.id === S.staging && pending.length ? R.staging : '');
+  const runId = live?.run?.id ?? (pending.length ? (fixtureRuns[s.id] ?? '') : '');
   json(res, 200, {
     session: s,
     from: await fromOf(req, s),
@@ -1015,7 +1088,7 @@ on('POST', '/api/me/welcome', async (req, res) => {
 on('GET', '/api/search', (req, res, _m, q) => {
   const term = (q.get('q') ?? '').toLowerCase();
   const hits = [];
-  for (const [id, list] of Object.entries(noChats(req) ? {} : state.messages))
+  for (const [id, list] of Object.entries(noChats(req) ? {} : state.messages).filter(([id]) => shown(req, id)))
     for (const m of list)
       for (const p of m.parts) {
         const i = p.text?.toLowerCase().indexOf(term) ?? -1;

@@ -19,6 +19,7 @@ const ids = {
   checkin: sid('checkin'),
   checkin2: sid('checkin2'),
   brief: 'ses_01jbrief00000000000000000',
+  heroNotes: sid('heronotes'),
 };
 
 // Until C1 lands, the chat renders inside the v0.1 shell. This puts it in the
@@ -79,6 +80,8 @@ const states: ShotState[] = [
   { name: 'welcome', route: '/chat', mock: 'welcome', ready: 'Ask me anything to get started.', setup: frame },
   // Where a chat came from (§7.1), what a schedule sent (§7.3) and a check-in's all-clear.
   { name: 'from-chat', route: chat(ids.pricingCopy), ready: 'Pick the plan that fits your team', setup: frame },
+  // The Friendly mockup's hero: a related chat whose turn ends on the pull request it waits for.
+  { name: 'chat-hero', route: chat(ids.heroNotes), mock: 'hero', ready: '14 pull requests merged since Monday', setup: then(waitText('Waiting for your approval')) },
   { name: 'from-schedule', route: chat(ids.brief), ready: 'No alerts overnight.', setup: frame },
   { name: 'from-checkin', route: chat(ids.checkin), ready: 'has waited 3 days for a review', setup: frame },
   { name: 'checkin-all-clear', route: chat(ids.checkin2), ready: 'Nothing needs your attention right now.', setup: frame },

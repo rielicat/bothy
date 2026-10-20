@@ -3,7 +3,7 @@
 // through its own endpoint (a pin approval, a skill or identity change, a
 // group chat change) takes it off the list.
 import type { InboxItem, MCPPin, SkillChanges, SkillMeta } from '../../src/lib/api/types.gen.ts';
-import { list as approvals, forYou } from './approvals.ts';
+import { list as approvals, forYou, hero } from './approvals.ts';
 import { addedBy, state as connections } from './connections.ts';
 import { fail, json, on, scenario, viewer, ZERO, type Req } from './core.ts';
 import { state as knowledge } from './knowledge.ts';
@@ -40,7 +40,7 @@ export function inbox(req: Req): InboxItem[] {
   const out: InboxItem[] = approvals(req)
     .filter((a) => a.status === 'pending' || a.status === 'parked')
     .map((a) => ({ id: a.id, type: a.card.kind === 'review' || a.action?.tool === 'notes' ? 'note_suggestion' : 'approval', question: a.card.question ?? a.card.title, for_you: forYou(a, req), created_at: a.created_at, approval: a }));
-  if (admin) {
+  if (admin && !hero(req)) {
     const pending = connections.pins.filter((p) => p.status === 'pending' && !serverOff(p.server));
     for (const server of [...new Set(pending.map((p) => p.server))]) {
       const mine = pending.filter((p) => p.server === server);
