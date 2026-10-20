@@ -98,7 +98,7 @@
   }
 </script>
 
-<Dialog bind:open title={env ? `Edit ${env.name}` : 'Add environment'} size="md" dirty {busy}>
+<Dialog bind:open title={env ? `Edit ${env.name}` : 'Add environment'} size="md" dirty {busy} cancel>
   <form id="env-form" class="space-y-5" onsubmit={save} novalidate>
     <TextField label="Name" bind:value={f.name} error={show('name')} placeholder="production" autocomplete="off" spellcheck="false" />
     <Select label="Repository" bind:value={f.repo} error={show('repo')} options={repos.map((r) => ({ value: r, label: r }))} />
@@ -166,8 +166,7 @@
       <Button variant="danger-text" class="-ml-4" onclick={() => ((open = false), ondelete(env.name))}>Delete environment…</Button>
     {/if}
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <!-- On phones the button shares the sheet's header bar with the title, so it says only "Save". -->
     <Button variant="primary" type="submit" form="env-form" loading={busy} loadingLabel="Saving…">Save <span class="max-sm:hidden">environment</span></Button>
   {/snippet}

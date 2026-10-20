@@ -57,6 +57,20 @@ describe('Dialog', () => {
     expect(dialog().open).toBe(false);
   });
 
+  it('draws its own Cancel first in the footer, which closes it', async () => {
+    await openDialog({ cancel: true, initialFocus: 'cancel' });
+    const footer = dialog().querySelector('[data-dialog-footer]')!;
+    expect([...footer.children].map((b) => b.textContent?.trim())).toEqual(['Cancel', 'Add person']);
+    expect(document.activeElement).toBe(footer.firstElementChild);
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(dialog().open).toBe(false);
+  });
+
+  it('names its Cancel as asked', async () => {
+    await openDialog({ cancel: 'Keep editing' });
+    expect(dialog().querySelector('[data-dialog-footer] [data-cancel]')?.textContent?.trim()).toBe('Keep editing');
+  });
+
   it('stays open while a request is in flight', async () => {
     await openDialog({ busy: true });
     await fireEvent.keyDown(screen.getByLabelText('Name'), { key: 'Escape' });

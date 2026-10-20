@@ -90,7 +90,7 @@
   }
 </script>
 
-<Dialog open={open} title={original ? `Edit rule ${original.id}` : 'Add rule'} size="md" {busy} {dirty} onclose={() => (rule = null)}>
+<Dialog open={open} title={original ? `Edit rule ${original.id}` : 'Add rule'} size="md" {busy} {dirty} onclose={() => (rule = null)} cancel>
   <form id="{uid}-rule" class="space-y-5" onsubmit={save} novalidate>
     <div class="grid gap-5 sm:grid-cols-2">
       <TextField label="Name" placeholder="wiki-writes" autocomplete="off" spellcheck="false" bind:value={form.id} error={tried ? idError : ''} />
@@ -117,8 +117,7 @@
       <Button variant="danger-text" size="sm" class="-ml-3" onclick={() => original && ondelete(original)}>Delete rule…</Button>
     {/if}
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-rule" loading={busy} loadingLabel="Saving…">Save rule</Button>
   {/snippet}
 </Dialog>

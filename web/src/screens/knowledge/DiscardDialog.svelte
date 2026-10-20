@@ -5,10 +5,9 @@
   let { open = $bindable(false), ondiscard }: { open?: boolean; ondiscard: () => void } = $props();
 </script>
 
-<Dialog bind:open title="Discard your changes?" initialFocus="cancel">
+<Dialog bind:open title="Discard your changes?" initialFocus="cancel" cancel="Keep editing">
   <p class="text-body text-text">This can't be undone.</p>
-  {#snippet footer({ close })}
-    <Button onclick={close}>Keep editing</Button>
+  {#snippet footer()}
     <Button
       variant="danger"
       onclick={() => {

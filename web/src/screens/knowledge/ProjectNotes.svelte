@@ -378,12 +378,11 @@
 
 <DiscardDialog bind:open={discard} ondiscard={leaveEdit} />
 
-<Dialog bind:open={stop} title="Stop reading {name}?" initialFocus="cancel" busy={stopping}>
+<Dialog bind:open={stop} title="Stop reading {name}?" initialFocus="cancel" busy={stopping} cancel>
   <!-- The server deletes the notes with the index: keeping them would bring them back unmarked as outside content if the repository is read again. -->
   <p class="text-body text-text">Bothy won't use {name} to answer questions, and its project notes and their history will be deleted. This can't be undone.</p>
   {#if stopError}<p class="field-error">{stopError}</p>{/if}
-  {#snippet footer({ close })}
-    <Button onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={stopping} loadingLabel="Stopping…" onclick={stopReading}>Stop reading</Button>
   {/snippet}
 </Dialog>

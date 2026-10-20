@@ -34,13 +34,12 @@
   }
 </script>
 
-<Dialog bind:open title="Pause Bothy?" initialFocus="cancel" {busy}>
+<Dialog bind:open title="Pause Bothy?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">
     Everything running stops now, and nothing new starts, including schedules, until someone resumes it. Approvals that are waiting will be cancelled.
   </p>
   {#if error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Pausing…" onclick={pause}>Pause Bothy</Button>
   {/snippet}
 </Dialog>

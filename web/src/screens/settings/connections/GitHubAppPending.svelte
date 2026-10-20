@@ -91,10 +91,9 @@
   <div class="mt-3"><Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Start over…</Button></div>
 </section>
 
-<Dialog bind:open={leaving} title="Start over?" initialFocus="cancel" {busy}>
+<Dialog bind:open={leaving} title="Start over?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy stops using {app.name} and deletes its keys. The app stays on GitHub until you delete it there.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Starting over…" onclick={startOver}>Start over</Button>
   {/snippet}
 </Dialog>

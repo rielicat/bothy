@@ -39,7 +39,7 @@
   }
 </script>
 
-<Dialog bind:open title="Test a rule" size="md" {busy} onclose={() => ((result = null), (failed = ''))}>
+<Dialog bind:open title="Test a rule" size="md" {busy} onclose={() => ((result = null), (failed = ''))} cancel="Close">
   <form id="{uid}-test" class="space-y-5" onsubmit={check} novalidate>
     <div class="grid gap-5 sm:grid-cols-2">
       <TextField label="Action" autocomplete="off" spellcheck="false" bind:value={tool} />
@@ -70,8 +70,7 @@
     </div>
   {/if}
   {#if failed}<StatusLine class="mt-5" tone="danger" text="Bothy couldn't plan this action." details={failed} alert />{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Close</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-test" loading={busy} loadingLabel="Checking…">Check</Button>
   {/snippet}
 </Dialog>

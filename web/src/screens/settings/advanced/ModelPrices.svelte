@@ -99,7 +99,7 @@
   {/if}
 </SettingsSection>
 
-<Dialog open={editing !== null} title={editing ? `Prices for ${name(editing)}` : 'Add a price'} size="md" {busy} onclose={() => (editing = null)}>
+<Dialog open={editing !== null} title={editing ? `Prices for ${name(editing)}` : 'Add a price'} size="md" {busy} onclose={() => (editing = null)} cancel>
   <form id="{uid}-price" class="space-y-5" onsubmit={save} novalidate>
     {#if editing === ''}
       <Select label="Model" bind:value={pick} options={choices.map((r) => ({ value: r, label: `${name(r)} (${r})` }))} />
@@ -110,8 +110,7 @@
     </div>
     {#if error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error}</p>{/if}
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-price" loading={busy} loadingLabel="Saving…">Save prices</Button>
   {/snippet}
 </Dialog>

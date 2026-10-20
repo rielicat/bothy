@@ -338,17 +338,16 @@
   </Disclosure>
 </ConnPage>
 
-<Dialog bind:open={leaving} title="Disconnect GitHub?" initialFocus="cancel" {busy}>
+<Dialog bind:open={leaving} title="Disconnect GitHub?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">
     Bothy will stop reading these repositories and can't open pull requests or deploy. Project notes are kept.{app ? ` ${app.name} stays on GitHub until you delete it there.` : ''}
   </p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Disconnecting…" onclick={disconnect}>Disconnect GitHub</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={adding} title={allowed.length ? 'Add repositories' : 'Which repositories can Bothy use?'} size="md" {busy}>
+<Dialog bind:open={adding} title={allowed.length ? 'Add repositories' : 'Which repositories can Bothy use?'} size="md" {busy} cancel>
   {#if probeError}
     <StatusLine tone="danger" text="Bothy couldn't ask GitHub for more repositories. Try again." details={probeError} />
   {:else if !probe}
@@ -376,16 +375,14 @@
       </p>
     {/if}
   {/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     {#if addable.length}<Button variant="primary" loading={busy} loadingLabel="Adding…" onclick={addMore}>Add repositories</Button>{/if}
   {/snippet}
 </Dialog>
 
-<Dialog open={!!dropping} onclose={() => (dropping = '')} title="Delete {dropping}?" initialFocus="cancel" {busy}>
+<Dialog open={!!dropping} onclose={() => (dropping = '')} title="Delete {dropping}?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy can no longer deploy to {dropping}. Past deploys stay in Activity. This can't be undone.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={dropEnv}>Delete environment</Button>
   {/snippet}
 </Dialog>

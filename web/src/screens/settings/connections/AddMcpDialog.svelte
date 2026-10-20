@@ -144,7 +144,7 @@
   }
 </script>
 
-<Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || pkg)} {busy}>
+<Dialog bind:open title="Add an MCP server" size="md" dirty={!!(name || address || pkg)} {busy} cancel>
   <form id="add-mcp" class="space-y-5" onsubmit={add} novalidate>
     <TextField label="Name" bind:value={name} error={show('name')} placeholder="Linear" autocomplete="off" spellcheck="false" />
     <div>
@@ -222,8 +222,7 @@
     </div>
     {#if failure}<StatusLine tone="danger" alert text={failure.message} details={failure.details} />{/if}
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="add-mcp" disabled={blocked} loading={busy} loadingLabel="Adding…">Add server</Button>
   {/snippet}
 </Dialog>

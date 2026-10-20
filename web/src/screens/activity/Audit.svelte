@@ -252,11 +252,10 @@
   {/if}
 </Activity>
 
-<Dialog bind:open={allowOpen} title="Allow Bothy to send data to {allowing?.host ?? ''}?" busy={allowBusy} onclose={() => (allowError = '')}>
+<Dialog bind:open={allowOpen} title="Allow Bothy to send data to {allowing?.host ?? ''}?" busy={allowBusy} onclose={() => (allowError = '')} cancel>
   <p class="text-body text-text">This applies to everyone's tasks until you remove it in Settings → Security.</p>
   {#if allowError}<p class="field-error mt-2" role="alert">{allowError}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={allowBusy} loadingLabel="Allowing…" onclick={allow}>Allow site</Button>
   {/snippet}
 </Dialog>

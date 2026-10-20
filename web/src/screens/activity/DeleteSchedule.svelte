@@ -50,11 +50,11 @@
     schedule = null;
     error = '';
   }}
+  cancel
 >
   <p class="text-body text-text">It stops running. {team ? 'Past results stay in that chat' : 'Its past results stay in your chats'}. This can't be undone.</p>
   {#if error}<p class="field-error mt-2" role="alert">{error}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Deleting…" onclick={remove}>Delete schedule</Button>
   {/snippet}
 </Dialog>

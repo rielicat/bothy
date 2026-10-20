@@ -162,7 +162,7 @@
   {/if}
 </Page>
 
-<Dialog bind:open={adding} title="Add website" size="md" busy={saving} dirty={!!typed} onclose={() => ((typed = ''), (addError = ''), (tried = false))}>
+<Dialog bind:open={adding} title="Add website" size="md" busy={saving} dirty={!!typed} onclose={() => ((typed = ''), (addError = ''), (tried = false))} cancel>
   <form id="{uid}-add" onsubmit={add} novalidate>
     <TextField
       label="Website address"
@@ -175,13 +175,12 @@
       error={tried ? typedError || addError : addError}
     />
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-add" loading={saving} loadingLabel="Adding…">Add website</Button>
   {/snippet}
 </Dialog>
 
-<Dialog open={!!allowing} title="Allow {allowSite}?" busy={saving} onclose={() => (allowing = null)}>
+<Dialog open={!!allowing} title="Allow {allowSite}?" busy={saving} onclose={() => (allowing = null)} cancel>
   <p class="text-body text-text">
     Code Bothy runs will be able to reach <span class="font-mono text-code [overflow-wrap:anywhere]">{allowSite}</span> in every chat. You can remove it from this list at any
     time.
@@ -190,8 +189,7 @@
     <Notice tone="warning" class="mt-3" text="Anyone can publish on {allowShared.replace(/^\./, '')}, so this also lets Bothy reach other people's sites there." />
   {/if}
   {#if allowError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{allowError}</p>{/if}
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={saving} loadingLabel="Allowing…" onclick={allowBlocked}>Allow site</Button>
   {/snippet}
 </Dialog>

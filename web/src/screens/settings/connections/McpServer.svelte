@@ -346,7 +346,7 @@
   {/if}
 </ConnPage>
 
-<Dialog bind:open={reviewing} title={allNew ? `Review actions from ${title}` : `Review changes to ${title}`} size="lg" {busy}>
+<Dialog bind:open={reviewing} title={allNew ? `Review actions from ${title}` : `Review changes to ${title}`} size="lg" {busy} cancel>
   <div class="space-y-8">
     {#each pending as p (p.tool)}
       {@const d = drafts[p.tool]}
@@ -374,13 +374,12 @@
       {/if}
     {/each}
   </div>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={saveReview}>Save <span class="max-sm:hidden">review</span></Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy}>
+<Dialog bind:open={keying} title={keySaved ? `Replace the key for ${title}` : `Add a key for ${title}`} dirty={!!newKey} {busy} cancel>
   <form id="mcp-key" class="space-y-4" onsubmit={saveKey} novalidate>
     <TextField
       label="Key"
@@ -392,26 +391,23 @@
     />
     {#if keyFailure}<StatusLine tone="danger" alert text={keyFailure.message} details={keyFailure.details} />{/if}
   </form>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" type="submit" form="mcp-key" loading={busy} loadingLabel="Saving…">Save key</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={lending} title="Use your own key?" {busy}>
+<Dialog bind:open={lending} title="Use your own key?" {busy} cancel>
   <p class="text-body text-text">
     Bothy will send your own key{keyRef ? ` “${keyRef}”` : ''} to {hostOf(url)} when it checks what {title} can do. It's never used for anyone else.
   </p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="primary" loading={busy} loadingLabel="Saving…" onclick={lend}>Use my key</Button>
   {/snippet}
 </Dialog>
 
-<Dialog bind:open={removing} title="Remove {title}?" initialFocus="cancel" {busy}>
+<Dialog bind:open={removing} title="Remove {title}?" initialFocus="cancel" {busy} cancel>
   <p class="text-body text-text">Bothy loses these actions{ownKey ? ' and deletes its saved key' : ''}. You can add the server again later.</p>
-  {#snippet footer({ close })}
-    <Button data-cancel onclick={close}>Cancel</Button>
+  {#snippet footer()}
     <Button variant="danger" loading={busy} loadingLabel="Removing…" onclick={remove}>Remove server</Button>
   {/snippet}
 </Dialog>
