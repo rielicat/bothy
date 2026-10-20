@@ -63,8 +63,13 @@ func (s *Server) starterState(ctx context.Context, a core.Actor) (starters.State
 			s.log.Warn("starters: read GitHub repositories", "err", err)
 		}
 		st.GitHub, st.GitHubRepos = len(conns) > 0, len(repos) > 0
-		if st.Repo == "" && len(repos) > 0 {
-			st.Repo = repos[0].FullName()
+		if st.Repo == "" {
+			names := make([]string, 0, len(repos))
+			for _, r := range repos {
+				names = append(names, r.FullName())
+			}
+			st.Repo = starters.PickRepo(names, st.Releases)
+			st.RepoUnread = st.Repo != ""
 		}
 	}
 	return st, nil
@@ -149,6 +154,12 @@ func (s *Server) welcome(w http.ResponseWriter, r *http.Request, a core.Actor) e
 	}
 	if !made {
 		return ok(w, dto.WelcomeResp{})
+	}
+	if st.RepoUnread {
+		// The welcome says Bothy can read the code there; indexes are per
+		// person, so start this account's read now rather than at its first
+		// question.
+		s.prefetchRepos(ctx, s.d.GitHub, a, []string{st.Repo})
 	}
 	if s.d.Bus != nil {
 		s.d.Bus.Publish(core.Event{Type: core.EvMessageCreated, Principal: chat.Principal, Session: chat.ID, Data: core.MessageData{Message: msg}})

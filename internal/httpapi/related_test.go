@@ -426,6 +426,34 @@ func TestStarters(t *testing.T) {
 	}
 }
 
+// A new member has no index of their own: the starters and the welcome
+// name the repository the team deploys rather than the alphabetical first,
+// and the welcome starts reading it for them.
+func TestStartersNameTheDeployedRepository(t *testing.T) {
+	h := newHarness(t).setup()
+	gh := &fakeGitHub{allowed: []*core.GitHubRepo{
+		{Connection: ghConnID, Owner: "acme", Name: "api", Allowed: true},
+		{Connection: ghConnID, Owner: "acme", Name: "web", Allowed: true},
+	}}
+	h.srv.d.GitHub = gh
+	h.srv.d.Knowledge = newFakeKnowledge()
+	h.cfg.update(func(c *config.Config) { c.Releases.Environments = []config.ReleaseEnv{{Name: "production", Repo: "Acme/Web"}} })
+	if rows := starterTexts(t, h, h.member); rows[0].Text != "Summarise the open pull requests in acme/web" {
+		t.Fatalf("member's starters = %+v", rows)
+	}
+	got := decodeAs[dto.WelcomeResp](t, h.do("POST", "/api/me/welcome", nil, h.member))
+	msgs, err := h.store.Messages().Range(context.Background(), core.SystemViewer(), got.ChatID, 0, 10)
+	if err != nil || len(msgs) != 1 || !strings.Contains(msgs[0].PlainText(), "read your code in acme/web") {
+		t.Fatalf("welcome = %+v %v", msgs, err)
+	}
+	h.srv.jobs.wait()
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.prefetch) != 1 || gh.prefetch[0].env.User != h.member.user || !slices.Equal(gh.prefetch[0].repos, []string{"acme/web"}) {
+		t.Fatalf("prefetch = %+v", gh.prefetch)
+	}
+}
+
 func TestScheduleExamples(t *testing.T) {
 	h := newHarness(t).setup()
 	get := func(c *client) dto.ScheduleExamples {

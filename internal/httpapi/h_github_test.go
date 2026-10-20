@@ -24,6 +24,7 @@ type fakeGitHub struct {
 	by       []core.UserID
 	err      error
 	prefetch []prefetchCall
+	allowed  []*core.GitHubRepo // Repos; nil = octocat/Hello-World
 }
 
 type prefetchCall struct {
@@ -106,6 +107,9 @@ func (f *fakeGitHub) Disconnect(_ context.Context, id string, by core.UserID) er
 }
 
 func (f *fakeGitHub) Repos(context.Context) ([]*core.GitHubRepo, error) {
+	if f.allowed != nil {
+		return f.allowed, f.err
+	}
 	return []*core.GitHubRepo{{Connection: ghConnID, Owner: "octocat", Name: "Hello-World", Allowed: true}}, f.err
 }
 
