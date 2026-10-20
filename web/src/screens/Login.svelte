@@ -132,30 +132,31 @@
 {#if remote}
   <RemoteSetup fix={remote.fix} />
 {:else}
-  <Frame title="Sign in">
+  <Frame title="Sign in to Bothy" card>
+    {#snippet after()}<p>Forgot your password? Ask an admin.</p><p class="mt-6">{location.host}</p>{/snippet}
     {#if notice}<Notice class="mb-6" text={notice} />{/if}
     {#if providerError}{@render failure('mb-4')}{/if}
     {#if providers.length}
-      <div class="flex flex-col items-start gap-3">
+      <div class="flex flex-col gap-2">
         {#each providers as p (p.provider)}
-          <Button class="h-10 max-sm:w-full pointer-coarse:h-11" loading={opening === p.provider} loadingLabel="Opening {p.name}…" onclick={() => start(p)}
+          <Button class="h-11 w-full" icon={p.provider} loading={opening === p.provider} loadingLabel="Opening {p.name}…" onclick={() => start(p)}
             >Continue with {p.name}</Button
           >
         {/each}
       </div>
       <div class="my-6 flex items-center gap-3 text-small text-muted">
-        <span class="h-px flex-1 bg-border" aria-hidden="true"></span>or<span class="h-px flex-1 bg-border" aria-hidden="true"></span>
+        <span class="h-px flex-1 bg-border" aria-hidden="true"></span>or sign in with a password<span class="h-px flex-1 bg-border" aria-hidden="true"></span>
       </div>
     {/if}
     <form novalidate onsubmit={submit}>
-      <div class="space-y-5">
+      <div class="space-y-5 [&_.input]:h-11">
         <TextField label="Username" bind:value={username} bind:input={userInput} autocomplete="username" autocapitalize="none" spellcheck="false" />
         <PasswordField label="Password" bind:value={password} bind:input={passInput} autocomplete="current-password" />
       </div>
       {#if error}
         <p class="field-error mt-8" role="alert"><Icon name="alert" class="mt-px" /><span class="min-w-0">{error}</span></p>
       {/if}
-      <Button type="submit" variant="primary" class="{error ? 'mt-4' : 'mt-8'} h-10 max-sm:w-full pointer-coarse:h-11" loading={busy} loadingLabel="Signing in…">Sign in</Button>
+      <Button type="submit" variant="primary" class="{error ? 'mt-4' : 'mt-6'} h-11 w-full" loading={busy} loadingLabel="Signing in…">Sign in</Button>
     </form>
   </Frame>
 {/if}

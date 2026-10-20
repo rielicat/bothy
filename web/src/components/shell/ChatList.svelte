@@ -32,13 +32,13 @@
   {@const state = stateOf(members)}
   {@const related = stateOf([s]) === state ? '' : ' in a related chat'}
   {@const hold = r && !state}
-  <div class="group flex items-center rounded-md {members.some((m) => m.id === current) ? 'bg-selected' : menuOpen ? 'bg-hover' : 'hover:bg-hover'}">
+  <div class="group flex items-center rounded-md {members.some((m) => m.id === current) ? 'bg-raised shadow-raised' : menuOpen ? 'bg-hover' : 'hover:bg-hover'}">
     <a
       href="/chat/{encodeURIComponent(s.id)}"
       onclick={router.link}
       aria-current={s.id === current ? 'page' : undefined}
       {title}
-      class="flex h-8 min-w-0 flex-1 items-center rounded-md px-2 text-body text-text focus-visible:-outline-offset-2 pointer-coarse:h-11"
+      class="flex h-8 min-w-0 flex-1 items-center rounded-md px-2.5 text-body text-text focus-visible:-outline-offset-2 pointer-coarse:h-11"
       ><span class="truncate">{label || title}</span></a
     >
     {#if r}
@@ -93,7 +93,7 @@
       <li>
         {@render row(r.head, r.kids.length ? r : undefined)}
         {#if r.kids.length && chats.isOpen(r.key)}
-          <ul id="{uid}-{r.key}" aria-label="Related to “{chats.title(r.head)}”" class="pl-5">
+          <ul id="{uid}-{r.key}" aria-label="Related to “{chats.title(r.head)}”" class="ml-3 border-l border-border-strong pl-2">
             {#each r.kids as k (k.id)}
               <li>{@render row(k, undefined, r.key === `s:${k.schedule_id}` ? relTime(k.created_at, { now: clock.now }) : '')}</li>
             {/each}

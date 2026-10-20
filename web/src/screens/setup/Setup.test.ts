@@ -150,11 +150,10 @@ describe('step 1: create your account', () => {
     expect(screen.getByText('4 more characters needed.')).toBeTruthy();
     await fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'abcdefghijkl' } });
     expect(screen.getByText('Long enough.')).toBeTruthy();
-    const show = screen.getByRole('button', { name: 'Show' });
-    expect(show.getAttribute('aria-pressed')).toBe('false');
-    await fireEvent.click(show);
+    // The eye inside the field shows the password and names what it does next.
+    await fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
     expect((screen.getByLabelText('Password') as HTMLInputElement).type).toBe('text');
-    expect(screen.getByRole('button', { name: 'Hide' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Hide password' }).getAttribute('aria-controls')).toBe(screen.getByLabelText('Password').id);
   });
 
   it('creates the owner with a name, then turns on team mode and the time zone silently', async () => {

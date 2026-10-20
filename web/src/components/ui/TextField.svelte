@@ -17,6 +17,8 @@
     prefix?: string;
     /** A small control at the end of the label line, such as Show / Hide. */
     labelAction?: Snippet;
+    /** A small control inside the field's end, such as a show-password toggle. */
+    trailing?: Snippet;
     /** Shows the value as plain text instead of a field. */
     readonly?: boolean;
     input?: HTMLInputElement;
@@ -32,6 +34,7 @@
     optional = false,
     prefix,
     labelAction,
+    trailing,
     readonly = false,
     id: idProp,
     input = $bindable(),
@@ -66,11 +69,12 @@
         bind:value
         {id}
         {type}
-        class="input {prefix ? 'pl-7' : ''}"
+        class="input {prefix ? 'pl-7' : ''} {trailing ? 'pr-10' : ''}"
         aria-invalid={error ? 'true' : undefined}
         aria-describedby={describedBy}
         {...rest}
       />
+      {#if trailing}<div class="absolute inset-y-px right-px flex items-center">{@render trailing()}</div>{/if}
     </div>
     <FieldMessage id={uid} {help} {error} />
   {/if}

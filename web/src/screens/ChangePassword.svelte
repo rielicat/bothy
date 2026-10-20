@@ -58,7 +58,7 @@
   }
 </script>
 
-<Frame title="Choose a new password" intro="You signed in with a one-time password. Choose your own to continue.">
+<Frame title="Choose a new password" intro="You signed in with a one-time password. Choose your own to continue." card>
   <form novalidate onsubmit={submit}>
     <div class="space-y-5">
       {#if !remembered || oldError}

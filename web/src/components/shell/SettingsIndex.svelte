@@ -19,7 +19,7 @@
       {#each s.groups as g (g.id)}
         <li class="border-b border-border last:border-b-0">
           <a href="/settings/{g.id}" onclick={router.link} class="row-link flex min-h-12 items-center gap-3 text-body font-medium text-text">
-            <span class="flex-1">{g.label}</span>
+            <Icon name={g.icon} size={18} class="text-muted" /><span class="flex-1">{g.label}</span>
             {#if g.dot && attention[g.dot]}<Dot />{/if}
             <Icon name="chevron-right" class="text-muted" />
           </a>

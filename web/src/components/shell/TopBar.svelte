@@ -57,7 +57,7 @@
   {/if}
   {#if n && !router.path.startsWith('/approvals')}
     <!-- On a phone a chat's title needs the room; the dot on the menu button and the drawer's count still say it. -->
-    <Button variant="ghost" size="sm" href="/approvals" class="text-accent-text {router.path.startsWith('/chat') ? 'max-sm:hidden' : ''}">{n} waiting</Button>
+    <Button variant="ghost" size="sm" href="/approvals" class="text-warning-text {router.path.startsWith('/chat') ? 'max-sm:hidden' : ''}">{n} waiting</Button>
   {/if}
   {#if shell.actions}{@render shell.actions()}{/if}
 </div>

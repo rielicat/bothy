@@ -29,9 +29,28 @@ describe('sign in (§5.9)', () => {
 
   it('signs in', async () => {
     render(Login);
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sign in');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Sign in to Bothy');
     await signIn('sam', 'Granite-River-42-Lantern');
     await waitFor(() => expect(session.me?.user.username).toBe('sam'));
+  });
+
+  it('sends a forgotten password to an admin and offers no reset it cannot do', () => {
+    render(Login);
+    expect(screen.getByText('Forgot your password? Ask an admin.')).toBeTruthy();
+    expect(screen.queryByText(/Forgot it/)).toBeNull();
+    expect(screen.queryByRole('link', { name: /reset|forgot/i })).toBeNull();
+    expect(screen.getByText(location.host)).toBeTruthy();
+  });
+
+  it('shows and hides the password with the eye in the field', async () => {
+    render(Login);
+    const field = screen.getByLabelText('Password') as HTMLInputElement;
+    const eye = screen.getByRole('button', { name: 'Show password' });
+    expect(eye.getAttribute('aria-controls')).toBe(field.id);
+    await fireEvent.click(eye);
+    expect(field.type).toBe('text');
+    await fireEvent.click(screen.getByRole('button', { name: 'Hide password' }));
+    expect(field.type).toBe('password');
   });
 
   it('says a wrong password plainly, above the button, and clears the password', async () => {
@@ -151,7 +170,7 @@ describe('sign in with Google or GitHub (§5.9)', () => {
     render(Login);
     await waitFor(() => expect(calls.some((c) => c.url === '/api/auth/methods')).toBe(true));
     expect(screen.queryByRole('button', { name: /^Continue with/ })).toBeNull();
-    expect(screen.queryByText('or')).toBeNull();
+    expect(screen.queryByText('or sign in with a password')).toBeNull();
   });
 
   it('puts the providers above the form and leaves for the one chosen, carrying next', async () => {
@@ -159,7 +178,10 @@ describe('sign in with Google or GitHub (§5.9)', () => {
     render(Login);
     const google = await screen.findByRole('button', { name: 'Continue with Google' });
     expect(screen.getByRole('button', { name: 'Continue with GitHub' })).toBeTruthy();
-    expect(screen.getByText('or')).toBeTruthy();
+    // Each provider button carries its own mark (§5.9), from the sprite.
+    expect(google.querySelector('use')?.getAttribute('href')).toBe('#i-google');
+    expect(screen.getByRole('button', { name: 'Continue with GitHub' }).querySelector('use')?.getAttribute('href')).toBe('#i-github');
+    expect(screen.getByText('or sign in with a password')).toBeTruthy();
     expect(google.compareDocumentPosition(screen.getByLabelText('Username')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await fireEvent.click(google);
     await waitFor(() => expect(left).toEqual(['/api/mock/oauth/google?state=mock']));

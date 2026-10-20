@@ -40,7 +40,7 @@
   }
 </script>
 
-<Frame title="Set up Bothy" intro="Paste the setup code Bothy printed when it started.">
+<Frame title="Set up Bothy" intro="Paste the setup code Bothy printed when it started." card>
   {#if notice}<Notice class="mb-6" tone="warning" text={notice} />{/if}
   <form novalidate onsubmit={submit}>
     <TextField label="Setup code" bind:value={code} bind:input {error} autocomplete="off" autocapitalize="none" spellcheck="false" oninput={() => (error = '')} />
