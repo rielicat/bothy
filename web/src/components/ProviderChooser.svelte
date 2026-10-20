@@ -175,7 +175,6 @@
   // A provider found on the server leaves the list, unless it was chosen there before detection finished.
   const hide = $derived(new Set([...exclude, ...found.map((r) => (r.source === 'aws' ? 'bedrock' : r.source === 'local' ? r.def.id : '')).filter((id) => id && `p:${id}` !== selected)]));
   const looking = $derived(detections === null && slow);
-  const pad = $derived(setup ? '[&>div>label]:px-4 [&>div>div]:mr-4 [&>div>div]:ml-11 max-sm:[&>div>div]:ml-4' : '');
   const base = $derived(providers.filter((p) => !p.more && !hide.has(p.id)).map(listRow));
   const extra = $derived(providers.filter((p) => p.more && !hide.has(p.id)).map(listRow));
   const rows = $derived([...found, ...base, ...extra]);
@@ -604,18 +603,18 @@
 <div bind:this={root}>
   {#if found.length}
     <h2 class="text-small font-medium text-muted">Found on this server</h2>
-    <OptionList class="mt-2" name="{uid}-found" label="Found on this server" options={found} framed={setup} bind:value={selected} onchange={select} expanded={expand} />
+    <OptionList class="mt-2" name="{uid}-found" label="Found on this server" options={found} framed={false} bind:value={selected} onchange={select} expanded={expand} />
   {:else if looking}
     <p class="text-body text-muted" role="status">Looking for models on this server…</p>
   {/if}
   <h2 class="text-small font-medium text-muted {found.length || looking ? 'mt-8' : ''}">{found.length || looking ? 'Or choose a provider' : 'Choose a provider'}</h2>
-  <!-- One card holds both lists and the More providers row, so the lists are unframed and take a framed list's row padding from here. -->
-  <div class="mt-2 {setup ? 'card p-0' : ''}">
-    <OptionList name="{uid}-list" label="Providers" options={base} framed={false} class={pad} bind:value={selected} onchange={select} expanded={expand} />
+  <!-- Unframed in setup too: the step's own card (or the dialog) holds the lists. -->
+  <div class="mt-2">
+    <OptionList name="{uid}-list" label="Providers" options={base} framed={false} bind:value={selected} onchange={select} expanded={expand} />
     <div class="border-t border-border">
       <button
         type="button"
-        class="flex min-h-12 w-full cursor-pointer items-center gap-2 text-left text-body font-medium text-text {setup ? 'px-4' : ''}"
+        class="flex min-h-12 w-full cursor-pointer items-center gap-2 text-left text-body font-medium text-text"
         aria-expanded={showMore}
         aria-controls="{uid}-more"
         onclick={() => (more = !showMore)}
@@ -627,7 +626,7 @@
     <div id="{uid}-more">
       {#if showMore}
         <div class="border-t border-border">
-          <OptionList name="{uid}-more" label="More providers" options={extra} framed={false} class={pad} bind:value={selected} onchange={select} expanded={expand} />
+          <OptionList name="{uid}-more" label="More providers" options={extra} framed={false} bind:value={selected} onchange={select} expanded={expand} />
         </div>
       {/if}
     </div>
