@@ -158,6 +158,23 @@ describe('Toast', () => {
     expect(screen.queryByText('Saved.')).toBeNull();
   });
 
+  // "Open chat" vanished after about 4 s, before people reached it.
+  it('stays twice as long when it carries an action', () => {
+    vi.useFakeTimers();
+    render(ToastHost);
+    flushSync(() => toast('Saved.'));
+    vi.advanceTimersByTime(4100);
+    flushSync();
+    expect(screen.queryByText('Saved.')).toBeNull();
+    flushSync(() => toast('Schedule started.', { action: { label: 'Open chat', onclick: () => {} } }));
+    vi.advanceTimersByTime(7000);
+    flushSync();
+    expect(screen.queryByText('Schedule started.')).not.toBeNull();
+    vi.advanceTimersByTime(1100);
+    flushSync();
+    expect(screen.queryByText('Schedule started.')).toBeNull();
+  });
+
   it('runs its action once and closes', async () => {
     render(ToastHost);
     const undo = vi.fn();

@@ -30,7 +30,8 @@ class Toaster {
 
   show(text: string, opts: { action?: ToastAction; duration?: number } = {}): number {
     const id = ++this.#id;
-    this.current = { id, text, action: opts.action, duration: opts.duration ?? 4000 };
+    // An action needs time to be read and reached, more than a plain "Saved." does.
+    this.current = { id, text, action: opts.action, duration: opts.duration ?? (opts.action ? 8000 : 4000) };
     this.#paused = false;
     this.#run(this.current.duration);
     return id;

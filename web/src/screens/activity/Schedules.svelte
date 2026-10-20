@@ -1,8 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, EmptyState, IconButton, Menu, StatusLine, Switch, toast, type MenuItem } from '../../components/ui';
-  import { api, ApiError, refusal } from '../../lib/api/client';
-  import type { List, RunScheduleResp, Schedule, ScheduleExamples, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
+  import { Button, EmptyState, IconButton, Menu, StatusLine, Switch, type MenuItem } from '../../components/ui';
+  import { api, refusal } from '../../lib/api/client';
+  import type { List, Schedule, ScheduleExamples, SchedulePreviewResp, ScheduleRunData, TeamSchedule } from '../../lib/api/types.gen';
   import Icon from '../../components/Icon.svelte';
   import { appName } from '../../lib/cardcopy';
   import { router } from '../../lib/router.svelte';
@@ -13,7 +13,7 @@
   import DeleteSchedule from './DeleteSchedule.svelte';
   import type { TaskRun } from './api';
   import Loading from '../../components/ui/Loading.svelte';
-  import { checkinBlank, every, nextRun } from './schedule';
+  import { checkinBlank, every, nextRun, runNow } from './schedule';
   import { deliverTo } from './tasks';
 
   let list = $state<Schedule[] | null>(null);
@@ -87,19 +87,9 @@
     }
   }
 
-  async function runNow(s: Schedule) {
-    try {
-      const chat = (await api.post<RunScheduleResp>(`/api/schedules/${encodeURIComponent(s.id)}/run`))?.session_id;
-      toast('Schedule started.', chat ? { action: { label: 'Open chat', onclick: () => router.navigate(`/chat/${encodeURIComponent(chat)}`) } } : {});
-    } catch (e) {
-      // An empty check-in list, or Bothy paused: trying again won't help.
-      errors[s.id] = refusal(e) || (e instanceof ApiError && e.code === 'paused' ? 'Bothy is paused by an admin, so nothing new starts.' : "Couldn't start it. Try again.");
-    }
-  }
-
   function menu(s: Schedule | undefined, path: string): MenuItem[] {
     const items: MenuItem[] = [
-      ...(s ? [{ label: 'Run now', onselect: () => runNow(s) }] : []),
+      ...(s ? [{ label: 'Run now', onselect: async () => (errors[s.id] = await runNow(s)) }] : []),
       { label: 'Edit', onselect: () => router.navigate(path) },
       ...(s ? [{ label: 'History', onselect: () => router.navigate(`${path}#recent`) }] : []),
     ];
