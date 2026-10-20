@@ -54,7 +54,8 @@ searches the run's own principal only and touches the repo it used.
 index a background draft (`knowledge.auto_notes`) asks the fast model (main
 when no fast model is set, metered as purpose `notes`, daily cap checked) for
 fixed sections from the README, build files, two CI workflows and the
-top-level layout, all spotlighted as untrusted and passed through the vault
+top-level layout (a GitHub source's from `Deps.Snapshot` of the commit the
+index read, like the index itself), all spotlighted as untrusted and passed through the vault
 redactor (as is the reply); the result is marked untrusted. The `notes` tool
 (`TaintPrivate`, like memory) reads (read) or edits (append to a section, replace
 exact text) them; edits plan a diff, use `Action.Kind` memory so policy's

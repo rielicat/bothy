@@ -267,7 +267,17 @@ func (s *Service) draft(ctx context.Context, r *core.IndexedRepo, p *core.Princi
 	if err != nil {
 		return "", err
 	}
-	input, err := draftInput(workspaceDir(s.d.WorkDir, p), r.Dir, files)
+	ws, dir, sha := workspaceDir(s.d.WorkDir, p), r.Dir, r.SHA
+	if r.Source == core.KnowledgeGitHub && s.d.Snapshot != nil {
+		// The same commit the index read, not the checkout boxes edit.
+		snap, got, done, err := s.d.Snapshot(ctx, p.Workspace, r.Repo, r.IndexedSHA)
+		if err != nil {
+			return "", &errUser{s.redact("Bothy couldn't read " + r.Repo + " from GitHub: " + err.Error())}
+		}
+		defer done()
+		ws, dir, sha = snap, ".", got
+	}
+	input, err := draftInput(ws, dir, files)
 	if err != nil {
 		return "", &errUser{"The repository files could not be read."}
 	}
@@ -280,8 +290,8 @@ func (s *Service) draft(ctx context.Context, r *core.IndexedRepo, p *core.Princi
 		}
 	}
 	head := "Repository: " + r.Repo
-	if r.SHA != "" {
-		head += " (commit " + shortSHA(r.SHA) + ")"
+	if sha != "" {
+		head += " (commit " + shortSHA(sha) + ")"
 	}
 	build := func(m core.ModelInfo) (*core.Request, error) {
 		out := draftMaxTokens

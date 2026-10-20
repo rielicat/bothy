@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rielicat/bothy/internal/config"
 	"github.com/rielicat/bothy/internal/core"
+	"github.com/rielicat/bothy/internal/testkit/fakes"
 )
 
 // fakeGitHub serves commits as folders, like github.Service.Snapshot.
@@ -116,5 +118,37 @@ func TestWorkspaceIndexIgnoresSnapshots(t *testing.T) {
 	h.write("proj/a.go", "package a\n")
 	if r := h.index("proj", "", ""); r.Status != core.IndexReady || len(g.asked) != 0 {
 		t.Fatalf("index = %+v, snapshots %v", r, g.asked)
+	}
+}
+
+// The notes draft reads the commit the index read as well: a README a box
+// edited in the checkout never reaches the notes.
+func TestGitHubNotesDraftReadsTheCommit(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Knowledge.AutoNotes = true })
+	const sha = "a227002a1647aaaa"
+	g := &fakeGitHub{t: t, head: sha, trees: map[string]map[string]string{
+		sha: {"README.md": "# web\n\nThe committed readme.\n", "go.mod": "module acme/web\n"},
+	}}
+	h.svc.d.Snapshot = g.snapshot
+	h.write("repos/acme/web/README.md", "# web\n\nAn edit nobody committed.\n")
+	h.write("repos/acme/web/go.mod", "module acme/web\n")
+	h.llm.Steps = []fakes.LLMStep{draftStep("## Summary\nThe web app.\n")}
+	h.svc.onCheckout(h.ctx, core.Event{Type: core.EvRepoCheckout, Principal: h.p.ID,
+		Data: core.RepoCheckoutData{Repo: "acme/web", SHA: sha, Dir: "repos/acme/web"}})
+	repos, err := h.svc.Repos(h.ctx, h.viewer(), "")
+	if err != nil || len(repos) != 1 {
+		t.Fatalf("repos = %v %v", repos, err)
+	}
+	h.runJob(repos[0].ID)
+	h.svc.bgWG.Wait()
+	if len(h.llm.Requests) != 1 {
+		t.Fatalf("model calls = %d", len(h.llm.Requests))
+	}
+	user := h.llm.Requests[0].Messages[0].PlainText()
+	if !strings.Contains(user, "The committed readme.") || strings.Contains(user, "nobody committed") || !strings.Contains(user, "(commit "+sha[:12]+")") {
+		t.Fatalf("draft read:\n%s", user)
+	}
+	if !slices.Equal(g.asked, []string{"acme/web@" + sha, "acme/web@" + sha}) {
+		t.Errorf("snapshots asked = %v", g.asked)
 	}
 }
