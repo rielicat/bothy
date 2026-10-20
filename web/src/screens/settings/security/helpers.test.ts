@@ -117,6 +117,7 @@ describe('saved key names', () => {
     // A connected tool reads as Connections names it: "Acme helpdesk", not "Acme-helpdesk".
     expect(usedBy('acme_key', [{ path: 'mcp.servers.acme-helpdesk.headers.X-Api-Key', value: 'secret:acme_key' } as never])).toEqual(['Acme helpdesk']);
     expect(keyName('mcp_acme-helpdesk_header')).toBe('Key for Acme helpdesk');
+    expect(usedBy('wiki_key', [{ path: 'mcp.servers.deepwiki.headers.Authorization', value: 'secret:wiki_key' } as never])).toEqual(['DeepWiki']);
   });
 
   it('names aws-sm references by their secret, never the account', () => {
