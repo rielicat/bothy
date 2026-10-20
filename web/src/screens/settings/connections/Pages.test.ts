@@ -81,6 +81,26 @@ describe('Connections overview (§12.1)', () => {
     expect(JSON.parse(writes(calls)[0].body).set['mcp.servers.acme-helpdesk'].headers).toEqual({ 'X-Api-Key': 'secret:openrouter_api_key' });
   });
 
+  it('names the saved keys it offers as Saved keys does', async () => {
+    const saved = [
+      { scope: 'global', name: 'acme_helpdesk_key', source: 'vault' },
+      { scope: 'global', name: 'github_ghc_01m5bbd32ta4af183fzf6v6eq0', source: 'vault' },
+      { scope: 'global', name: 'aws-sm:secret/bothy#OPENROUTER_API_KEY', source: 'aws-sm' },
+    ];
+    const calls = await start((m, url) => (m === 'GET' && url === '/api/vault?scope=global' ? saved : undefined));
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    const key = (await within(dialog).findByLabelText('Key')) as HTMLSelectElement;
+    expect([...key.options].map((o) => [o.text, o.value])).toEqual([
+      ['Enter a key', ''],
+      ['Acme helpdesk key', 'secret:acme_helpdesk_key'],
+      ['GitHub connection key', 'secret:github_ghc_01m5bbd32ta4af183fzf6v6eq0'],
+      ['secret/bothy (OPENROUTER_API_KEY) in AWS Secrets Manager', 'aws-sm:secret/bothy#OPENROUTER_API_KEY'],
+    ]);
+    expect(writes(calls)).toEqual([]);
+  });
+
   it('takes the name as people write it and keeps it lower-cased with dashes', async () => {
     const calls = await start();
     render(Connections);
