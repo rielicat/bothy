@@ -17,15 +17,16 @@
     TextField,
     toast,
   } from '../../../components/ui';
+  import Loading from '../../../components/ui/Loading.svelte';
   import { api, ApiError, errorText, refusal } from '../../../lib/api/client';
   import type { MCPPin, MCPStatus, SideEffect } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { lineDiff } from '../../../lib/diff';
   import { plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
+  import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
   import { effects, retryText, saveConfig, serverTitle, toolProblem, type Failure } from './connections';
-  import Loading from './Loading.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
   const name = $derived(params.item.slice('mcp-'.length));
@@ -264,7 +265,7 @@
   {#if view === 'loading'}
     <Loading />
   {:else if view === 'failed'}
-    <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load, variant: 'secondary' }} />
+    <PageState kind="failed" onretry={load} />
   {:else if view === 'missing'}
     <EmptyState text="This tool was removed or never added." action={{ label: 'Go to Connections', href: '/settings/connections' }} />
   {:else}

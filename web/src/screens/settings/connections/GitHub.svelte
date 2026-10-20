@@ -3,7 +3,6 @@
   import {
     Button,
     Disclosure,
-    EmptyState,
     KeyField,
     LinkButton,
     OptionList,
@@ -14,17 +13,18 @@
     toast,
     type CheckResult,
   } from '../../../components/ui';
+  import Loading from '../../../components/ui/Loading.svelte';
   import { api, errorText } from '../../../lib/api/client';
   import { config } from '../../../lib/config.svelte';
   import { router } from '../../../lib/router.svelte';
   import { session } from '../../../lib/stores/session.svelte';
+  import PageState from '../security/PageState.svelte';
   import ConnPage from './ConnPage.svelte';
   import { appLanding, githubOutcome, saveConfig, type AppLandingFailure, type Failure, type GitHubOutcome } from './connections';
   import GitHubAppPending from './GitHubAppPending.svelte';
   import GitHubAppRetired from './GitHubAppRetired.svelte';
   import GitHubCreateApp from './GitHubCreateApp.svelte';
   import GitHubManage from './GitHubManage.svelte';
-  import Loading from './Loading.svelte';
   import RepoPicker from './RepoPicker.svelte';
   import type { GitHubApp, GitHubAppCheck, GitHubConnection, GitHubProbe } from './types';
 
@@ -289,7 +289,7 @@
 {:else}
   <ConnPage title="Connect GitHub">
     {#if view === 'failed'}
-      <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load, variant: 'secondary' }} />
+      <PageState kind="failed" onretry={load} />
     {:else if view === 'connect'}
       <p class="text-reading text-text">Bothy uses this to read your code and open pull requests. It only ever works on its own branches.</p>
       {@render notices(false)}

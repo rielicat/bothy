@@ -7,6 +7,7 @@
   import Models from './Models.svelte';
   import People from './People.svelte';
   import Personality from './Personality.svelte';
+  import PageState from './security/PageState.svelte';
   import { settingsConfig } from './store.svelte';
 
   let { params }: { params: Record<string, string> } = $props();
@@ -50,7 +51,7 @@
   </Page>
 {:else if !allowed}
   <Page title={t.title}>
-    <EmptyState text="Only admins can see this page." action={{ label: 'Go to chat', href: '/chat' }} />
+    <PageState kind="forbidden" />
   </Page>
 {:else}
   <t.c {params} />

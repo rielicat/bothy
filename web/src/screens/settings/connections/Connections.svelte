@@ -1,13 +1,14 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { Button, EmptyState, SettingsSection } from '../../../components/ui';
+  import Loading from '../../../components/ui/Loading.svelte';
   import { api } from '../../../lib/api/client';
   import type { MCPStatus, SecretMeta, Teammate } from '../../../lib/api/types.gen';
   import { config } from '../../../lib/config.svelte';
   import { events } from '../../../lib/sse.svelte';
+  import PageState from '../security/PageState.svelte';
   import AddMcpDialog from './AddMcpDialog.svelte';
   import ConnPage from './ConnPage.svelte';
-  import Loading from './Loading.svelte';
   import {
     appNames,
     appStatus,
@@ -84,7 +85,7 @@
 
 <ConnPage title="Connections" back={null}>
   {#if phase === 'failed'}
-    <EmptyState text="This page didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: load, variant: 'secondary' }} />
+    <PageState kind="failed" onretry={load} />
   {:else if phase === 'loading'}
     <Loading />
   {:else}
