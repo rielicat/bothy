@@ -1,5 +1,5 @@
 // C3 Chat (docs/design/ui.md §7, §18.3): every chat state at 1280 × 800 and
-// 360 × 780, light and dark, with the G4 probes on each capture.
+// 375 × 812, light and dark, with the G4 probes on each capture.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/chat.spec.ts
 //   open e2e/shots/out/chat/index.html

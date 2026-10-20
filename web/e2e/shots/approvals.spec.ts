@@ -2,7 +2,7 @@
 // §8.2, warnings, deny reason, sending and failed states, the "Always allow"
 // dialog, every decided line, the multi-approver viewer states, the pull
 // request card, the deploy follow-up lines, the inbox, the Done tab, each
-// review item and the empty states, at 1280 and 360 in light and dark.
+// review item and the empty states, at 1280 and 375 in light and dark.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/approvals.spec.ts
 import type { Page } from '@playwright/test';

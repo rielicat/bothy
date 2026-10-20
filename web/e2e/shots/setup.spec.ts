@@ -123,7 +123,7 @@ const states: ShotState[] = [
     ready: 'Create your account',
     setup: async (page) => {
       await page.getByLabel('Password', { exact: true }).fill('Granite-River-42-Lantern');
-      await page.getByRole('button', { name: 'Show' }).click();
+      await page.getByRole('button', { name: 'Show password' }).click();
     },
   },
   {

@@ -1,5 +1,5 @@
 // The final route list (docs/design/ui.md §4.5, §18.3 C10): every page once,
-// at 1280 × 800 and 360 × 780 in light and dark, with every G4 probe enforced.
+// at 1280 × 800 and 375 × 812 in light and dark, with every G4 probe enforced.
 // The chunk specs capture the states; this one proves the whole app together.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/all.spec.ts

@@ -122,7 +122,9 @@ test('a setting saves when the field loses focus and says so', async ({ page }) 
   const limit = page.getByLabel('Daily limit');
   await limit.fill('12');
   await page.keyboard.press('Tab');
-  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  // Said once, in the page header, while the header is in view (§11.1).
+  await expect(page.getByRole('status').filter({ hasText: 'Changes saved' })).toBeVisible();
+  await expect(page.getByText('Saved', { exact: true })).toHaveCount(0);
   await expect(limit).toHaveValue('12.00');
   // Without ?mock=, which would reset the fixtures.
   await page.goto('/settings/general');

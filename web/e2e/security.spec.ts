@@ -122,7 +122,7 @@ test('approvals settings work from the keyboard', async ({ page }) => {
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('radio', { name: 'Careful' })).toBeChecked();
   await expect(page.getByRole('radio', { name: 'Careful' })).toBeFocused();
-  await expect(page.getByText('Saved', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/^(Changes saved|Saved)$/).first()).toBeVisible();
 
   const chat = page.getByLabel('If nobody answers a chat request');
   await chat.focus();
@@ -215,7 +215,7 @@ test('Google sign-in: save and check the client, add who can sign in, switch it 
   const list = page.getByLabel('Who can sign in');
   await list.fill('acme.com\npat@gmail.com');
   await list.blur();
-  await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+  await expect(page.getByText(/^(Changes saved|Saved)$/).first()).toBeVisible();
   await page.getByRole('link', { name: /^Google/ }).click();
   await expect(sw).not.toHaveAttribute('aria-disabled', 'true');
   await sw.click();

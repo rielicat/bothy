@@ -1,5 +1,5 @@
 // C6 Activity (docs/design/ui.md §10, §18.3): every route and state the chunk
-// owns, at 1280 × 800 and 360 × 780 in light and dark, with the G4 probes.
+// owns, at 1280 × 800 and 375 × 812 in light and dark, with the G4 probes.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/activity.spec.ts
 //   open e2e/shots/out/activity/index.html

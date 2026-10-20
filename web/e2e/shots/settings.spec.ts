@@ -1,5 +1,5 @@
 // C7 Settings: Account, General, Models, People (docs/design/ui.md §11.1–11.5,
-// §18.3), every state at 1280 × 800 and 360 × 780 in light and dark.
+// §18.3), every state at 1280 × 800 and 375 × 812 in light and dark.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/settings.spec.ts
 //   open e2e/shots/out/settings/index.html
@@ -158,6 +158,19 @@ const states: ShotState[] = [
       await web.fill('bothy.acme');
       await web.press('Enter');
       await page.getByText('Use a full address').waitFor();
+    },
+  },
+  {
+    // Tone as three cards with a sample reply each (§11.3); picking one says "Changes saved" in the header.
+    name: 'general-tone',
+    route: '/settings/general',
+    ready: 'How Bothy sounds when it replies.',
+    full: false,
+    setup: async (page) => {
+      await frame(page);
+      await page.getByRole('radiogroup', { name: 'Tone' }).getByText('Calm and formal').click();
+      await page.getByText(/^(Changes saved|Saved)$/).first().waitFor();
+      await page.getByRole('radiogroup', { name: 'Tone' }).scrollIntoViewIfNeeded();
     },
   },
   { name: 'general-picture-custom', route: '/settings/general', mock: 'picture-custom', ready: 'Use default', full: false, setup: pictureRow() },
