@@ -50,6 +50,11 @@ function punyHost(host: string): string {
   }
 }
 
+// A bare name counts as a domain only when every label is letters, digits
+// and inner hyphens and the last starts with a letter: prose such as
+// "mondays.”" or "Ana.¿Ok" has a dot and a non-ASCII character too.
+const DOMAIN = /^(?:[\p{L}\p{N}](?:[\p{L}\p{M}\p{N}-]*[\p{L}\p{M}\p{N}])?\.)+\p{L}[\p{L}\p{M}\p{N}-]*[\p{L}\p{M}\p{N}]$/u;
+
 // Rewrites hosts inside URLs, and bare non-ASCII domain names, to punycode so
 // homographs ("аpple.com" with a Cyrillic а) are visible as xn--…. Both
 // patterns match each run of characters once, so long fields stay linear.
@@ -60,8 +65,9 @@ export function punycode(s: string): string {
       return scheme + auth.slice(0, at + 1) + punyHost(auth.slice(at + 1));
     })
     .replace(/(^|[\s(,;@])([^\s/:@(),;]+)/gu, (m, pre: string, run: string) => {
-      const dot = run.indexOf('.');
-      return NON_ASCII.test(run) && dot >= 0 && dot < run.length - 1 ? pre + punyHost(run) : m;
+      // Sentence punctuation after a name ("visit аpple.com.") stays as written.
+      const host = run.replace(/[\p{P}\p{S}]+$/u, '');
+      return NON_ASCII.test(host) && host.includes('.') && DOMAIN.test(host) ? pre + punyHost(host) + run.slice(host.length) : m;
     });
 }
 
