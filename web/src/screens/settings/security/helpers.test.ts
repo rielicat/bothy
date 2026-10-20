@@ -114,6 +114,9 @@ describe('saved key names', () => {
     expect(keyName('google_sign_in_client_secret')).toBe('Google sign-in client secret');
     expect(usedBy('github_ghc_01m53wrdcr979y0ba9ek63p0vs', [])).toEqual(['GitHub']);
     expect(usedBy('google_sign_in_client_secret', [{ path: 'auth.sign_in.google.client_secret', value: 'secret:google_sign_in_client_secret' } as never])).toEqual(['Sign-in']);
+    // A connected tool reads as Connections names it: "Acme helpdesk", not "Acme-helpdesk".
+    expect(usedBy('acme_key', [{ path: 'mcp.servers.acme-helpdesk.headers.X-Api-Key', value: 'secret:acme_key' } as never])).toEqual(['Acme helpdesk']);
+    expect(keyName('mcp_acme-helpdesk_header')).toBe('Key for Acme helpdesk');
   });
 
   it('names aws-sm references by their secret, never the account', () => {

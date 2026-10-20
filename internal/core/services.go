@@ -80,7 +80,8 @@ type MCPStatus struct {
 	// it uses doesn't exist), no_shared_key (discovery found no shared key
 	// for a header and the server refused without it; an admin may let
 	// their own key list its tools, MCP.DiscoverWith), key_locked (the saved keys are locked),
-	// key_rejected (the server answered 401 or 403), private_address
+	// key_rejected (the server answered 401 or 403), key_needed (it
+	// answered 401 or 403 while it has no key set at all), private_address
 	// (needs allow_private), needs_https (plain http with a key to a name
 	// that resolves to a public address), not_installed (a command server to
 	// install or reinstall), install_failed (its install failed; also with

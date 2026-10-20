@@ -35,7 +35,7 @@ const kinds: [RegExp, string][] = [
 ];
 
 export function serviceName(id: string): string {
-  return services[id] ?? id.charAt(0).toUpperCase() + id.slice(1);
+  return services[id] ?? id.charAt(0).toUpperCase() + id.slice(1).replace(/[-_]+/g, ' ');
 }
 
 const AWS_SM = 'aws-sm:';

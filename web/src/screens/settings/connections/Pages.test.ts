@@ -53,12 +53,32 @@ describe('Connections overview (§12.1)', () => {
 
     await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'sentry' } });
     await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://mcp.sentry.dev/mcp' } });
-    await fireEvent.input(within(dialog).getByLabelText(/Secret header/), { target: { value: 'Bearer abc123' } });
+    await fireEvent.input(within(dialog).getByLabelText(/^New key/), { target: { value: 'Bearer abc123' } });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_sentry_header', 'PATCH /api/config']));
     expect(JSON.parse(writes(calls)[1].body).set).toEqual({
       'mcp.servers.sentry': { name: 'sentry', transport: 'http', side_effects: { default: 'external_send' }, url: 'https://mcp.sentry.dev/mcp', headers: { Authorization: 'secret:mcp_sentry_header' } },
     });
+  });
+
+  it('sends a saved key in the header it names, with nothing new to save', async () => {
+    const calls = await start();
+    render(Connections);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add an MCP server' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add an MCP server' });
+    await fireEvent.input(within(dialog).getByLabelText('Name'), { target: { value: 'Acme Helpdesk' } });
+    await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://help.acme.com/mcp' } });
+    await fireEvent.input(within(dialog).getByLabelText(/^Header/), { target: { value: 'X Api Key' } });
+    await fireEvent.change(await within(dialog).findByLabelText('Key'), { target: { value: 'secret:openrouter_api_key' } });
+    expect(within(dialog).queryByLabelText(/^New key/)).toBeNull();
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    expect(within(dialog).getByText('Use letters, numbers and dashes, like X-Api-Key.')).toBeTruthy();
+    expect(writes(calls)).toEqual([]);
+
+    await fireEvent.input(within(dialog).getByLabelText(/^Header/), { target: { value: 'X-Api-Key' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config']));
+    expect(JSON.parse(writes(calls)[0].body).set['mcp.servers.acme-helpdesk'].headers).toEqual({ 'X-Api-Key': 'secret:openrouter_api_key' });
   });
 
   it('takes the name as people write it and keeps it lower-cased with dashes', async () => {
@@ -87,7 +107,7 @@ describe('Connections overview (§12.1)', () => {
     await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'https://mcp.example.com/mcp' } });
     expect(within(dialog).queryByRole('checkbox')).toBeNull();
     await fireEvent.input(within(dialog).getByLabelText('Address'), { target: { value: 'http://wiki.internal:8080/mcp' } });
-    await fireEvent.input(within(dialog).getByLabelText(/Secret header/), { target: { value: 'Bearer abc123' } });
+    await fireEvent.input(within(dialog).getByLabelText(/^New key/), { target: { value: 'Bearer abc123' } });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }));
     expect(within(dialog).getByText("Allow wiki.internal below, or Bothy can't reach it.")).toBeTruthy();
     expect(writes(calls)).toEqual([]);
@@ -221,6 +241,16 @@ describe('MCP server page (§12.4)', () => {
     expect(JSON.parse(writes(calls)[0].body)).toEqual({ tools: { search_docs: { side_effect: 'read', private: false, disable: true } } });
   });
 
+  it("shows a server's read-only claim in the review without choosing it", async () => {
+    const echo = { server: 'docs', tool: 'echo', hash: 'e1', status: 'pending', side_effect: 'external_send', private: false, definition: { name: 'echo', annotations: { readOnlyHint: true } } };
+    await start((m, url) => (m === 'GET' && url === '/api/mcp/docs/pins' ? [echo] : undefined));
+    render(McpServer, { params: { item: 'mcp-docs' } });
+    await fireEvent.click(await screen.findByRole('button', { name: 'Review actions' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Review actions from Docs' });
+    expect(within(dialog).getByText('Docs says this only reads information.')).toBeTruthy();
+    expect((within(dialog).getByLabelText('What this does') as HTMLSelectElement).value).toBe('external_send');
+  });
+
   it('leaves an action whose change waits for review to the review, and says why a save was refused', async () => {
     const pin = (tool: string, status: string, hash: string, description: string) => ({ server: 'docs', tool, hash, status, side_effect: 'read', private: false, definition: { name: tool, description } });
     const refused = new Response(JSON.stringify({ error: { code: 'conflict', message: 'this action changed after it was shown. Review its change first' } }), { status: 409 });
@@ -241,6 +271,8 @@ describe('MCP server page (§12.4)', () => {
     ['needs_https', "it isn't on your private network, so its key needs an https:// address", 'Try again', 'POST /api/mcp/linear/reload'],
     ['not_installed', 'it needs to be installed', 'Install', 'POST /api/mcp/linear/install'],
     ['key_rejected', "Linear didn't accept its key", 'Replace key', ''],
+    // It refused without a key set: nothing to replace.
+    ['key_needed', 'it asks for a key', 'Add key', ''],
     ['key_locked', "Bothy's saved keys are locked", 'Open saved keys', ''],
   ])('names a %s problem and offers its fix', async (code, text, label, write) => {
     const calls = await start((m, url) => (m === 'GET' && url === '/api/mcp' ? [{ name: 'linear', transport: 'http', state: 'error', code, protocol: '', tools: 0, pending: 0, since: '' }] : undefined));
@@ -274,10 +306,26 @@ describe('MCP server page (§12.4)', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Add a key…' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add a key for Linear' });
-    await fireEvent.input(within(dialog).getByLabelText('Key'), { target: { value: 'Bearer first' } });
+    await fireEvent.input(await within(dialog).findByLabelText(/^New key/), { target: { value: 'Bearer first' } });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PUT /api/vault/global/mcp_linear_header', 'PATCH /api/config']));
     expect(JSON.parse(writes(calls)[1].body).set).toEqual({ 'mcp.servers.linear.headers.Authorization': 'secret:mcp_linear_header' });
+  });
+
+  it('adds a saved key to a server that sends none, in the header it names', async () => {
+    const calls = await start();
+    render(McpServer, { params: { item: 'mcp-linear' } });
+    await screen.findByText('Ready · 12 actions');
+    await fireEvent.click(screen.getByRole('button', { name: 'Options for Linear' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Add a key…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a key for Linear' });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    expect(within(dialog).getByText('Enter the key.')).toBeTruthy();
+    await fireEvent.input(within(dialog).getByLabelText(/^Header/), { target: { value: 'X-Api-Key' } });
+    await fireEvent.change(await within(dialog).findByLabelText('Key'), { target: { value: 'secret:brave_api_key' } });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save key' }));
+    await waitFor(() => expect(writes(calls).map((c) => `${c.method} ${c.url}`)).toEqual(['PATCH /api/config']));
+    expect(JSON.parse(writes(calls)[0].body).set).toEqual({ 'mcp.servers.linear.headers.X-Api-Key': 'secret:brave_api_key' });
   });
 
   it('asks for the key alone when its header puts words before it', async () => {

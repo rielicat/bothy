@@ -109,6 +109,19 @@ func TestRejectedKeyAtDiscoveryIsNamed(t *testing.T) {
 	}
 }
 
+// A server added without a key that answers 401 needs one: it refused no
+// key, so the status says to add one rather than to replace it.
+func TestRefusalWithoutAnyKeyAsksForOne(t *testing.T) {
+	f := newFakeServer()
+	f.setAuth("Bearer right")
+	ts := f.httpServer(t, false)
+	h := newHarness(t, []config.MCPServer{httpServerCfg("echo", ts.URL)}, withClient(ts.Client()))
+	h.start()
+	if st := h.status("echo"); st.State != stError || st.Code != "key_needed" {
+		t.Fatalf("status = %+v", st)
+	}
+}
+
 // A key in the server's address is a reference resolved per call, and an
 // error that quotes the address shows the reference, not the key.
 func TestAddressReferenceIsResolvedAndNeverShown(t *testing.T) {
