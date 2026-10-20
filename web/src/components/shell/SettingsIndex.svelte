@@ -5,14 +5,11 @@
   import Dot from '../ui/Dot.svelte';
   import Page from '../ui/Page.svelte';
   import { attention } from './attention.svelte';
-  import { personalGroups, workspaceGroups } from './settings';
+  import { settingsSections } from './settings';
 
   // /settings on phones and tablets (docs/design/ui.md §4.3): the groups as a list.
   const uid = $props.id();
-  const sections = $derived([
-    { key: 'you', label: 'You', groups: personalGroups },
-    ...(session.isAdmin ? [{ key: 'workspace', label: 'Workspace', groups: workspaceGroups }] : []),
-  ]);
+  const sections = $derived(settingsSections(session.isAdmin));
 </script>
 
 <Page title="Settings">
