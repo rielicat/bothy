@@ -59,7 +59,9 @@
   }
 </script>
 
-<SettingsSection title="Model prices" bare>
+{#snippet addPrice()}<Button size="sm" onclick={() => open('')}>Add a price</Button>{/snippet}
+
+<SettingsSection title="Model prices" bare action={choices.length && overrides.length ? addPrice : undefined}>
   <p class="text-small text-muted">In dollars per million tokens.</p>
   {#if overrides.length}
     <!-- Under 640 px each row folds into name, id and one price line, like Rules. -->
@@ -93,7 +95,7 @@
   {:else}
     <p class="mt-3 text-body text-muted">No price changes. Bothy uses its built-in prices.</p>
   {/if}
-  {#if choices.length}
+  {#if choices.length && !overrides.length}
     <Button class="mt-3" onclick={() => open('')}>Add a price</Button>
   {/if}
 </SettingsSection>

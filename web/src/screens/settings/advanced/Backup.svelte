@@ -25,11 +25,13 @@
 </script>
 
 <SettingsSection title="Backup" bare>
-  <div class="list-card flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2">
-    <p class="text-body text-text">
-      {#if last}Last backup: <time datetime={last.at} title={fullTime(last.at)}>{relLower(last.at)}</time>{:else}Back up the database, saved keys and settings.{/if}
-    </p>
-    <Button loading={running} loadingLabel="Backing up…" onclick={backup}>Back up now</Button>
+  <div class="list-card">
+    <div class="action-row">
+      <p class="text-body text-text">
+        {#if last}Last backup: <time datetime={last.at} title={fullTime(last.at)}>{relLower(last.at)}</time>{:else}Back up the database, saved keys and settings.{/if}
+      </p>
+      <Button size="sm" loading={running} loadingLabel="Backing up…" onclick={backup}>Back up now</Button>
+    </div>
   </div>
   {#if last}<StatusLine class="mt-2" tone="success" text="Saved to {last.path}." />{/if}
   {#if error}<StatusLine class="mt-2" tone="danger" text="The backup didn't finish." details={error} alert />{/if}
