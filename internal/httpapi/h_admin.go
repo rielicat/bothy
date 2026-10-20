@@ -645,7 +645,24 @@ func (s *Server) detectProviders(w http.ResponseWriter, r *http.Request, _ core.
 }
 
 func (s *Server) models(w http.ResponseWriter, r *http.Request, _ core.Actor) error {
-	return ok(w, nonNil(s.d.LLM.Models(r.Context())))
+	list := slices.Clone(s.d.LLM.Models(r.Context()))
+	c := s.cfg().Models
+	first := func(chain []string) string {
+		if len(chain) == 0 {
+			return ""
+		}
+		return chain[0]
+	}
+	main, fast := first(c.Main), first(c.Fast)
+	for i := range list {
+		switch list[i].Ref.String() {
+		case main:
+			list[i].Slot = core.SlotMain
+		case fast:
+			list[i].Slot = core.SlotFast
+		}
+	}
+	return ok(w, nonNil(list))
 }
 
 func (s *Server) channels(w http.ResponseWriter, _ *http.Request, _ core.Actor) error {

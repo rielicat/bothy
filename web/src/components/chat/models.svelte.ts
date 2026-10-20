@@ -1,8 +1,8 @@
 // Connected models by friendly name, which ones fill the main and quick-tasks
-// slots, and the Refine defaults (§7.5). Slots come from the config, which only
-// admins can read; members see "Main model" without its name.
+// slots, and the Refine defaults (§7.5). The model list marks the slots, so
+// members, who can't read the config, see the main model's name too.
 import { api } from '../../lib/api/client';
-import type { ConfigView, ModelInfo, RefineInfo } from '../../lib/api/types.gen';
+import type { ModelInfo, RefineInfo } from '../../lib/api/types.gen';
 import { friendlyModel } from '../../lib/providers';
 
 export type RefineConfig = Pick<RefineInfo, 'enabled' | 'drafts' | 'depth' | 'multiplier'>;
@@ -31,18 +31,13 @@ class Models {
   refine: RefineConfig | null = $state(null);
   #loading: Promise<void> | null = null;
 
-  load(admin: boolean): Promise<void> {
+  load(): Promise<void> {
     this.#loading ??= (async () => {
-      const [list, cfg, refine] = await Promise.all([
-        api.get<ModelInfo[]>('/api/models').catch(() => []),
-        admin ? api.get<ConfigView>('/api/config').catch(() => null) : null,
-        api.get<RefineInfo>('/api/refine').catch(() => null),
-      ]);
+      const [list, refine] = await Promise.all([api.get<ModelInfo[]>('/api/models').catch(() => []), api.get<RefineInfo>('/api/refine').catch(() => null)]);
       this.list = list ?? [];
-      const get = (p: string) => cfg?.entries.find((e) => e.path === p)?.value;
-      const first = (v: unknown) => (Array.isArray(v) && typeof v[0] === 'string' ? v[0] : '');
-      this.main = first(get('models.main'));
-      this.fast = first(get('models.fast'));
+      const slot = (s: string) => this.list.find((m) => m.slot === s);
+      this.main = slot('main') ? refOf(slot('main')!) : '';
+      this.fast = slot('fast') ? refOf(slot('fast')!) : '';
       this.refine = refine ? { enabled: refine.enabled, drafts: refine.drafts, depth: refine.depth, multiplier: refine.multiplier } : null;
     })();
     return this.#loading;

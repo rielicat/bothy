@@ -1134,6 +1134,10 @@ type ModelInfo struct {
 	ProviderName      string `json:"provider_name,omitempty"`
 	Recommended       bool   `json:"recommended,omitempty"`
 	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
+	// Slot is "main" or "fast" when GET /api/models finds the model first
+	// in that slot (main when both), so members, who can't read the
+	// config, see which model a chat uses; "" otherwise and elsewhere.
+	Slot Slot `json:"slot,omitempty"`
 }
 
 type ToolDef struct {
@@ -1356,6 +1360,10 @@ type ModelChoice struct {
 	ProviderName      string `json:"provider_name,omitempty"`
 	Recommended       bool   `json:"recommended,omitempty"`
 	QuickTasksDefault bool   `json:"quick_tasks_default,omitempty"`
+	// Slot is "main" or "fast" when GET /api/models finds the model first
+	// in that slot (main when both), so members, who can't read the
+	// config, see which model a chat uses; "" otherwise and elsewhere.
+	Slot Slot `json:"slot,omitempty"`
 }
 
 type Detection struct {
@@ -7681,7 +7689,7 @@ Auth column: **none**; **setup** (setup grant cookie, local peers only, 404 once
 | `POST /api/providers/test` | admin | `dto.ProviderTestReq` | `core.ProbeResult` (v0.2 bedrock: `region` (AWS region shape) and optional `profile`; 400 for a bad region or profile, for `api_key`/`secret_ref` with bedrock and for region/profile on other kinds; the result carries `choices` and `credentials`. v0.2 UI: `model` (a probe without a model tests the recommended one), `code` (`core.FailureCode`) and the raw redacted `error` when it failed, and `choices` with plain names and suggestions) |
 | `POST /api/providers/detect` | admin | — | `[]core.Detection` (v0.2: the bedrock detection, "Use this server's AWS access", comes first when the AWS chain resolves. v0.2 UI: `choices` with plain names, and provider keys already saved in the global vault as `{kind, base_url, secret_ref: "secret:<name>", secret_hint: <last 4>, note}`, matched by name prefix) |
 | `POST /api/providers/connect` | admin | `dto.ProviderConnectReq` | `dto.ProviderConnectResp` (v0.2 UI, S6; `h_onboarding.go`: saves a pasted key or a well-known env var as `<id>_api_key` (or the next `_N` name a `BOTHY_SECRET_` variable does not shadow), or uses an existing `secret_ref`, then writes the provider and both slots, the chosen models first, in one `Config.Set`; without `id`, the kind's default id, or the next free one when another server holds it; a refused config write deletes a newly saved key and puts a replaced one back) |
-| `GET /api/models` | user | — | `[]core.ModelInfo` (v0.2 UI: `display_name`, `short_name`, `provider_name`, and one `recommended` and one `quick_tasks_default` per provider) |
+| `GET /api/models` | user | — | `[]core.ModelInfo` (v0.2 UI: `display_name`, `short_name`, `provider_name`, and one `recommended` and one `quick_tasks_default` per provider; `slot` `main`/`fast` on the first model of `models.main`/`models.fast`, so members see the model a chat uses without reading the config) |
 | `GET /api/github/repos` | user | — | `[]core.GitHubRepo` (v0.2: allowlisted repositories of every connection; `last_indexed_sha` is the commit the caller's own principal's GitHub-source index of the repository last read, omitted when none; 503 without a GitHub service, as every `/api/github` route) |
 | `POST /api/github/repos/read` | user | `dto.GitHubReposReq` | `202 {"repos": [...]}` (checks the named allowlisted repositories, or all of them when `repos` is empty, out into the caller's own workspace in the background so Knowledge indexes them for that principal; existing checkouts are left alone; 400 when none of them is allowlisted) |
 | `GET /api/github/repos/{owner}/{repo}/workflows` | admin | — | `[]core.GitHubWorkflow` (v0.2 UI: the repository's `.github/workflows/` files through its connection, for the environment dialog; 404 for a repository no connection allows; names cleaned to one plain line) |

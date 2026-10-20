@@ -239,7 +239,7 @@
     untrack(() => {
       conv.listen();
       void conv.load().then(() => (loaded = true));
-      void models.load(auth.isAdmin);
+      void models.load();
       people.load();
       if (finePointer()) void tick().then(() => composer?.focus());
       const onscroll = () => measure();
