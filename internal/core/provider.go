@@ -152,7 +152,8 @@ type Request struct {
 	NumCtx      int // Ollama native only
 	// CacheKey is stable for every call of one session and opaque (a hash,
 	// never an id); the OpenAI Responses client sends it as
-	// prompt_cache_key. "" sends none.
+	// prompt_cache_key, the Chat Completions client to OpenRouter as
+	// session_id. "" sends none.
 	CacheKey string
 }
 

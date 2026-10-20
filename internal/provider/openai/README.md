@@ -79,6 +79,24 @@ usage frames, normalises cached and cache-write tokens out of `Input` and
 reasoning reported beside `completion_tokens` (xAI) into `Output`, and marks
 missing usage for estimation.
 
+**OpenRouter** (an `openai_compat` base on `openrouter.ai`) gets
+`session_id` = `Request.CacheKey`, so its sticky routing keeps a session on
+the upstream provider holding its cache. Its Anthropic models (`anthropic/…`,
+`~anthropic/…`) cache only at `cache_control` markers, so for them
+(`ExplicitCache`) the system prompt goes out as one text part per block with
+`{"type":"ephemeral"}` on each `CacheBreak` block, and `CacheTail` marks the
+last non-empty user or tool text (on the tool result's content part:
+OpenRouter ignores a marker on the message itself). `ToolsCache` is not
+sent: the system marker covers the tools, which precede it in Claude's cache
+order. At most four markers go out, the earliest system ones dropped first.
+User content and non-empty tool results stay lists of parts and merged user
+turns append theirs, so neither a message appended after a user turn (a
+refine call's) nor the marker moving on changes an earlier block. The
+Responses client sends no markers, so only providers on Chat Completions
+report these models' cache mode as `explicit`. OpenRouter reports cache reads and writes as
+`prompt_tokens_details.cached_tokens` and `cache_write_tokens` inside
+`prompt_tokens`, normalised like OpenAI's.
+
 Both map error bodies (including the looser shapes of compatible servers and
 in-stream errors) to `core.ErrorKind`: an account that cannot pay
 (`insufficient_quota`, `credit_balance_exhausted`, the spend and usage limit

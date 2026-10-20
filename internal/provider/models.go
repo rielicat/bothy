@@ -12,6 +12,7 @@ import (
 	"github.com/rielicat/bothy/internal/core"
 	"github.com/rielicat/bothy/internal/provider/bedrock"
 	"github.com/rielicat/bothy/internal/provider/ollama"
+	"github.com/rielicat/bothy/internal/provider/openai"
 )
 
 const (
@@ -188,6 +189,11 @@ func (f *Facade) resolve(e *entry, model string) core.ModelInfo {
 	case core.KindOpenAI, core.KindGemini:
 		if info.Cache == core.CacheNone {
 			info.Cache = core.CacheImplicit
+		}
+	case core.KindOpenAICompat:
+		// Only the Chat Completions client sends the markers.
+		if e.api == openai.APIChat && openai.ExplicitCache(e.kind, e.base, model) {
+			info.Cache = core.CacheExplicit
 		}
 	case core.KindOllama:
 		info.Cache = core.CacheNone
