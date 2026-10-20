@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { paths, type IconName } from '../lib/icons';
+  import type { IconName } from '../lib/icons';
 
   let { name, size = 16, class: cls = '' }: { name: IconName; size?: number; class?: string } = $props();
 </script>
 
-<!-- non-scaling-stroke keeps the line at 1.5 CSS px whatever the drawn size (§3.7). -->
+<!-- The shapes live in index.html's sprite (§3.7); stroke settings inherit through <use>. -->
 <svg
-  viewBox="0 0 24 24"
   width={size}
   height={size}
   fill="none"
@@ -16,4 +15,4 @@
   stroke-linejoin="round"
   aria-hidden="true"
   focusable="false"
-  class="shrink-0 {cls}"><path d={paths[name]} vector-effect="non-scaling-stroke" /></svg>
+  class="shrink-0 {cls}"><use href="#i-{name}" /></svg>

@@ -6,6 +6,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import type { Plugin, PluginOption } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { sprite } from './src/lib/icons.ts';
 
 const outDir = fileURLToPath(new URL('../internal/webui/dist', import.meta.url));
 const compressible = /\.(js|css|html|svg|json|webmanifest|txt)$/;
@@ -67,8 +68,13 @@ function previewGzip(): Plugin {
   };
 }
 
+// Every icon as one inline <svg> of <symbol>s, so icon shapes cost no JavaScript (§3.7).
+function iconSprite(): Plugin {
+  return { name: 'bothy-icons', transformIndexHtml: (html) => html.replace('<body>', `<body>${sprite()}`) };
+}
+
 const mock = process.env.BOTHY_MOCK === '1';
-const plugins: PluginOption[] = [tailwindcss(), svelte({ configFile: false, compilerOptions: { css: 'external', discloseVersion: false } }), precompress()];
+const plugins: PluginOption[] = [iconSprite(), tailwindcss(), svelte({ configFile: false, compilerOptions: { css: 'external', discloseVersion: false } }), precompress()];
 // The fixture gateway (web/mock) is loaded only with BOTHY_MOCK=1 (npm run mock, npm run preview:mock).
 if (mock) plugins.push((await import('./mock/server.ts')).mockGateway());
 plugins.push(previewGzip());

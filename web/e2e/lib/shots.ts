@@ -1,7 +1,8 @@
 // Screenshot sets for review (docs/design/ui.md §18.2 G3) with the layout
 // probes of G4 run on every capture. A chunk's spec lists its states once;
-// each state is captured at 1280 × 800 and 360 × 780 in light and dark (plus
-// `-full` when the page is taller than the window) into
+// each state is captured at 1280 × 800 and 375 × 812 in light and dark (plus
+// `-full` when the page is taller than the window, and an overflow check at
+// 360 after each phone capture) into
 // web/e2e/shots/out/<chunk>/, with an index.html to review them side by side.
 // See web/e2e/README.md for how to run and write them.
 import { expect, test, type Browser, type Page, type TestInfo } from '@playwright/test';
@@ -14,7 +15,7 @@ export const OUT = fileURLToPath(new URL('../shots/out/', import.meta.url));
 export const viewports = {
   desktop: { name: '1280', width: 1280, height: 800, coarse: false },
   // A phone: touch and a coarse pointer, so 44 px targets and 16 px inputs show.
-  phone: { name: '360', width: 360, height: 780, coarse: true },
+  phone: { name: '375', width: 375, height: 812, coarse: true },
 } as const;
 export type ViewportName = keyof typeof viewports;
 export type Viewport = (typeof viewports)[ViewportName];
@@ -27,13 +28,13 @@ export const LEFT_EDGE = 408;
 export interface ProbeOptions {
   /** No sideways page scroll (`scrollWidth <= width`). */
   overflow?: boolean;
-  /** At 1280 px the first visible h1 starts at x = 408 ± 1. Turn off for pages outside the column (setup, sign in). */
+  /** At 1280 px the first visible `[data-edge]` (else h1) starts at x = 408 ± 1. Turn off for pages outside the column (setup, sign in). */
   leftEdge?: boolean;
   /** No rendered text under 12 px. */
   minText?: boolean;
   /** No backdrop-filter anywhere. */
   blur?: boolean;
-  /** box-shadow only on floating layers (dialogs, menus, popovers, tooltips, [data-floating]) and focus rings. */
+  /** box-shadow only from the named elevations (§3.4), on floating layers (dialogs, menus, popovers, tooltips, [data-floating]) and as focus rings. */
   shadows?: boolean;
   /** No bordered box inside another one, except inside overlays; form controls and buttons don't count. */
   nesting?: boolean;
@@ -115,7 +116,8 @@ export async function probe(page: Page, opts: ProbeOptions = allProbes): Promise
       }
 
       if (opts.leftEdge && width >= 1280) {
-        const h1 = [...document.querySelectorAll('h1')].find(shown);
+        // The chat header's breadcrumb sits before its h1, so the header marks where its edge is.
+        const h1 = [...document.querySelectorAll('[data-edge]')].find(shown) ?? [...document.querySelectorAll('h1')].find(shown);
         if (!h1) out.push('left-edge: no visible h1');
         else {
           const x = Math.round(h1.getBoundingClientRect().left * 10) / 10;
@@ -163,14 +165,30 @@ export async function probe(page: Page, opts: ProbeOptions = allProbes): Promise
       const visibleShadow = (v: string) => v !== 'none' && layers(v).some((l) => alpha(l) > 0 && lengths(l).some((n) => n !== 0));
       const ring = (v: string) => layers(v).every((l) => alpha(l) === 0 || lengths(l).slice(0, 3).every((n) => n === 0));
 
+      // The named elevations as the browser computes them, without the transparent layers Tailwind adds.
+      const norm = (v: string) =>
+        layers(v)
+          .filter((l) => alpha(l) > 0 && lengths(l).some((n) => n !== 0))
+          .join(', ');
+      const named = new Set<string>();
+      for (const n of ['raised', 'card', 'primary', 'focus', 'frame', 'pop', 'overlay']) {
+        const probeEl = document.createElement('div');
+        probeEl.style.boxShadow = `var(--shadow-${n})`;
+        document.body.append(probeEl);
+        const v = norm(getComputedStyle(probeEl).boxShadow);
+        if (v) named.add(v);
+        probeEl.remove();
+      }
+
       if (opts.shadows) {
         const seen = new Set<string>();
         for (const el of all) {
           const v = getComputedStyle(el).boxShadow;
           if (!visibleShadow(v) || el.closest(floating) || !shown(el)) continue;
+          if (named.has(norm(v))) continue;
           if (ring(v) && el.matches(':focus-within')) continue;
           const k = name(el);
-          if (!seen.has(k)) out.push(`shadow: box-shadow outside a floating layer on ${k}`);
+          if (!seen.has(k)) out.push(`shadow: a box-shadow that is no named elevation, outside a floating layer, on ${k}`);
           seen.add(k);
           if (seen.size >= 10) break;
         }
@@ -268,6 +286,12 @@ export async function capture(page: Page, chunk: string, state: ShotState, viewp
     await page.screenshot({ ...shot, path: join(dir, full), fullPage: true });
   }
   const problems = await probe(page, { ...probes, ...state.probes });
+  // The narrowest phone the layout supports: nothing may scroll sideways there either.
+  if (viewport.coarse && (state.probes?.overflow ?? probes.overflow) !== false) {
+    await page.setViewportSize({ width: 360, height: viewport.height });
+    const at360 = await probe(page, { overflow: true, leftEdge: false, minText: false, blur: false, shadows: false, nesting: false, targets: false });
+    problems.push(...at360.map((p) => `at 360: ${p}`));
+  }
   return { file: `${stem}.png`, full, viewport: viewport.name, theme, problems };
 }
 

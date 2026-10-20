@@ -25,7 +25,7 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         data-floating
-        class="pointer-events-auto inline-flex max-w-md items-center gap-3 rounded-lg bg-text px-4 py-2.5 text-body text-bg shadow-[var(--shadow-overlay)] transition-[opacity,translate] duration-160 ease-out starting:translate-y-2 starting:opacity-0 max-sm:text-small"
+        class="pointer-events-auto inline-flex max-w-md items-center gap-3 rounded-lg bg-text px-4 py-2.5 text-body text-bg shadow-overlay transition-[opacity,translate] duration-160 ease-out starting:translate-y-2 starting:opacity-0 max-sm:text-small"
         onpointerenter={() => toaster.pause()}
         onpointerleave={() => toaster.resume()}
         onfocusin={() => toaster.pause()}

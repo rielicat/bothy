@@ -12,34 +12,36 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
-  --color-bg: #ffffff;
-  --color-sidebar: #f7f6f3;
+  --color-bg: #fffdfa;
+  --color-sidebar: #f4f0e8;
   --color-surface: #ffffff;
-  --color-subtle: #f4f3ef;
-  --color-hover: #eceae5;
-  --color-selected: #e7e5df;
-  --color-border: #e6e3dc;
-  --color-border-strong: #d3cfc6;
-  --color-control: #8f8a80;
-  --color-text: #1e1d1a;
-  --color-muted: #625e56;
-  --color-faint: #6f6b62;
+  --color-raised: #ffffff;
+  --color-subtle: #f4eee4;
+  --color-hover: #ece6db;
+  --color-selected: #e9e2d5;
+  --color-border: #ece5d9;
+  --color-border-strong: #ddd4c5;
+  --color-control: #958e82;
+  --color-text: #1f1d1a;
+  --color-muted: #67615a;
+  --color-faint: #716b61;
   --color-accent: #2a6a54;
   --color-accent-hover: #225a47;
   --color-accent-active: #1c4b3b;
   --color-accent-text: #2a6a54;
-  --color-accent-subtle: #e7f0ec;
+  --color-accent-subtle: #e6f0ea;
   --color-on-accent: #ffffff;
   --color-focus: #2a6a54;
   --color-danger: #b42318;
   --color-danger-hover: #9a1d14;
   --color-danger-text: #b42318;
   --color-danger-subtle: #fcedeb;
-  --color-warning-text: #8a5300;
-  --color-warning-subtle: #fbf1db;
+  --color-warning: #c2660f;
+  --color-warning-text: #97530f;
+  --color-warning-subtle: #fcefdf;
   --color-diff-add: #eaf4ec;
-  --color-chart: #8f8a80;
-  --color-scrim: rgb(20 19 17 / 0.4);
+  --color-chart: #958e82;
+  --color-scrim: rgb(31 24 14 / 0.4);
 
   --text-caption: 0.75rem;
   --text-caption--line-height: 1rem;
@@ -53,22 +55,29 @@
   --text-heading: 0.9375rem;
   --text-heading--line-height: 1.375rem;
   --text-heading--font-weight: 600;
-  --text-title: 1.25rem;
-  --text-title--line-height: 1.75rem;
+  --text-figure: 1.375rem;
+  --text-figure--line-height: 1.75rem;
+  --text-figure--font-weight: 600;
+  --text-figure--letter-spacing: -0.01em;
+  --text-title: 1.75rem;
+  --text-title--line-height: 2.125rem;
   --text-title--font-weight: 600;
-  --text-title--letter-spacing: -0.01em;
-  --text-display: 1.5rem;
-  --text-display--line-height: 2rem;
-  --text-display--font-weight: 600;
-  --text-display--letter-spacing: -0.015em;
+  --text-title--letter-spacing: -0.022em;
   --text-code: 0.8125rem;
   --text-code--line-height: 1.25rem;
 
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
 
-  --shadow-overlay: 0 1px 2px rgb(20 19 17 / 0.06), 0 8px 24px rgb(20 19 17 / 0.12);
+  --shadow-raised: 0 0 0 1px rgb(74 58 33 / 0.06), 0 1px 2px rgb(74 58 33 / 0.08);
+  --shadow-card: 0 1px 2px rgb(74 58 33 / 0.05), 0 6px 16px -8px rgb(74 58 33 / 0.12);
+  --shadow-primary: inset 0 1px 0 rgb(255 255 255 / 0.12), 0 1px 2px rgb(20 60 45 / 0.28);
+  --shadow-focus: 0 0 0 1px var(--color-focus), 0 0 0 4px rgb(42 106 84 / 0.14);
+  --shadow-frame: 0 0 0 1px rgb(74 58 33 / 0.07), 0 12px 32px -16px rgb(74 58 33 / 0.14), 0 0 0 100vmax var(--color-sidebar);
+  --shadow-pop: 0 0 0 1px rgb(74 58 33 / 0.07), 0 24px 48px -20px rgb(60 44 20 / 0.28);
+  --shadow-overlay: 0 1px 2px rgb(74 58 33 / 0.06), 0 8px 24px rgb(74 58 33 / 0.14);
 
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -82,45 +91,67 @@
   }
   :root[data-theme='dark'] {
     color-scheme: dark;
-    --color-bg: #1a1918;
-    --color-sidebar: #201f1d;
-    --color-surface: #232220;
-    --color-subtle: #2a2927;
-    --color-hover: #32302d;
-    --color-selected: #383632;
-    --color-border: #363431;
-    --color-border-strong: #4a4743;
-    --color-control: #7a766e;
-    --color-text: #eceae5;
-    --color-muted: #a8a49b;
+    --color-bg: #1a1917;
+    --color-sidebar: #121110;
+    --color-surface: #211f1d;
+    --color-raised: #2a2826;
+    --color-subtle: #272522;
+    --color-hover: #2f2d2a;
+    --color-selected: #35322e;
+    --color-border: #2e2b28;
+    --color-border-strong: #3d3a36;
+    --color-control: #726d65;
+    --color-text: #eeebe5;
+    --color-muted: #a39d93;
     --color-faint: #949087;
-    --color-accent: #2e7a5f;
-    --color-accent-hover: #286c54;
-    --color-accent-active: #225c48;
-    --color-accent-text: #7cc4a6;
-    --color-accent-subtle: #1f2f29;
-    --color-focus: #7cc4a6;
+    --color-accent: #2f7d61;
+    --color-accent-hover: #296f56;
+    --color-accent-active: #235f4a;
+    --color-accent-text: #86cdae;
+    --color-accent-subtle: #1b2d25;
+    --color-focus: #86cdae;
     --color-danger: #b4372d;
     --color-danger-hover: #a3332a;
     --color-danger-text: #f0938a;
     --color-danger-subtle: #3a221f;
-    --color-warning-text: #e0b25e;
-    --color-warning-subtle: #30281a;
+    --color-warning: #e89a4c;
+    --color-warning-text: #f0b673;
+    --color-warning-subtle: #30251a;
     --color-diff-add: #1e2e22;
-    --color-chart: #7a766e;
-    --color-scrim: rgb(0 0 0 / 0.55);
-    --shadow-overlay: 0 0 0 1px #363431, 0 8px 24px rgb(0 0 0 / 0.5);
+    --color-chart: #726d65;
+    --color-scrim: rgb(0 0 0 / 0.6);
+    --shadow-raised: 0 0 0 1px #34312d, inset 0 1px 0 rgb(255 255 255 / 0.03);
+    --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.03), 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-primary: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-focus: 0 0 0 1px var(--color-focus), 0 0 0 4px rgb(134 205 174 / 0.18);
+    --shadow-frame: 0 0 0 1px #262422, 0 12px 32px -16px rgb(0 0 0 / 0.6), 0 0 0 100vmax var(--color-sidebar);
+    --shadow-pop: 0 0 0 1px #34312d, 0 24px 48px -20px rgb(0 0 0 / 0.7);
+    --shadow-overlay: 0 0 0 1px #34312d, 0 8px 24px rgb(0 0 0 / 0.5);
   }
   /* The sticky banner (--bar, set by the shell) and the phone top bar cover the page's top edge,
      so what is scrolled or focused into view lands below them. */
+  :root {
+    --inset: 0px;
+  }
   html {
     -webkit-text-size-adjust: 100%;
-    scroll-padding-top: var(--bar, 0px);
+    scroll-padding-top: calc(var(--bar, 0px) + var(--inset));
+  }
+  @media (width >= 64rem) {
+    :root {
+      --inset: 0.5rem;
+    }
   }
   @media (width < 64rem) {
     html {
       scroll-padding-top: calc(3.25rem + var(--bar, 0px));
     }
+  }
+  #icons {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
   }
   body {
     background: var(--color-bg);
@@ -173,7 +204,7 @@
     @apply h-8 px-3 pointer-coarse:h-11;
   }
   .btn-primary {
-    @apply bg-accent text-on-accent hover:bg-accent-hover active:bg-accent-active;
+    @apply bg-accent text-on-accent shadow-primary hover:bg-accent-hover active:bg-accent-active;
   }
   .btn-secondary {
     @apply border border-border-strong bg-surface text-text hover:bg-subtle active:bg-hover;
@@ -198,7 +229,7 @@
     @apply w-8 pointer-coarse:w-11;
   }
   .btn[aria-disabled='true'] {
-    @apply cursor-not-allowed border-transparent bg-subtle text-faint hover:bg-subtle;
+    @apply cursor-not-allowed border-transparent bg-subtle text-faint shadow-none hover:bg-subtle;
   }
   /* A quiet button stays unfilled when disabled, so it never looks pressed (the paused composer's attach). */
   .btn-quiet[aria-disabled='true'] {
@@ -206,7 +237,7 @@
   }
 
   .input {
-    @apply block h-9 w-full min-w-0 rounded-md border border-control bg-surface px-3 text-body text-text placeholder:text-faint focus:outline-2 focus:outline-offset-0 focus:outline-focus aria-[invalid=true]:border-danger-text disabled:border-border disabled:bg-subtle disabled:text-faint pointer-coarse:h-11;
+    @apply block h-9 w-full min-w-0 rounded-md border border-control bg-surface px-3 text-body text-text placeholder:text-faint focus:border-focus focus:shadow-focus focus:outline-2 focus:outline-offset-0 focus:outline-transparent aria-[invalid=true]:border-danger-text disabled:border-border disabled:bg-subtle disabled:text-faint pointer-coarse:h-11;
   }
   textarea.input {
     @apply h-auto min-h-20 py-2 text-reading;
@@ -226,7 +257,16 @@
   }
 
   .card {
-    @apply rounded-lg border border-border-strong bg-surface p-4;
+    @apply rounded-lg border border-border bg-surface p-5 shadow-card max-sm:p-4;
+  }
+  /* A group of rows on one card (§11.1): the rows keep their hairlines, which run edge to edge.
+     A `contents` wrapper (kept for :last-child or a ref) passes the padding through to its rows. */
+  .list-card {
+    @apply rounded-lg border border-border bg-surface shadow-card;
+  }
+  .list-card > :not(.contents),
+  .list-card > .contents > * {
+    @apply px-4;
   }
   .row {
     @apply flex min-h-10 items-center gap-3 border-b border-border py-2 last:border-b-0 pointer-coarse:min-h-12;
@@ -236,10 +276,10 @@
   }
 
   .tabs {
-    @apply flex gap-6 overflow-x-auto border-b border-border [scrollbar-width:none];
+    @apply inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-subtle p-1 [scrollbar-width:none];
   }
   .tab {
-    @apply -mb-px inline-flex h-10 items-center border-b-2 border-transparent text-body font-medium whitespace-nowrap text-muted hover:text-text aria-[current=page]:border-text aria-[current=page]:text-text pointer-coarse:h-11;
+    @apply inline-flex h-8 items-center rounded-md px-3 text-body font-medium whitespace-nowrap text-muted hover:text-text aria-[current=page]:bg-raised aria-[current=page]:text-text aria-[current=page]:shadow-raised pointer-coarse:h-11;
   }
 
   .link {
@@ -260,6 +300,12 @@
   .kbd {
     @apply inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-border px-1 font-mono text-caption text-muted;
   }
+}
+
+/* Unlayered, so it beats a row's own border-b utility: the card's edge ends the last row. */
+.list-card > :last-child,
+.list-card > .contents:last-child > :last-child {
+  border-bottom-width: 0;
 }
 
 /* Markdown output of lib/markdown.ts (chat, cards, SKILL.md). Headings map down (§3.2): a reply never shows a heading above 15 px. */

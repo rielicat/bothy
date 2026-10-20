@@ -191,7 +191,7 @@
   <!-- Options keep focus in the field: mousedown is cancelled so the field never blurs mid-choice. -->
   <div
     popover={popoverAttr}
-    class="fixed inset-auto z-50 m-0 max-h-80 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-border bg-surface p-1 text-text shadow-[var(--shadow-overlay)]"
+    class="fixed inset-auto z-50 m-0 max-h-80 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-border bg-surface p-1 text-text shadow-overlay"
     {@attach floating(() => input, 'bottom-start', { matchWidth: true })}
   >
     <div id={listId} role="listbox" aria-label={label} aria-multiselectable={multiple || undefined}>
