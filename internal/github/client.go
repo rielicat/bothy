@@ -141,6 +141,10 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.msg }
 
+// UpstreamStatus marks a failure GitHub answered, so the HTTP API answers
+// 502 with GitHub's plain reason rather than an internal error.
+func (e *apiError) UpstreamStatus() int { return e.status }
+
 // rateLimitError carries the wait GitHub asked for; the HTTP API turns it
 // into 429 with Retry-After.
 type rateLimitError struct {

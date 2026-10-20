@@ -31,6 +31,19 @@ func TestWorkflowsOfAnAllowedRepository(t *testing.T) {
 	}
 }
 
+// A token GitHub rejects is GitHub's answer, not Bothy's failure: the error
+// says so, and the HTTP API answers 502 with the reason instead of 500.
+func TestWorkflowsSayGitHubRefused(t *testing.T) {
+	f := newFx(t)
+	f.connect("octocat/Hello-World")
+	f.gh.Fail("GET", `/actions/workflows$`, 401, nil, "", 2)
+	_, err := f.svc.Workflows(f.ctx, "octocat/Hello-World")
+	var up interface{ UpstreamStatus() int }
+	if !errors.As(err, &up) || up.UpstreamStatus() != 401 {
+		t.Fatalf("Workflows with a rejected token = %v", err)
+	}
+}
+
 func TestBranchHeadAndCommitSubject(t *testing.T) {
 	f := newFx(t)
 	c := f.connect("octocat/Hello-World")
