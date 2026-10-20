@@ -28,7 +28,7 @@
 
 <div class="border-b border-border py-3 {cls}">
   <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-    <p class="min-w-0 text-body text-text">Bothy no longer uses {app.name}. Delete it on GitHub too.</p>
+    <p class="min-w-0 text-body text-text">Bothy no longer uses the GitHub App “{app.name}”. Delete it on GitHub too.</p>
     <div class="flex items-center gap-4">
       <Button size="sm" href={app.settings_url} external>Open app settings</Button>
       <span class="text-small"><LinkButton disabled={busy} onclick={dismiss}>Dismiss</LinkButton></span>

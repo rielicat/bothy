@@ -32,7 +32,7 @@
   let apps = $state<GitHubApp[]>([]);
   let view = $state<'loading' | 'connect' | 'manage' | 'failed'>('loading');
   let replacing = $state<GitHubConnection | null>(null);
-  let reading = $state(0);
+  let reading = $state<string[]>([]);
   // Where a round trip through GitHub came back (?github_app=, §12.2), read once.
   let landing = $state<string | null>(null);
   let landed = $state<AppLandingFailure | null>(null);
@@ -191,7 +191,7 @@
       toast('Saved.');
       // An app round trip that failed earlier no longer matters once another connection works.
       landed = null;
-      reading = chosen.length;
+      reading = [...chosen];
       token = key = '';
       probe = null;
     } catch (e) {
@@ -205,6 +205,8 @@
 
   function replace() {
     replacing = conns[0];
+    // Replacing a token or an app someone pasted opens that path; Bothy's own app offers a new one.
+    others = !madeApp;
     auth = conns[0].auth === 'app' ? 'app' : 'pat';
     appId = conns[0].app_id ?? '';
     probe = null;
