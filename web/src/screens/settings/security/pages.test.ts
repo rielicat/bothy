@@ -216,6 +216,13 @@ describe('Saved keys', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Save passphrase' }));
     expect(await within(dialog).findByText("The two passphrases don't match.")).toBeTruthy();
     expect(calls.filter((c) => c.url === '/api/vault/unseal')).toEqual([]);
+    // Opened again, it starts empty.
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Unlock' }));
+    const reopened = screen.getByRole('dialog', { name: 'Choose a passphrase' });
+    expect((within(reopened).getByLabelText('Passphrase') as HTMLInputElement).value).toBe('');
+    expect((within(reopened).getByLabelText('Type it again') as HTMLInputElement).value).toBe('');
+    expect(within(reopened).queryByText("The two passphrases don't match.")).toBeNull();
   });
 });
 

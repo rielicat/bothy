@@ -1,36 +1,22 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, CodeBlock, Disclosure, Page, TextField } from '../../../components/ui';
+  import { Button, Page } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { VaultStatus } from '../../../lib/api/types.gen';
-  import { CHOOSE, unlock } from './vault';
+  import PassphraseFields from './PassphraseFields.svelte';
+  import { CHOOSE } from './vault';
 
   // The blocking screen admins see while saved keys are locked (§13.2); the
   // shell mounts it in place of the page, beside the sidebar, and drops it on onunlocked.
   let { onunlocked }: { onunlocked?: () => void } = $props();
 
-  let passphrase = $state('');
-  let again = $state('');
-  let error = $state('');
-  let details = $state('');
   let busy = $state(false);
-  let input: HTMLInputElement | undefined = $state();
+  let fields: PassphraseFields | undefined = $state();
   let status = $state<VaultStatus | null>(null);
   $effect(() => untrack(() => void api.get<VaultStatus>('/api/vault/status').then((s) => (status = s), () => {})));
   // Locked by a key file, a passphrase can't help; a first passphrase is chosen, so it is typed twice.
   const keyFile = $derived(!!status?.kek_source && status.kek_source !== 'passphrase');
   const first = $derived(!!status?.new_passphrase);
-
-  async function submit(e: SubmitEvent) {
-    e.preventDefault();
-    busy = true;
-    const r = await unlock(passphrase, first ? again : undefined);
-    busy = false;
-    if (r.ok) return onunlocked?.();
-    error = r.error;
-    details = r.details ?? '';
-    input?.focus();
-  }
 </script>
 
 <Page title={first ? 'Choose a passphrase' : 'Unlock saved keys'}>
@@ -43,12 +29,8 @@
     <p class="text-reading text-muted">
       {first ? CHOOSE : "Bothy can't reach its models or connections until you enter the passphrase."}
     </p>
-    <form class="mt-6 max-w-[30rem]" onsubmit={submit} novalidate>
-      <TextField label="Passphrase" type="password" autocomplete={first ? 'new-password' : 'off'} bind:value={passphrase} bind:input error={first ? undefined : error} />
-      {#if first}<TextField class="mt-4" label="Type it again" type="password" autocomplete="new-password" bind:value={again} {error} />{/if}
-      {#if details}
-        <Disclosure class="mt-2"><CodeBlock code={details} wrap /></Disclosure>
-      {/if}
+    <form class="mt-6 max-w-[30rem]" onsubmit={(e) => fields?.submit(e)} novalidate>
+      <PassphraseFields bind:this={fields} {first} bind:busy onunlocked={() => onunlocked?.()} />
       <Button variant="primary" type="submit" class="mt-4 max-sm:w-full" loading={busy} loadingLabel={first ? 'Saving…' : 'Unlocking…'}>{first ? 'Save passphrase' : 'Unlock'}</Button>
     </form>
   {/if}

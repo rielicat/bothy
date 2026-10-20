@@ -1,47 +1,33 @@
 <script lang="ts">
-  import { Button, CodeBlock, Dialog, Disclosure, TextField, toast } from '../../../components/ui';
-  import { CHOOSE, unlock } from './vault';
+  import { Button, Dialog, toast } from '../../../components/ui';
+  import PassphraseFields from './PassphraseFields.svelte';
+  import { CHOOSE } from './vault';
 
   // first: no passphrase chosen yet (VaultStatus.new_passphrase), which this sets, so it is typed twice.
   let { open = $bindable(false), onunlocked, first = false }: { open?: boolean; onunlocked?: () => void; first?: boolean } = $props();
 
   const uid = $props.id();
   let passphrase = $state('');
-  let again = $state('');
-  let error = $state('');
-  let details = $state('');
   let busy = $state(false);
-  let input: HTMLInputElement | undefined = $state();
-
-  async function submit(e: SubmitEvent) {
-    e.preventDefault();
-    busy = true;
-    const r = await unlock(passphrase, first ? again : undefined);
-    busy = false;
-    if (r.ok) {
-      open = false;
-      toast('Saved keys unlocked.');
-      onunlocked?.();
-      return;
-    }
-    error = r.error;
-    details = r.details ?? '';
-    input?.focus();
-  }
-
-  function reset() {
-    passphrase = again = error = details = '';
-  }
+  let fields: PassphraseFields | undefined = $state();
 </script>
 
-<Dialog bind:open title={first ? 'Choose a passphrase' : 'Unlock saved keys'} {busy} dirty={!!passphrase} onclose={reset} cancel>
-  <form id="{uid}-form" onsubmit={submit} novalidate>
+<!-- The fields go with the closed dialog's body, so only the passphrase that marks it dirty needs clearing. -->
+<Dialog bind:open title={first ? 'Choose a passphrase' : 'Unlock saved keys'} {busy} dirty={!!passphrase} onclose={() => (passphrase = '')} cancel>
+  <form id="{uid}-form" onsubmit={(e) => fields?.submit(e)} novalidate>
     <p class="text-body text-text">{first ? CHOOSE : "Enter the passphrase to unlock Bothy's saved keys."}</p>
-    <TextField class="mt-4" label="Passphrase" type="password" autocomplete={first ? 'new-password' : 'off'} bind:value={passphrase} bind:input error={first ? undefined : error} />
-    {#if first}<TextField class="mt-4" label="Type it again" type="password" autocomplete="new-password" bind:value={again} {error} />{/if}
-    {#if details}
-      <Disclosure class="mt-2"><CodeBlock code={details} wrap /></Disclosure>
-    {/if}
+    <PassphraseFields
+      bind:this={fields}
+      class="mt-4"
+      {first}
+      bind:passphrase
+      bind:busy
+      onunlocked={() => {
+        open = false;
+        toast('Saved keys unlocked.');
+        onunlocked?.();
+      }}
+    />
   </form>
   {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-form" loading={busy} loadingLabel={first ? 'Saving…' : 'Unlocking…'}>{first ? 'Save passphrase' : 'Unlock'}</Button>
