@@ -4894,7 +4894,8 @@ type IndexedRepo struct {
 	Source    string      `json:"source"` // github | workspace
 	Dir       string      `json:"dir"`    // workspace-relative directory of the indexed copy
 	// SHA is the commit of the latest requested index ("" for a plain
-	// directory); chunks carry the commit they were indexed at.
+	// directory, and for a GitHub repository read again, which reads its
+	// branch head); chunks carry the commit they were indexed at.
 	SHA       string     `json:"sha"`
 	Status    string     `json:"status"` // queued | indexing | ready | error
 	Error     string     `json:"error,omitempty"`

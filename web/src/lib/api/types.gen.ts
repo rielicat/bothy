@@ -1031,7 +1031,8 @@ export interface IndexedRepo {
   dir: string; // workspace-relative directory of the indexed copy
   /**
    * SHA is the commit of the latest requested index ("" for a plain
-   * directory); chunks carry the commit they were indexed at.
+   * directory, and for a GitHub repository read again, which reads its
+   * branch head); chunks carry the commit they were indexed at.
    */
   sha: string;
   status: string; // queued | indexing | ready | error

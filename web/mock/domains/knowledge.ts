@@ -204,6 +204,7 @@ const repo = (id: number, name: string, extra: Partial<KnowledgeRepo>): Knowledg
 export const repos: KnowledgeRepo[] = [
   repo(1, 'acme/web', {
     sha: sha.web,
+    indexed_sha: sha.web,
     files: 1204,
     chunks: 5310,
     bytes: 18_400_000,
@@ -214,7 +215,7 @@ export const repos: KnowledgeRepo[] = [
   }),
   repo(2, 'acme/api', { sha: sha.api, status: 'indexing', files: 480, progress: { done: 480, total: 1200 }, notes: { status: 'drafting', untrusted: false, updated_at: zero }, summary: '' }),
   repo(3, 'acme/infra', { sha: sha.infra, status: 'error', error: 'walk stopped: more than 50000 files (knowledge.max_files)', truncated: true }),
-  repo(4, 'acme/docs', { sha: sha.docs, files: 212, chunks: 880, bytes: 2_100_000, indexed_at: ago(60 * 24 * 9), stale: true, notes: { status: 'ready', untrusted: false, updated_at: ago(60 * 24 * 9) }, summary: 'The public help centre, built from Markdown with Astro.' }),
+  repo(4, 'acme/docs', { sha: sha.docs, indexed_sha: sha.docs, files: 212, chunks: 880, bytes: 2_100_000, indexed_at: ago(60 * 24 * 9), stale: true, notes: { status: 'ready', untrusted: false, updated_at: ago(60 * 24 * 9) }, summary: 'The public help centre, built from Markdown with Astro.' }),
 ];
 
 const notesByRepo: Record<number, string> = { 1: webNotes, 4: docsNotes };
