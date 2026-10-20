@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/svelte';
+import { cleanup, render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import { member } from '../../../mock/fixtures';
 import { resetMock } from '../../../mock/server';
@@ -13,7 +13,7 @@ async function open(override?: (m: string, url: string) => unknown, mock = '') {
   if (mock) resetMock({ mock });
   session.ready = false;
   await session.init();
-  await loadReleases(true);
+  await loadReleases(true).catch(() => {});
   router.navigate('/activity/releases');
   render(Releases);
 }
@@ -230,5 +230,18 @@ describe('Releases (docs/design/ui.md §10.4)', () => {
     expect(document.querySelector('img')).toBeNull();
     expect(q.textContent).toContain('<img src=x onerror=alert(1)>');
     expect(q.textContent).toContain('⟨');
+  });
+
+  // A server without releases answers 404, which is "none"; any other failure is the page not loading, never "no environments".
+  it("says the page didn't load when the server fails, and that there are no environments only on a 404", async () => {
+    let status = 503;
+    const fail = (_m: string, url: string) => (url === '/api/releases' ? new Response('{}', { status }) : undefined);
+    await open(fail);
+    expect(await screen.findByText("This page didn't load. Check your connection and try again.")).toBeTruthy();
+    expect(screen.queryByText(/No deploy environments yet/)).toBeNull();
+    cleanup();
+    status = 404;
+    await open(fail);
+    expect(await screen.findByText(/^No deploy environments yet\./)).toBeTruthy();
   });
 });
