@@ -156,6 +156,33 @@ const states: ShotState[] = [
     setup: then(menu('Chat details'), (p) => p.getByRole('dialog').getByRole('button', { name: 'Technical details' }).click()),
   },
   { name: 'pinned', route: chat(ids.notices), ready: 'had a problem answering', setup: then(menu(/^Pinned/)) },
+  { name: 'pinned-adding', route: chat(ids.notices), ready: 'had a problem answering', setup: then(menu(/^Pinned/), click('Pin a file')) },
+  // The composer at rest takes focus by itself; the keyboard adds its halo (§7.5).
+  { name: 'composer-keyboard-focus', route: chat(ids.login), ready: 'Fixed. The sign-in callback', only: { viewports: ['desktop'] }, setup: then((p) => p.getByRole('button', { name: 'Attach files' }).focus(), (p) => p.keyboard.press('Shift+Tab')) },
+  // Bothy's picture didn't load: its logo stands in on every turn (§7.1).
+  {
+    name: 'picture-fallback',
+    route: chat(ids.login),
+    ready: 'Fixed. The sign-in callback',
+    setup: async (page) => {
+      await page.route('**/api/agent/picture*', (r) => r.abort());
+      await page.reload();
+      await page.getByText('Fixed. The sign-in callback').first().waitFor();
+      await then()(page);
+    },
+  },
+  { name: 'missing', route: '/chat/ses_missing', ready: "This chat doesn't exist or was deleted.", setup: frame },
+  {
+    name: 'load-failed',
+    route: chat(ids.login),
+    ready: 'Fixed. The sign-in callback',
+    setup: async (page) => {
+      await page.route('**/api/sessions/*/messages*', (r) => r.fulfill({ status: 503, body: '{}' }));
+      await page.reload();
+      await page.getByText("This chat didn't load").first().waitFor();
+      await frame(page);
+    },
+  },
   { name: 'dialog-delete', route: chat(ids.login), ready: 'Fixed. The sign-in callback', setup: then(menu('Delete chat…')) },
 ];
 
