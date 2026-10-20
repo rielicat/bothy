@@ -12,7 +12,8 @@ describe('the composer at rest (§7.5)', () => {
     const field = screen.getByRole('textbox', { name: 'Message' });
     await fireEvent.pointerDown(document.body);
     field.focus();
-    expect(box().classList.contains('shadow-focus')).toBe(false);
+    // No halo in any form, not even one keyed to the field's focus: it would be on whenever the composer is.
+    expect(box().className).not.toMatch(/shadow-focus/);
     expect(box().className).toContain('has-[textarea:focus]:border-focus');
   });
 
@@ -35,6 +36,6 @@ describe('the composer at rest (§7.5)', () => {
     field.focus();
     await fireEvent.keyDown(field, { key: 'a' });
     await Promise.resolve();
-    expect(box().classList.contains('shadow-focus')).toBe(false);
+    expect(box().className).not.toMatch(/shadow-focus/);
   });
 });
