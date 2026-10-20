@@ -163,7 +163,7 @@ func TestStreamReasoningSignatureRoundTrip(t *testing.T) {
 		{Type: core.PartThinking, Text: "unsigned", SigKind: core.KindBedrock},
 		{Type: core.PartText, Text: "answer"},
 	}}
-	got, _ = json.Marshal(buildMessages([]core.Message{userText("q"), other}, false, true)[1])
+	got, _ = json.Marshal(appendMessages(nil, []core.Message{userText("q"), other}, false, true)[1])
 	if string(got) != `{"role":"assistant","content":[{"text":"answer"}]}` {
 		t.Fatalf("foreign reasoning kept: %s", got)
 	}
@@ -268,7 +268,7 @@ func TestStreamRedactedReasoning(t *testing.T) {
 			t.Fatalf("part %+v", x)
 		}
 	}
-	got, _ := json.Marshal(buildMessages([]core.Message{userText("q"), resp.Message}, false, true)[1].Content[:2])
+	got, _ := json.Marshal(appendMessages(nil, []core.Message{userText("q"), resp.Message}, false, true)[1].Content[:2])
 	want := `[{"reasoningContent":{"redactedContent":"RXhhbXBsZSByZWRhY3RlZCByZWFzb25pbmc="}},{"reasoningContent":{"reasoningText":{"text":"Plain reasoning.","signature":"c2lnbmF0dXJlLWV4YW1wbGU="}}}]`
 	if string(got) != want {
 		t.Fatalf("round trip %s", got)

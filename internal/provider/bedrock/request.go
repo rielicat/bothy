@@ -160,10 +160,16 @@ func buildRequest(r *core.Request) request {
 		}
 		out.ToolConfig = tc
 	}
-	out.Messages = buildMessages(r.Messages, withTools, !otherVendor(r.Model))
+	reasoning := !otherVendor(r.Model)
+	shared := r.Messages
+	if r.CacheTailSkipLast && len(shared) > 0 {
+		shared = shared[:len(shared)-1]
+	}
+	out.Messages = appendMessages(nil, shared, withTools, reasoning)
 	if r.CacheTail && cache {
 		addTailCachePoint(out.Messages, r.Model)
 	}
+	out.Messages = appendMessages(out.Messages, r.Messages[len(shared):], withTools, reasoning)
 	limitCachePoints(&out)
 	return out
 }
@@ -234,9 +240,11 @@ func limitCachePoints(r *request) {
 	r.System = kept
 }
 
-// buildMessages maps the history. Converse wants alternating roles, so
-// consecutive same-role messages merge, and tool results lead the user
-// message that answers a tool call. Without tool definitions (withTools
+// appendMessages maps the history onto out. Converse wants alternating
+// roles, so consecutive same-role messages merge, and tool results lead the
+// user message that answers a tool call. Building in two passes gives the
+// same turns as one, so the rolling cache point can go on the shared
+// messages before a call's own. Without tool definitions (withTools
 // false) tool calls and results become text, since Converse refuses toolUse
 // blocks in a request that defines no tools. Reasoning blocks are sent back
 // only when reasoning is true: other vendors' models (Nova after a fallback
@@ -244,8 +252,7 @@ func limitCachePoints(r *request) {
 // text loses its reasoning too: the signed block would no longer precede the
 // call it led to, and leaving out an earlier turn's reasoning is always
 // accepted.
-func buildMessages(msgs []core.Message, withTools, reasoning bool) []message {
-	var out []message
+func appendMessages(out []message, msgs []core.Message, withTools, reasoning bool) []message {
 	for _, m := range msgs {
 		role := "user"
 		if m.Role == core.MsgAssistant {

@@ -121,6 +121,54 @@ func TestOpenRouterClaudeAppendedTurnKeepsPrefix(t *testing.T) {
 	}
 }
 
+// TestOpenRouterClaudeCacheTailSkipLast: a refine role call's own message
+// merges into the conversation's last user turn, yet the rolling marker
+// stays on the part before it, where the step and the other calls cached;
+// after a tool result it goes inside the result's content part, past an
+// empty result to the text before it, and nowhere when nothing qualifies.
+func TestOpenRouterClaudeCacheTailSkipLast(t *testing.T) {
+	const model = "anthropic/claude-sonnet-5.5"
+	cc := `,"cache_control":{"type":"ephemeral"}`
+	role := userText("[Bothy refine · critic]")
+	call := core.Message{Role: core.MsgAssistant, Parts: []core.Part{{Type: core.PartToolCall, ToolCall: &core.ToolCall{ID: "c1", Name: "a", Args: json.RawMessage(`{}`)}}}}
+	result := func(s string) core.Message {
+		return core.Message{Role: core.MsgTool, Parts: []core.Part{{Type: core.PartToolResult, ToolResult: &core.ToolResult{CallID: "c1", Content: s}}}}
+	}
+	for _, tc := range []struct {
+		name string
+		skip bool
+		msgs []core.Message
+		want []string
+	}{
+		{"user turn", true, []core.Message{userText("question"), role},
+			[]string{`{"role":"user","content":[{"type":"text","text":"question"` + cc + `},{"type":"text","text":"[Bothy refine · critic]"}]}`}},
+		{"tool result", true, []core.Message{userText("question"), call, result("r"), role},
+			[]string{`{"role":"tool","content":[{"type":"text","text":"r"` + cc + `}],"tool_call_id":"c1"},{"role":"user","content":[{"type":"text","text":"[Bothy refine · critic]"}]}`}},
+		{"empty tool result", true, []core.Message{userText("question"), call, result(""), role},
+			[]string{`{"role":"user","content":[{"type":"text","text":"question"` + cc + `}]}`, `{"role":"user","content":[{"type":"text","text":"[Bothy refine · critic]"}]}`}},
+		{"nothing before", true, []core.Message{role},
+			[]string{`{"role":"user","content":[{"type":"text","text":"[Bothy refine · critic]"}]}`}},
+		{"flag off", false, []core.Message{userText("question"), role},
+			[]string{`{"role":"user","content":[{"type":"text","text":"question"},{"type":"text","text":"[Bothy refine · critic]"` + cc + `}]}`}},
+	} {
+		req := agentRequest(model, tc.msgs...)
+		req.ToolChoice, req.CacheTailSkipLast = "none", tc.skip
+		got := openRouterBody(t, req)
+		markers := 2
+		if tc.name == "nothing before" {
+			markers = 1
+		}
+		if n := strings.Count(got, "cache_control"); n != markers {
+			t.Errorf("%s: %d markers in\n%s", tc.name, n, got)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: missing %s in\n%s", tc.name, want, got)
+			}
+		}
+	}
+}
+
 // TestOpenRouterClaudeToolResultKeepsShape: the step after a tool result
 // moves the rolling marker on; the result itself must reach the server in
 // the shape it had when it carried the marker, a one-part list, or the

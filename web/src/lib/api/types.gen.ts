@@ -1796,6 +1796,12 @@ export interface Request {
   ToolsCache: boolean; // breakpoint after the last tool (Anthropic)
   Messages: Message[];
   CacheTail: boolean; // rolling breakpoint on the last message (Anthropic)
+  /**
+   * CacheTailSkipLast says the last message is this call's own (a refine
+   * role call's): the rolling breakpoint goes on the end of the messages
+   * before it, which later calls share, or nowhere when there are none.
+   */
+  CacheTailSkipLast: boolean;
   MaxTokens: number /* int */;
   Temperature?: number /* float64 */;
   ToolChoice: string; // "auto" | "none" | "required" (force some tool call)

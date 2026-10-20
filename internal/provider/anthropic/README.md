@@ -6,6 +6,9 @@ Requests map system blocks, tools and messages (tool results become user
 `tool_result` blocks placed first, consecutive same-role messages merge) and
 add `cache_control` breakpoints from `SystemBlock.CacheBreak`, `ToolsCache` and
 `CacheTail`, dropping the earliest system ones beyond the API's limit of four.
+With `CacheTailSkipLast` the tail breakpoint goes on the last block that came
+from the messages before the request's last one, even when that message
+merges into the same user turn, and nowhere when there is none.
 The SSE reader assembles text, thinking with its signature (and
 `redacted_thinking`, kept as an opaque signature) and tool calls by block
 index, takes usage from `message_start` and the cumulative `message_delta`

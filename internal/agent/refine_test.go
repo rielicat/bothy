@@ -622,3 +622,37 @@ func TestRefineCallsRecordOnePrefix(t *testing.T) {
 		}
 	})
 }
+
+// TestRefineRoleCallsCacheOnlyTheSharedConversation: a role call's own
+// message is shared by no later call, so the rolling breakpoint must stay
+// on the conversation before it; drafts send the step's request as it is.
+func TestRefineRoleCallsCacheOnlyTheSharedConversation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(t, opts{cfg: refineCfg(2, 1, false), steps: []fakes.LLMStep{
+			say("Six times seven is 42."), say("Final answer: 42"),
+			say("Six times seven is 42.\nFinal answer: 42"), say("Verdict: correct"),
+			say("Final answer: 42"), say("Verdict: correct"),
+		}})
+		defer h.close()
+		h.r.refineParallel = 1
+		h.submitRefine("What is 6 × 7?", true)
+		synctest.Wait()
+		reqs := h.requests()
+		if len(reqs) != 6 {
+			t.Fatalf("%d model calls", len(reqs))
+		}
+		roles := 0
+		for i, r := range reqs {
+			role := roleOf(r) != ""
+			if !r.CacheTail || r.CacheTailSkipLast != role {
+				t.Fatalf("call %d (role call %v): CacheTail %v, CacheTailSkipLast %v", i, role, r.CacheTail, r.CacheTailSkipLast)
+			}
+			if role {
+				roles++
+			}
+		}
+		if roles != 4 {
+			t.Fatalf("%d role calls, want 4", roles)
+		}
+	})
+}
