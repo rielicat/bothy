@@ -6,6 +6,7 @@
   import { config } from '../../../lib/config.svelte';
   import { fullTime, plural } from '../../../lib/format';
   import { router } from '../../../lib/router.svelte';
+  import { events } from '../../../lib/sse.svelte';
   import ConnPage from './ConnPage.svelte';
   import { approverLine, githubWeb, installationSettingsURL, readAt, saveConfig, type Failure } from './connections';
   import EnvironmentDialog from './EnvironmentDialog.svelte';
@@ -88,6 +89,19 @@
       if (landing) void landed();
     });
   });
+
+  // Reading runs in the background, so a row's "Reading…" ends only when the server says so.
+  $effect(() =>
+    events.on('knowledge.updated', (e) => {
+      const d = e.data as { repo?: IndexedRepo; deleted?: boolean };
+      const r = d?.repo;
+      if (!r) return;
+      const i = indexed.findIndex((x) => x.id === r.id);
+      if (d.deleted) indexed = indexed.filter((_, j) => j !== i);
+      else if (i >= 0) indexed = indexed.map((x, j) => (j === i ? r : x));
+      else if (!indexed.some((x) => x.repo === r.repo)) indexed = [...indexed, r];
+    }),
+  );
 
   // GitHub may have stopped accepting the app because it was uninstalled:
   // a new installation moves the connection, then the connection is tested.

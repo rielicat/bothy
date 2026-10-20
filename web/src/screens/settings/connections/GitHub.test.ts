@@ -5,7 +5,10 @@ import { toaster } from '../../../components/ui';
 import { away } from '../../../lib/away';
 import { router } from '../../../lib/router.svelte';
 import { session } from '../../../lib/stores/session.svelte';
+import { api } from '../../../lib/api/client';
+import type { IndexedRepo } from '../../../lib/api/types.gen';
 import { installApi, type Call } from '../../../test/api';
+import { FakeEventSource } from '../../../test/setup';
 import EnvironmentDialog from './EnvironmentDialog.svelte';
 import GitHub from './GitHub.svelte';
 
@@ -141,6 +144,18 @@ describe('GitHub manage view', () => {
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Read again' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/reindex'))).toBe(true));
     await waitFor(() => expect(toaster.current?.text).toBe('Started reading again.'));
+  });
+
+  it('shows the new read time when reading again ends, without a reload', async () => {
+    await setup();
+    await fireEvent.click(await screen.findByRole('button', { name: 'Options for acme/web' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Read again' }));
+    const row = () => screen.getByTitle('acme/web').parentElement!;
+    await waitFor(() => expect(within(row()).getByText('Reading…')).toBeTruthy());
+    const repo = (await api.get<{ items: IndexedRepo[] }>('/api/knowledge/repos')).items.find((r) => r.repo === 'acme/web')!;
+    const at = new Date().toISOString();
+    FakeEventSource.last.emit('knowledge.updated', { seq: 9, type: 'knowledge.updated', at, data: { repo: { ...repo, status: 'ready', indexed_at: at } } });
+    expect(await within(row()).findByText(/^Read today at /)).toBeTruthy();
   });
 
   it('says deleting an environment is permanent before it does', async () => {
