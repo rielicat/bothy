@@ -1,7 +1,6 @@
 <script lang="ts">
   import AdvancedField from '../../../components/AdvancedField.svelte';
-  import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, SettingsSection } from '../../../components/ui';
+  import { Button, Dialog, FieldError, SettingsSection } from '../../../components/ui';
   import { config, saveErrorText } from '../../../lib/config.svelte';
   import RuleDialog from './RuleDialog.svelte';
   import { matchesOf, readRule, verdictLabel, whenParts, type Rule } from './rules';
@@ -98,7 +97,7 @@
 
 <Dialog open={!!deleting} title="Delete rule {deleting?.id ?? ''}?" initialFocus="cancel" busy={deleteBusy} onclose={() => (deleting = null)} cancel>
   <p class="text-body text-text">Bothy goes back to the approval setting for these actions. This can't be undone.</p>
-  {#if deleteError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{deleteError}</p>{/if}
+  <FieldError text={deleteError} />
   {#snippet footer()}
     <Button variant="danger" loading={deleteBusy} loadingLabel="Deleting…" onclick={remove}>Delete rule</Button>
   {/snippet}

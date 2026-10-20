@@ -5,6 +5,7 @@ import { initials } from './Avatar.svelte';
 import Button from './Button.svelte';
 import CommandBlock from './CommandBlock.svelte';
 import Disclosure from './Disclosure.svelte';
+import FieldError from './FieldError.svelte';
 import { place } from './layer';
 import { announce, live } from './live.svelte';
 import Segmented from './Segmented.svelte';
@@ -74,6 +75,17 @@ describe('Button', () => {
     const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
     link.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(false);
+  });
+});
+
+describe('FieldError', () => {
+  it('announces why an action failed, and draws nothing without a reason', async () => {
+    const { container, rerender } = render(FieldError, { text: "Couldn't save. Try again.", class: 'mb-2' });
+    const p = screen.getByRole('alert');
+    expect(p.textContent).toBe("Couldn't save. Try again.");
+    expect(p.classList.contains('field-error') && p.classList.contains('mb-2')).toBe(true);
+    await rerender({ text: false });
+    expect(container.textContent).toBe('');
   });
 });
 

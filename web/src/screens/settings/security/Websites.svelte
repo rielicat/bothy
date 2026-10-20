@@ -1,7 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, EmptyState, Notice, Page, SettingsSection, TextField, toast } from '../../../components/ui';
+  import { Button, Dialog, EmptyState, FieldError, Notice, Page, SettingsSection, TextField, toast } from '../../../components/ui';
   import { api } from '../../../lib/api/client';
   import type { EgressRecord, List, Session } from '../../../lib/api/types.gen';
   import { config, saveErrorText } from '../../../lib/config.svelte';
@@ -131,7 +130,7 @@
                 <Button variant="ghost" size="sm" data-remove aria-label="Remove {site}" loading={busy === site} loadingLabel="Removing…" onclick={() => remove(site, i)}>Remove</Button>
               {/if}
             </div>
-            {#if rowError?.site === site}<p class="field-error mb-2" role="alert"><Icon name="alert" class="mt-px" />{rowError.text}</p>{/if}
+            <FieldError text={rowError?.site === site && rowError.text} class="mb-2" />
           </div>
         {/each}
       </div>
@@ -188,7 +187,7 @@
   {#if allowShared}
     <Notice tone="warning" class="mt-3" text="Anyone can publish on {allowShared.replace(/^\./, '')}, so this also lets Bothy reach other people's sites there." />
   {/if}
-  {#if allowError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{allowError}</p>{/if}
+  <FieldError text={allowError} />
   {#snippet footer()}
     <Button variant="primary" loading={saving} loadingLabel="Allowing…" onclick={allowBlocked}>Allow site</Button>
   {/snippet}

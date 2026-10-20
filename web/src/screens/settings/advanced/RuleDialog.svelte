@@ -1,6 +1,5 @@
 <script lang="ts">
-  import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, Select, TextField } from '../../../components/ui';
+  import { Button, Dialog, FieldError, Select, TextField } from '../../../components/ui';
   import { config, saveErrorText } from '../../../lib/config.svelte';
   import { focusInvalid } from '../security/page.svelte';
   import { splitList, validRuleId, type Rule, type Verdict } from './rules';
@@ -111,7 +110,7 @@
       />
       <TextField label="Reason shown" optional placeholder="Reading the wiki is fine" bind:value={form.reason} />
     </div>
-    {#if error}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{error}</p>{/if}
+    <FieldError text={error} />
     {#if original}
       <!-- In the body, not the footer: on phones the footer becomes the sheet's Cancel / Save header. -->
       <Button variant="danger-text" size="sm" class="-ml-3" onclick={() => original && ondelete(original)}>Delete rule…</Button>

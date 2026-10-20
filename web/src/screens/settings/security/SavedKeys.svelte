@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import Icon from '../../../components/Icon.svelte';
-  import { Button, Dialog, EmptyState, IconButton, Menu, Page, TextField, toast } from '../../../components/ui';
+  import { Button, Dialog, EmptyState, FieldError, IconButton, Menu, Page, TextField, toast } from '../../../components/ui';
   import { api, ApiError } from '../../../lib/api/client';
   import type { SecretMeta, VaultStatus } from '../../../lib/api/types.gen';
   import { joinNames } from '../../../lib/cardcopy';
@@ -207,7 +207,7 @@
       />
     {/if}
     <TextField label={target ? 'New value' : 'Value'} type="password" autocomplete="off" bind:value help={helpFor(target)} error={tried ? valueError : ''} />
-    {#if formError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{formError}</p>{/if}
+    <FieldError text={formError} />
   </form>
   {#snippet footer()}
     <Button variant="primary" type="submit" form="{uid}-key" loading={saving} loadingLabel="Saving…">Save key</Button>
@@ -219,7 +219,7 @@
     {@const who = users(deleting)}
     <p class="text-body text-text">{who ? `${who} will stop working until you add a new key. ` : ''}This can't be undone.</p>
   {/if}
-  {#if deleteError}<p class="field-error" role="alert"><Icon name="alert" class="mt-px" />{deleteError}</p>{/if}
+  <FieldError text={deleteError} />
   {#snippet footer()}
     <Button variant="danger" loading={saving} loadingLabel="Deleting…" onclick={remove}>Delete key</Button>
   {/snippet}
