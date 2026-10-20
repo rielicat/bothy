@@ -27,7 +27,8 @@ describe('starters (§7.2)', () => {
   it('keeps room for four rows while they load, so nothing below moves', async () => {
     vi.stubGlobal('fetch', () => new Promise(() => {}));
     render(NewChat, { onpick: () => {} });
-    expect(screen.getByRole('list').classList.contains('min-h-40')).toBe(true);
+    expect(screen.getByRole('list').parentElement!.classList.contains('min-h-44')).toBe(true);
+    expect(screen.getByRole('list').classList.contains('list-card')).toBe(false);
     expect(screen.queryAllByRole('listitem')).toHaveLength(0);
   });
 

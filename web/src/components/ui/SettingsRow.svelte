@@ -12,6 +12,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from '../Icon.svelte';
+  import { markSaved, rowStatus } from './saved.svelte';
 
   let {
     label,
@@ -42,18 +43,19 @@
   const controlId = $derived(forId ?? `${uid}-control`);
   const describedBy = $derived(error ? `${uid}-error` : help ? `${uid}-help` : undefined);
 
-  // "Saved" shows for 2 s after a save, then the slot empties (the live region stays).
-  let savedVisible = $state(false);
+  // The page header says "Changes saved" once for the whole page (§11.1). The row says "Saved" for
+  // 2 s only while no such header is in view, and times it itself: some rows stay 'saved'.
+  let fresh = $state(false);
   $effect(() => {
     if (status !== 'saved') {
-      savedVisible = false;
+      fresh = false;
       return;
     }
-    savedVisible = true;
-    const t = setTimeout(() => (savedVisible = false), 2000);
+    markSaved();
+    fresh = true;
+    const t = setTimeout(() => (fresh = false), 2000);
     return () => clearTimeout(t);
   });
-  const statusText = $derived(status === 'saving' ? 'Saving…' : savedVisible ? 'Saved' : '');
 </script>
 
 <div
@@ -64,7 +66,7 @@
   <div class="min-w-0">
     <div class="flex flex-wrap items-baseline gap-x-2">
       <label id="{uid}-label" for={controlId} class="text-body font-medium text-text">{label}</label>
-      <span class="text-small text-muted" aria-live="polite">{statusText}</span>
+      <span class="text-small text-muted" aria-live="polite">{rowStatus(status === 'saved' && !fresh ? null : status)}</span>
     </div>
     {#if help && !error}<p id="{uid}-help" class="mt-0.5 text-small text-muted">{help}</p>{/if}
     {#if note}<div class="mt-0.5 text-small text-muted">{@render note()}</div>{/if}

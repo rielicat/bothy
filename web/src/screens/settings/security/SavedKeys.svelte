@@ -166,30 +166,32 @@
     {#if !sorted.length}
       <EmptyState text="No saved keys yet." more={personal ? 'Add one when a connected tool should use your own account.' : 'Keys you add for models and connections show up here.'} />
     {:else}
-      {#each sorted as k (k.source + ':' + k.name)}
-        {@const who = users(k)}
-        {@const label = keyName(k.name)}
-        <div class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0 pointer-coarse:min-h-12">
-          <div class="min-w-0 flex-1">
-            <p class="text-body text-text [overflow-wrap:anywhere]">{label}</p>
-            <!-- Each piece stays whole and the "·" stays with the piece before it, so phones wrap between pieces. -->
-            <p class="text-small text-muted">
-              {#if who}Used by {who}{'\u00a0· '}{/if}<span class="whitespace-nowrap"
-                >{#if k.source === 'env'}{who ? 'set' : 'Set'} on the server{:else if date(k.last_used_at)}{who ? 'last' : 'Last'} used <time
-                    datetime={k.last_used_at}
-                    title={fullTime(k.last_used_at)}>{relLower(k.last_used_at)}</time
-                  >{:else}{who ? 'not' : 'Not'} used yet{/if}</span
-              >
-            </p>
+      <div class="list-card">
+        {#each sorted as k (k.source + ':' + k.name)}
+          {@const who = users(k)}
+          {@const label = keyName(k.name)}
+          <div class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0 pointer-coarse:min-h-12">
+            <div class="min-w-0 flex-1">
+              <p class="text-body text-text [overflow-wrap:anywhere]">{label}</p>
+              <!-- Each piece stays whole and the "·" stays with the piece before it, so phones wrap between pieces. -->
+              <p class="text-small text-muted">
+                {#if who}Used by {who}{'\u00a0· '}{/if}<span class="whitespace-nowrap"
+                  >{#if k.source === 'env'}{who ? 'set' : 'Set'} on the server{:else if date(k.last_used_at)}{who ? 'last' : 'Last'} used <time
+                      datetime={k.last_used_at}
+                      title={fullTime(k.last_used_at)}>{relLower(k.last_used_at)}</time
+                    >{:else}{who ? 'not' : 'Not'} used yet{/if}</span
+                >
+              </p>
+            </div>
+            {#if k.source === 'vault' && !vault?.sealed && !locked}
+              <Button size="sm" aria-label="Replace {label}" onclick={() => openReplace(k)}>Replace</Button>
+              <Menu items={[{ label: 'Delete…', danger: true, onselect: () => ((deleting = k), (deleteError = '')) }]} placement="bottom-end">
+                {#snippet trigger(props)}<IconButton {...props} icon="more" label="More for {label}" size="sm" />{/snippet}
+              </Menu>
+            {/if}
           </div>
-          {#if k.source === 'vault' && !vault?.sealed && !locked}
-            <Button size="sm" aria-label="Replace {label}" onclick={() => openReplace(k)}>Replace</Button>
-            <Menu items={[{ label: 'Delete…', danger: true, onselect: () => ((deleting = k), (deleteError = '')) }]} placement="bottom-end">
-              {#snippet trigger(props)}<IconButton {...props} icon="more" label="More for {label}" size="sm" />{/snippet}
-            </Menu>
-          {/if}
-        </div>
-      {/each}
+        {/each}
+      </div>
     {/if}
   {/if}
 </Page>

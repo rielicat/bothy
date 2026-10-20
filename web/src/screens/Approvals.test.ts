@@ -40,7 +40,7 @@ describe('Approvals inbox', () => {
     expect(screen.getByRole('heading', { name: 'Waiting for others' })).toBeTruthy();
     expect(expanded()?.dataset.approval).toBe(DEPLOY);
     expect(within(expanded()!).getByRole('heading', { level: 3 }).textContent).toBe('Deploy acme/web to production?');
-    const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span')?.textContent);
+    const collapsed = [...document.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')].map((b) => b.querySelector('span[title]')?.textContent);
     expect(collapsed).toContain('Delete notes/staging.md?');
     expect(collapsed).toContain('Review changes to Docs actions');
     // A command's row names the command, so two rows never both read "Run this command?".
@@ -264,6 +264,28 @@ describe('Approvals inbox, other states', () => {
     expect(await screen.findByText('Nothing needs your approval.')).toBeTruthy();
     expect(screen.getByText("When Bothy needs someone's OK, it shows up here.")).toBeTruthy();
     expect(screen.queryByRole('heading', { name: 'For you' })).toBeNull();
+  });
+
+  it('says when nothing waits with Bothy beside it, and nowhere else on the page', async () => {
+    await open('/approvals', {}, 'approvals-empty');
+    const empty = await screen.findByText('Nothing needs your approval.');
+    expect(empty.closest('div.flex')!.querySelector('img[src="/icon.svg"]')!.getAttribute('alt')).toBe('');
+    expect(document.querySelectorAll('img')).toHaveLength(1);
+  });
+
+  it('says who each request waiting for others waits on, with one status per row', async () => {
+    await open('/approvals', {}, 'member');
+    await screen.findByText('Nothing needs your approval.');
+    const others = screen.getByRole('heading', { name: 'Waiting for others' }).closest('section')!;
+    const rows = [...others.querySelectorAll<HTMLButtonElement>('[data-row] button[aria-expanded="false"]')];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      const status = r.querySelector('span.shrink-0')!;
+      expect(status.textContent).toMatch(/^(Waiting for .+|\d+ of \d+ approvals)$/);
+      expect(status.textContent).not.toContain('Someone');
+      expect(status.querySelector('use')?.getAttribute('href')).toBe('#i-clock');
+      expect(r.textContent).not.toContain('Waiting for you');
+    }
   });
 
   it('counts only what waits for the viewer on the Waiting tab', async () => {

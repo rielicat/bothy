@@ -197,7 +197,7 @@
     {/if}
   {:else if loaded}
     {#if actionError}<Notice class="mb-4" tone="danger" text={actionError} role="alert" />{/if}
-    <ul>
+    <ul class="list-card">
       {#each sorted as u (u.id)}
         {@const name = displayName(u)}
         <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">

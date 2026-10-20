@@ -45,7 +45,7 @@
   bind:this={el}
   aria-label="Menu"
   aria-modal="true"
-  class="fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(320px,85vw)] max-w-none flex-col border-r border-border bg-sidebar p-0 text-text shadow-[var(--shadow-overlay)] transition-[translate] duration-200 ease-out open:flex starting:open:-translate-x-full lg:hidden"
+  class="fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(320px,85vw)] max-w-none flex-col border-r border-border bg-sidebar p-0 text-text shadow-overlay transition-[translate] duration-200 ease-out open:flex starting:open:-translate-x-full lg:hidden"
   oncancel={(e) => {
     e.preventDefault();
     shell.drawer = false;

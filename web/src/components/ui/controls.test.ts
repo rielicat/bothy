@@ -8,8 +8,13 @@ import Disclosure from './Disclosure.svelte';
 import FieldError from './FieldError.svelte';
 import { place } from './layer';
 import { announce, live } from './live.svelte';
+import Dot from './Dot.svelte';
+import EmptyState from './EmptyState.svelte';
+import PageHeader from './PageHeader.svelte';
+import { markSaved } from './saved.svelte';
 import Segmented from './Segmented.svelte';
 import SettingsRow from './SettingsRow.svelte';
+import SettingsSection from './SettingsSection.svelte';
 import Switch from './Switch.svelte';
 import Tabs, { currentTab } from './Tabs.svelte';
 
@@ -188,6 +193,57 @@ describe('SettingsRow', () => {
     expect(screen.queryByText('New work waits until midnight.')).toBeNull();
     expect(screen.getByText("Couldn't save. Try again.")).toBeTruthy();
     vi.useRealTimers();
+  });
+});
+
+describe('"Changes saved" (§11.1)', () => {
+  it('says it once in the page header for 2 s, and the row then stays quiet', async () => {
+    vi.useFakeTimers();
+    render(PageHeader, { props: { title: 'General', saves: true } });
+    const children = createRawSnippet((c: () => { id: string }) => ({ render: () => `<input id="${c().id}">` }));
+    const { rerender } = render(SettingsRow, { props: { label: 'Daily limit', status: null, children } });
+    const status = screen.getByRole('status');
+    expect(status.textContent).toBe('');
+    vi.advanceTimersByTime(1);
+    await rerender({ status: 'saved' });
+    expect(status.textContent).toBe('Changes saved');
+    expect(screen.queryByText('Saved')).toBeNull();
+    vi.advanceTimersByTime(2100);
+    flushSync();
+    expect(status.textContent).toBe('');
+    vi.useRealTimers();
+  });
+
+  it('is left out of pages that save nothing', () => {
+    render(PageHeader, { props: { title: 'Approvals' } });
+    markSaved();
+    flushSync();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+describe('Friendly primitives', () => {
+  it('groups a section\'s rows on one card unless it is bare', () => {
+    render(SettingsSection, { props: { title: 'Workspace', children: text('row') } });
+    render(SettingsSection, { props: { title: 'Tone', bare: true, children: text('cards') } });
+    expect(screen.getByText('row').parentElement!.classList.contains('list-card')).toBe(true);
+    expect(screen.getByText('cards').parentElement!.classList.contains('list-card')).toBe(false);
+  });
+
+  it('draws the needs-you dot in ember at 8 px alone and 6 px beside a number', () => {
+    render(Dot, { props: {} });
+    render(Dot, { props: { size: 6, label: '' } });
+    const [alone, beside] = [...document.querySelectorAll('span.rounded-full')];
+    expect(alone.className).toMatch(/\bbg-warning\b.*\bsize-2\b/);
+    expect(beside.className).toContain('size-1.5');
+    expect(alone.textContent).toBe('Needs attention');
+  });
+
+  it("puts Bothy's mark beside an empty state only when asked", () => {
+    render(EmptyState, { props: { text: 'Nothing needs your approval.', picture: true } });
+    render(EmptyState, { props: { text: 'No skills yet.' } });
+    expect(document.querySelectorAll('img[src="/icon.svg"]')).toHaveLength(1);
+    expect(document.querySelector('img')!.getAttribute('alt')).toBe('');
   });
 });
 

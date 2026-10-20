@@ -1,5 +1,5 @@
 // C5 Knowledge (docs/design/ui.md §9, §18.3): every route and state the chunk
-// owns, at 1280 × 800 and 360 × 780, light and dark, with the G4 probes.
+// owns, at 1280 × 800 and 375 × 812, light and dark, with the G4 probes.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/knowledge.spec.ts
 //   open e2e/shots/out/knowledge/index.html

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Disclosure, IconButton, Menu, Select, type MenuItem } from '../../components/ui';
+  import { rowStatus } from '../../components/ui/saved.svelte';
   import type { ModelOption } from '../../components/ModelDialog.svelte';
   import { addBackup, moveBackup, removeAt } from './modelHelpers';
   import { Saver, settingsConfig } from './store.svelte';
@@ -46,9 +47,9 @@
     <div class="mt-5">
       <div class="flex flex-wrap items-baseline gap-x-2">
         <h3 class="text-body font-medium text-text">{s.title}</h3>
-        <span class="text-small text-muted" aria-live="polite">{saver.status === 'saving' ? 'Saving…' : saver.status === 'saved' ? 'Saved' : ''}</span>
+        <span class="text-small text-muted" aria-live="polite">{rowStatus(saver.status)}</span>
       </div>
-      <ol class="mt-1">
+      <ol class="mt-1 list-card">
         {#each c.slice(1) as ref, k (ref)}
           {@const m = label(ref)}
           <li class="flex min-h-10 items-center gap-3 border-b border-border py-1 pointer-coarse:min-h-12">
@@ -59,7 +60,7 @@
             </Menu>
           </li>
         {:else}
-          <li class="py-2 text-body text-muted">No backups yet.</li>
+          <li class="py-3 text-body text-muted">No backups yet.</li>
         {/each}
       </ol>
       {#if saver.error}<p class="field-error" role="alert">{saver.error}</p>{/if}

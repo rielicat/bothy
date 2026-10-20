@@ -164,9 +164,9 @@ describe('sidebar (§4.2)', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     router.navigate('/chat/ses_01jteamcopy0000000000000000');
     const head = n.getByRole('link', { name: 'Q3 pricing notes' });
-    expect(head.parentElement?.classList.contains('bg-selected')).toBe(false);
+    expect(head.parentElement?.classList.contains('bg-raised')).toBe(false);
     await fireEvent.click(toggle);
-    expect(head.parentElement?.classList.contains('bg-selected')).toBe(true);
+    expect(head.parentElement?.classList.contains('bg-raised')).toBe(true);
     expect(head.getAttribute('aria-current')).toBeNull();
     // It doesn't open again by itself while the same chat stays open.
     chats.list = [...chats.list];
@@ -237,7 +237,40 @@ describe('focus (§16)', () => {
   });
 });
 
+describe('the Friendly shell (D46, D47)', () => {
+  const icon = (el: Element) => el.querySelector('svg use')?.getAttribute('href');
+
+  it('draws the inset frame over the page, hidden from assistive tech', async () => {
+    await start('/activity');
+    const frame = document.querySelector('.shadow-frame')!;
+    expect(frame.getAttribute('aria-hidden')).toBe('true');
+    expect(frame.classList.contains('pointer-events-none')).toBe(true);
+  });
+
+  it('gives every nav row its icon, the current one in moss, and counts approvals with a dot and a number', async () => {
+    await start('/approvals');
+    const n = within(nav());
+    expect(['New chat', 'Knowledge', 'Activity'].map((name) => icon(n.getByRole('link', { name })))).toEqual(['#i-compose', '#i-knowledge', '#i-activity']);
+    expect(icon(n.getByRole('button', { name: /Search/ }))).toBe('#i-search');
+    const appr = await waitFor(() => n.getByRole('link', { name: /^Approvals\s*\d+\s*waiting$/ }));
+    expect(appr.getAttribute('aria-current')).toBe('page');
+    expect(appr.querySelector('svg')!.getAttribute('class')).toContain('group-aria-[current=page]/i:text-accent-text');
+    expect(appr.querySelector('.text-warning-text .bg-warning')).toBeTruthy();
+    expect(icon(n.getByRole('link', { name: /^Settings/ }))).toBe('#i-settings');
+  });
+});
+
 describe('settings mode (§4.3)', () => {
+  it('leads each settings group with its icon', async () => {
+    await start('/settings/general');
+    const n = within(nav());
+    await waitFor(() => expect(n.getByRole('link', { name: 'General' })).toBeTruthy());
+    const groups = ['Account', 'General', 'Models', 'Connections', 'People', 'Security', 'Advanced'];
+    expect(groups.map((g) => n.getByRole('link', { name: new RegExp(`^${g}`) }).querySelector('svg use')?.getAttribute('href'))).toEqual(
+      ['user', 'sliders', 'models', 'plug', 'users', 'shield', 'code'].map((i) => `#i-${i}`),
+    );
+  });
+
   it('swaps the sidebar for the settings groups, with dots on Security and Connections', async () => {
     await start('/activity', { mock: 'team-chats' });
     router.navigate('/settings/connections/github');

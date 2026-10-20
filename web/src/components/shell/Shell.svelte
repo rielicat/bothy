@@ -125,13 +125,13 @@
 <a href="#main" class="sr-only rounded-md bg-surface px-3 py-2 text-body font-medium text-text focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50">Skip to content</a>
 
 <div class="lg:flex">
-  <nav aria-label="Main" class="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-border bg-sidebar lg:block">
+  <nav aria-label="Main" class="sticky top-0 z-40 hidden h-dvh w-64 shrink-0 bg-sidebar lg:block">
     <Sidebar />
   </nav>
   <main id="main" tabindex="-1" class="flex min-h-dvh min-w-0 flex-1 flex-col outline-none">
     <TopBar />
     <!-- Sticky, so a chat scrolled to its latest reply still shows why work stopped; the chat header sticks below it. -->
-    <div class="sticky top-0 z-20 max-lg:top-13" {@attach barHeight}>
+    <div class="sticky top-0 z-20 max-lg:top-13 lg:top-(--inset)" {@attach barHeight}>
       <ConnectionStatus />
       <!-- Activity → Spending says the limit was reached under its meter, with its own Change limit. -->
       <BannerHost hide={[...(blocking ? ['vault_sealed'] : []), ...(router.path === '/activity/spending' ? ['spend_limit'] : [])]} />
@@ -144,6 +144,8 @@
   </main>
 </div>
 
+<!-- The inset panel's frame and the canvas around it, drawn over the page so the document still scrolls (§6.1). -->
+<div aria-hidden="true" data-frame class="pointer-events-none fixed inset-y-2 right-2 left-66 z-30 hidden rounded-lg shadow-frame lg:block"></div>
 <NavDrawer />
 <ChatDialogs />
 <SearchDialog />

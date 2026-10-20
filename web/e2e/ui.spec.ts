@@ -135,6 +135,29 @@ test('every page and the chat start at the same left edge', async ({ page }) => 
   }
 });
 
+// §3.7: icons are one inline sprite of <symbol>s in index.html, drawn through <use>.
+test('the icon sprite ships with the page and draws under the CSP', async ({ page }) => {
+  const problems = watch(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/chat?mock=');
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await nav.getByRole('button', { name: /Search/ }).waitFor();
+  const { symbols, ids } = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('#icons symbol')];
+    return { symbols: all.length, ids: new Set(all.map((s) => s.id)).size };
+  });
+  expect(symbols).toBe(43);
+  expect(ids).toBe(symbols);
+  // A <use> pointing at a missing symbol has an empty box.
+  const box = await nav.getByRole('button', { name: /Search/ }).locator('svg use').evaluate((u) => {
+    const b = (u as SVGGraphicsElement).getBBox();
+    return { width: b.width, height: b.height };
+  });
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.height).toBeGreaterThan(0);
+  expect(problems).toEqual([]);
+});
+
 test.describe('axe', () => {
   // axe is injected as an inline script, which the CSP would block.
   test.use({ bypassCSP: true });

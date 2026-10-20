@@ -28,6 +28,7 @@
   import { people } from './people.svelte';
   import type { Viewer } from './types';
   import { votes } from './votes.svelte';
+  import { approvalIcon } from './icon';
   import Words from './Words.svelte';
 
   // The approval card (§8.1–8.5), rendered only from the server's card and
@@ -261,12 +262,14 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <article
     bind:this={article}
-    class="card focus-visible:outline-offset-[-1px] {mode === 'inbox' ? 'sm:p-5' : ''} {cls}"
+    class="card focus-visible:outline-offset-[-1px] sm:grid sm:grid-cols-[1.25rem_minmax(0,1fr)] sm:gap-x-3 {cls}"
     aria-labelledby="{uid}-q"
     data-approval={view.id}
     tabindex="-1"
     {onkeydown}
   >
+    <Icon name={approvalIcon(view)} size={18} class="mt-0.5 text-muted max-sm:hidden" />
+    <div class="min-w-0">
     <svelte:element this={level === 3 ? 'h3' : 'h2'} id="{uid}-q" class="text-heading text-text [overflow-wrap:anywhere]"><Words segs={copy.question} /></svelte:element>
     {#if copy.consequence}<p class="mt-1 text-body text-muted">{copy.consequence}</p>{/if}
     {#if asked}
@@ -421,6 +424,7 @@
           </dl>
         </div>
       {/if}
+    </div>
     </div>
   </article>
   {#if always}

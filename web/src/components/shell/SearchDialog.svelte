@@ -126,7 +126,7 @@
   bind:this={el}
   aria-label="Search"
   aria-modal="true"
-  class="mx-auto mt-[15vh] mb-auto max-h-[70vh] w-[calc(100%-2rem)] max-w-[40rem] flex-col overflow-hidden rounded-lg border border-border bg-surface p-0 text-text shadow-[var(--shadow-overlay)] transition-[opacity,scale] duration-180 ease-out open:flex starting:open:scale-98 starting:open:opacity-0 max-sm:m-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0"
+  class="mx-auto mt-[15vh] mb-auto max-h-[70vh] w-[calc(100%-2rem)] max-w-[40rem] flex-col overflow-hidden rounded-lg border border-border bg-surface p-0 text-text shadow-overlay transition-[opacity,scale] duration-180 ease-out open:flex starting:open:scale-98 starting:open:opacity-0 max-sm:m-0 max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0"
   oncancel={(e) => {
     e.preventDefault();
     close();

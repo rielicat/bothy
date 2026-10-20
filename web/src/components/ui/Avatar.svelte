@@ -14,6 +14,6 @@
 </script>
 
 <span
-  class="inline-flex shrink-0 items-center justify-center rounded-full bg-subtle font-semibold text-muted select-none {size === 24 ? 'size-6 text-caption' : 'size-8 text-small'} {cls}"
+  class="inline-flex shrink-0 items-center justify-center rounded-full bg-hover font-semibold text-muted select-none {size === 24 ? 'size-6 text-caption' : 'size-8 text-small'} {cls}"
   aria-hidden="true">{initials(name)}</span
 >

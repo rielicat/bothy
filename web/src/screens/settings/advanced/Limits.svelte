@@ -7,30 +7,38 @@
   const refine = $derived(!!(config.entry('agent.refine.drafts') || config.schema('agent.refine.drafts')));
 </script>
 
-<SettingsSection title="Limits">
+<SettingsSection title="Limits" bare>
   <h3 class="text-body font-medium text-text">Each task</h3>
-  <AdvancedField path="budgets.run.max_steps" label="Steps" type="number" />
-  <AdvancedField path="budgets.run.max_time" label="Time" type="duration" />
-  <AdvancedField path="budgets.run.max_usd" label="Cost" type="money" help="0 means no limit for one task." />
-  <AdvancedField path="budgets.run.max_tokens" label="Tokens" type="number" />
+  <div class="list-card mt-2">
+    <AdvancedField path="budgets.run.max_steps" label="Steps" type="number" />
+    <AdvancedField path="budgets.run.max_time" label="Time" type="duration" />
+    <AdvancedField path="budgets.run.max_usd" label="Cost" type="money" help="0 means no limit for one task." />
+    <AdvancedField path="budgets.run.max_tokens" label="Tokens" type="number" />
+  </div>
 
   <h3 class="mt-8 text-body font-medium text-text">Each scheduled task</h3>
-  <AdvancedField path="budgets.scheduled.max_steps" label="Steps" type="number" />
-  <AdvancedField path="budgets.scheduled.max_time" label="Time" type="duration" />
-  <AdvancedField path="budgets.scheduled.max_usd" label="Cost" type="money" />
-  <AdvancedField path="budgets.scheduled.max_tokens" label="Tokens" type="number" />
+  <div class="list-card mt-2">
+    <AdvancedField path="budgets.scheduled.max_steps" label="Steps" type="number" />
+    <AdvancedField path="budgets.scheduled.max_time" label="Time" type="duration" />
+    <AdvancedField path="budgets.scheduled.max_usd" label="Cost" type="money" />
+    <AdvancedField path="budgets.scheduled.max_tokens" label="Tokens" type="number" />
+  </div>
 
   <h3 class="mt-8 text-body font-medium text-text">Check-ins and messages</h3>
-  <AdvancedField path="budgets.heartbeat_daily_usd" label="Check-in spending per day" type="money" />
-  <AdvancedField path="budgets.sender_rate.per_minute" label="Messages per minute from one sender" type="number" />
-  <AdvancedField path="budgets.sender_rate.burst" label="Messages in a burst" type="number" />
-  <AdvancedField path="budgets.loop.warn_after" label="Warn after repeated steps" type="number" />
-  <AdvancedField path="budgets.loop.abort_after" label="Stop after repeated steps" type="number" />
+  <div class="list-card mt-2">
+    <AdvancedField path="budgets.heartbeat_daily_usd" label="Check-in spending per day" type="money" />
+    <AdvancedField path="budgets.sender_rate.per_minute" label="Messages per minute from one sender" type="number" />
+    <AdvancedField path="budgets.sender_rate.burst" label="Messages in a burst" type="number" />
+    <AdvancedField path="budgets.loop.warn_after" label="Warn after repeated steps" type="number" />
+    <AdvancedField path="budgets.loop.abort_after" label="Stop after repeated steps" type="number" />
+  </div>
 
   {#if refine}
     <h3 class="mt-8 text-body font-medium text-text">Refine</h3>
-    <AdvancedField path="agent.refine.drafts" label="Drafts" type="number" />
-    <AdvancedField path="agent.refine.depth" label="Rounds" type="number" />
-    <AdvancedField path="agent.refine.early_stop" label="Stop early when drafts agree" type="switch" />
+    <div class="list-card mt-2">
+      <AdvancedField path="agent.refine.drafts" label="Drafts" type="number" />
+      <AdvancedField path="agent.refine.depth" label="Rounds" type="number" />
+      <AdvancedField path="agent.refine.early_stop" label="Stop early when drafts agree" type="switch" />
+    </div>
   {/if}
 </SettingsSection>

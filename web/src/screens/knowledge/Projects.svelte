@@ -112,7 +112,7 @@
       />
     {/if}
   {:else}
-    <ul aria-label="Projects">
+    <ul aria-label="Projects" class="list-card">
       {#each rows as r (r.repo)}
         {@const st = repoState(r)}
         {@const pct = progressPct(r)}

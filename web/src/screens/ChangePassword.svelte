@@ -58,7 +58,7 @@
   }
 </script>
 
-<Frame title="Choose a new password" intro="You signed in with a one-time password. Choose your own to continue.">
+<Frame title="Choose a new password" intro="You signed in with a one-time password. Choose your own to continue." card>
   <form novalidate onsubmit={submit}>
     <div class="space-y-5">
       {#if !remembered || oldError}
@@ -69,6 +69,6 @@
     {#if error}
       <p class="field-error mt-8" role="alert"><Icon name="alert" class="mt-px" /><span class="min-w-0">{error}</span></p>
     {/if}
-    <Button type="submit" variant="primary" class="{error ? 'mt-4' : 'mt-8'} h-10 max-sm:w-full pointer-coarse:h-11" loading={busy} loadingLabel="Saving…">Save and continue</Button>
+    <Button type="submit" variant="primary" class="{error ? 'mt-4' : 'mt-6'} h-11 w-full" loading={busy} loadingLabel="Saving…">Save and continue</Button>
   </form>
 </Frame>

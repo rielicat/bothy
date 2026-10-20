@@ -1,11 +1,13 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, Combobox, SettingsRow, SettingsSection, StatusLine, TextArea } from '../../components/ui';
+  import Icon from '../../components/Icon.svelte';
+  import { Button, Combobox, FieldError, ProgressBar, SettingsRow, SettingsSection, StatusLine, TextArea } from '../../components/ui';
+  import { rowStatus } from '../../components/ui/saved.svelte';
+  import { money } from '../../lib/format';
   import { zoneOptions } from '../../lib/schedules';
   import { session } from '../../lib/stores/session.svelte';
   import { moneyText, parseMoney } from './accountHelpers';
   import PictureSetting from './PictureSetting.svelte';
-  import SelectSetting from './SelectSetting.svelte';
   import SettingsFrame from './SettingsFrame.svelte';
   import { helpFor, Saver, settingsConfig } from './store.svelte';
   import TextSetting from './TextSetting.svelte';
@@ -59,10 +61,29 @@
   }
 
   const tones = [
-    { value: 'warm', label: 'Warm and brief' },
-    { value: 'direct', label: 'Straight to the point' },
-    { value: 'formal', label: 'Calm and formal' },
+    { value: 'warm', label: 'Warm and brief', help: 'Friendly, short, first names.', sample: 'Good news: the release notes are ready for a look.' },
+    { value: 'direct', label: 'Straight to the point', help: 'Just the answer.', sample: 'Release notes are ready to review.' },
+    { value: 'formal', label: 'Calm and formal', help: 'Polished, for client work.', sample: 'Good morning. The release notes are ready for your review.' },
   ];
+  const toneSaver = new Saver();
+  const toneSaved = $derived(String(settingsConfig.value('agent.tone', 'warm')));
+  let tone = $state('');
+  $effect.pre(() => {
+    tone = toneSaved;
+  });
+  async function saveTone() {
+    if (!(await toneSaver.run(() => settingsConfig.save({ 'agent.tone': tone })))) tone = toneSaved;
+  }
+
+  // Today's spending against the limit. The limit is the field below, which is what the server
+  // measures against, so the summary follows an edit at once rather than after a refresh.
+  const spent = $derived(session.today?.global_spent_micros ?? 0);
+  const limit = $derived(Math.round(Number(settingsConfig.value('budgets.daily_usd', 0)) * 1e6));
+  // Fresh spending on open, and again when the limit changes (the spend-limit banner reads it too).
+  $effect(() => {
+    void limit;
+    untrack(() => void session.refreshToday());
+  });
 
   // Standing instructions are a list in the config, one instruction per line here.
   const rulesSaver = new Saver();
@@ -125,12 +146,20 @@
     </SettingsSection>
 
     <SettingsSection title="Spending">
+      {#if limit}
+        <div class="border-b border-border py-4">
+          <p class="flex flex-wrap items-baseline justify-between gap-x-3">
+            <span><span class="text-figure text-text tabular-nums">{money(spent)}</span> <span class="text-body text-muted">of {money(limit)} today</span></span><span class="text-small text-muted">Resets at midnight</span>
+          </p>
+          <ProgressBar class="mt-3" label="Today's spending" value={spent} max={limit} tone={spent >= limit ? 'danger' : spent >= 0.8 * limit ? 'warning' : 'default'} valueText="{money(spent)} of {money(limit)}" />
+        </div>
+      {/if}
       <TextSetting
         label="Daily limit"
         path="budgets.daily_usd"
         prefix="$"
         inputmode="decimal"
-        help="Bothy stops starting new work when everyone's spending reaches this. It resets at midnight."
+        help="Bothy stops starting new work when everyone's spending reaches this."
         format={moneyText}
         parse={dailyLimit}
       />
@@ -139,7 +168,6 @@
     <SettingsSection title="Bothy">
       <TextSetting label="Name" path="agent.name" parse={agentName} />
       <PictureSetting />
-      <SelectSetting label="Tone" path="agent.tone" options={tones} fallback="warm" />
       <div class="border-b border-border py-3">
         <!-- "Saved" goes right after the label, as on the other rows (§11.1). -->
         <TextArea
@@ -153,7 +181,7 @@
           onblur={saveRules}
         >
           {#snippet labelAction()}
-            <span class="text-muted" aria-live="polite">{rulesSaver.status === 'saving' ? 'Saving…' : rulesSaver.status === 'saved' ? 'Saved' : ''}</span>
+            <span class="text-muted" aria-live="polite">{rowStatus(rulesSaver.status)}</span>
           {/snippet}
         </TextArea>
       </div>
@@ -161,5 +189,22 @@
         {#snippet children()}<Button href="/settings/general/personality">Edit personality</Button>{/snippet}
       </SettingsRow>
     </SettingsSection>
+
+    {#if settingsConfig.has('agent.tone')}
+      <SettingsSection title="Tone" bare>
+        <p class="-mt-1 mb-3 flex justify-between gap-3 text-small text-muted"><span id="tone-help">How Bothy sounds when it replies.</span><span aria-live="polite">{rowStatus(toneSaver.status)}</span></p>
+        <div role="radiogroup" aria-describedby="tone-help" aria-label="Tone" class="grid gap-3 sm:grid-cols-3">
+          {#each tones as t (t.value)}
+            <label class="flex cursor-pointer flex-col rounded-lg border border-border-strong bg-surface p-4 hover:bg-subtle has-checked:border-accent has-checked:bg-accent-subtle has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-focus">
+              <input type="radio" name="tone" value={t.value} bind:group={tone} disabled={settingsConfig.locked('agent.tone')} class="sr-only" onchange={saveTone} />
+              <span class="flex items-center justify-between gap-2 text-body font-medium text-text">{t.label}{#if tone === t.value}<Icon name="check" class="text-accent-text" />{/if}</span>
+              <span class="text-small text-muted">{t.help}</span>
+              <span class="mt-3 border-t border-border pt-3 text-small text-text">“{t.sample}”</span>
+            </label>
+          {/each}
+        </div>
+        <FieldError text={toneSaver.error} />
+      </SettingsSection>
+    {/if}
   {/if}
 </SettingsFrame>

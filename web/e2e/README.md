@@ -9,7 +9,7 @@ fixture gateway (`web/mock`) and the gateway's CSP. Two kinds live here:
   keyboard-only approval, streaming under the CSP, tabs sharing one event
   stream, and the self-tests of the helpers below. This is gate G2.
 - **Screenshot sets** (`shots/<chunk>.spec.ts`): every route and state a chunk
-  owns, at 1280 × 800 and 360 × 780, light and dark, with the layout probes run
+  owns, at 1280 × 800 and 375 × 812, light and dark, with the layout probes run
   on each capture. These are gates G3 and G4 (docs/design/ui.md §18.2). They
   are skipped unless `SHOTS=1`, so the smoke run stays quick.
 
@@ -81,7 +81,7 @@ A state takes:
 
 | Field | Meaning |
 |---|---|
-| `name` | file stem, unique in the chunk; images are `<name>-<1280\|360>-<light\|dark>[-full].png` |
+| `name` | file stem, unique in the chunk; images are `<name>-<1280\|375>-<light\|dark>[-full].png` |
 | `route` | the address to open |
 | `mock` | scenario switches for the fixture gateway (below) |
 | `ready` | text to wait for (or a function) before capturing |
@@ -96,6 +96,11 @@ touch device with a coarse pointer, so 44 px targets and 16 px inputs show as
 on a real phone. Each page is opened with `?mock=…` (empty when the state has
 no scenarios), which resets the fixture gateway, so states never leak into each
 other.
+
+After each phone capture the window narrows to 360 px and the `overflow` probe
+runs again; its problems are listed with an `at 360:` prefix. Full-page
+captures hide the inset panel's frame (`[data-frame]`), which is fixed to the
+window and would otherwise paint the canvas over everything below it.
 
 Output goes to `web/e2e/shots/out/<chunk>/` (gitignored): the PNGs, one JSON
 file per state with its probe results, and `index.html`, which lays the four
@@ -113,10 +118,10 @@ directly. It returns one line per problem:
 | Probe | Fails when |
 |---|---|
 | `overflow` | `document.scrollingElement.scrollWidth` is wider than the window (the page scrolls sideways) |
-| `leftEdge` | at 1280 px, the first visible `h1` does not start at x = 408 ± 1 (the shared content edge, §3.3) |
+| `leftEdge` | at 1280 px, the first visible `[data-edge]` box (the chat header, whose breadcrumb sits before its `h1`), else the first visible `h1`, does not start at x = 408 ± 1 (the shared content edge, §3.3) |
 | `minText` | any rendered text is under 12 px |
 | `blur` | any element, or a dialog's `::backdrop`, has a `backdrop-filter` |
-| `shadows` | a `box-shadow` sits outside a floating layer; a 0-blur ring on an element holding focus (the composer) is allowed |
+| `shadows` | a `box-shadow` is none of the named elevations (`--shadow-raised`, `-card`, `-primary`, `-focus`, `-frame`, `-pop`, `-overlay`, compared as the browser computes them) and sits outside a floating layer; a 0-blur ring on an element holding focus is allowed |
 | `nesting` | a box bordered on all four sides sits inside another one; form controls, buttons and links don't count, and anything inside an overlay is its own view |
 | `targets` | a control is under 44 × 44 px with a coarse pointer, 24 × 24 px otherwise; links inside running text are exempt, and a checkbox or radio counts its label |
 

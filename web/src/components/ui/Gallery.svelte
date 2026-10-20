@@ -3,6 +3,7 @@
   // every primitive of docs/design/ui.md §15.3 in each of its states, for review.
   import { onMount } from 'svelte';
   import { lineDiff } from '../../lib/diff';
+  import { brands, paths, type IconName } from '../../lib/icons';
   import { theme, type ThemePref } from '../../lib/stores/ui.svelte';
   import Icon from '../Icon.svelte';
   import {
@@ -53,7 +54,9 @@
     type MenuItem,
   } from './index';
 
+  const iconNames = [...Object.keys(paths), ...Object.keys(brands)] as IconName[];
   const sections = [
+    ['icons', 'Icons'],
     ['buttons', 'Buttons'],
     ['fields', 'Fields'],
     ['choices', 'Choices'],
@@ -231,6 +234,16 @@
     <p class="mt-4 text-body text-muted">
       Jump to {#each sections as [id, label], i (id)}{#if i > 0}{' · '}{/if}<a class="link" href="#{id}">{label}</a>{/each}
     </p>
+
+    <!-- Icons: the whole sprite (§3.7), at the inline and the navigation size -->
+    <section id="icons" class="mt-10" aria-labelledby="icons-title">
+      <h2 id="icons-title" class="section-title">Icons</h2>
+      <ul class="mt-4 grid grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))] gap-2">
+        {#each iconNames as n (n)}
+          <li class="flex items-center gap-2 text-small text-muted"><Icon name={n} /><Icon name={n} size={18} class="text-text" /><span class="truncate">{n}</span></li>
+        {/each}
+      </ul>
+    </section>
 
     <!-- Buttons -->
     <section id="buttons" class="mt-10" aria-labelledby="buttons-title">
@@ -574,7 +587,8 @@
 
       <p class="mt-8 mb-2 text-small text-muted">Counts, dots, people and keys</p>
       <div class="flex flex-wrap items-center gap-x-6 gap-y-3 text-body">
-        <span class="inline-flex items-center gap-2">Approvals <Count n={2} /></span>
+        <span class="inline-flex items-center gap-2">For you <Count n={2} /></span>
+        <span class="inline-flex items-center gap-2">Approvals <span class="inline-flex items-center gap-1.5 text-small font-medium text-warning-text tabular-nums"><Dot size={6} label="" />2</span></span>
         <span class="inline-flex items-center gap-2">Releases <Count n={0} /><span class="text-small text-muted">(nothing at 0)</span></span>
         <span class="inline-flex items-center gap-2">Settings <Dot /></span>
         <span class="inline-flex items-center gap-2"><Avatar name="Alex Kim" /> Alex Kim</span>

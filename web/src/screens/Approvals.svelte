@@ -6,6 +6,9 @@
   import { itemQuestion, itemSource, loadItems } from '../components/approval/items';
   import type { InboxItem } from '../components/approval/types';
   import { votes } from '../components/approval/votes.svelte';
+  import { approvalIcon, itemIcon } from '../components/approval/icon';
+  import { people } from '../components/approval/people.svelte';
+  import Icon from '../components/Icon.svelte';
   import { announce } from '../components/ui/live.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import Notice from '../components/ui/Notice.svelte';
@@ -14,7 +17,7 @@
   import Verbatim from '../components/Verbatim.svelte';
   import { api, ApiError } from '../lib/api/client';
   import type { Approval, Choice, List } from '../lib/api/types.gen';
-  import { appName, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, segText } from '../lib/cardcopy';
+  import { appName, cardCopy, decidable, expiryOf, fromTeam, isMulti, isOpen, originOf, requesterOf, segText, waitingFor } from '../lib/cardcopy';
   import { clock as timeOfDay, date, relTime } from '../lib/format';
   import { choiceDone } from '../lib/labels';
   import { router } from '../lib/router.svelte';
@@ -241,24 +244,23 @@
     return segText(c.row ?? c.question);
   }
 
-  function rowMeta(r: Row): { text: string; warn?: boolean }[] {
-    if (r.item) return [{ text: itemSource(r.item) }, { text: relTime(r.item.created_at, { now: clock.now }) }];
+  // Line 2: where it came from and when. The right slot holds at most one status (§8.8).
+  function rowMeta(r: Row): string {
+    if (r.item) return `${itemSource(r.item)} · ${relTime(r.item.created_at, { now: clock.now })}`;
     const a = r.approval!;
-    const out: { text: string; warn?: boolean }[] = [];
-    const vv = votes.byId[a.id];
-    if (isMulti(a) && vv) out.push({ text: `${vv.approvals} of ${vv.required} approvals` });
-    else if (fromTeam(a) && a.requester?.name) out.push({ text: `${a.requester.name} · ${appName(a.requester.app)}` });
-    else {
-      const o = originOf(a);
-      const src = o.title ?? o.app;
-      if (src) out.push({ text: src });
-    }
+    const o = originOf(a);
+    const src = fromTeam(a) && a.requester?.name ? `${a.requester.name} · ${appName(a.requester.app)}` : (o.title ?? o.app);
+    const age = relTime(a.created_at, { now: clock.now });
+    return src ? `${src} · ${age}` : age;
+  }
+  function rowStatus(r: Row, mine: boolean): { text: string; warn?: boolean; clock?: boolean } | null {
+    const a = r.approval;
+    if (!a) return null;
+    if (!mine) return { text: waitingFor(a, votes.byId[a.id], (id) => people.known(id)), clock: true };
+    if (a.status === 'parked') return { text: `Waiting since ${timeOfDay(a.created_at)}` };
     const exp = expiryOf(a, clock.now);
     const at = date(a.card?.expires) ?? date(a.expires_at);
-    if (a.status === 'parked') out.push({ text: `Waiting since ${timeOfDay(a.created_at)}` });
-    else if (exp && at && at.getTime() - clock.now < 15 * 60_000) out.push({ text: exp.text, warn: true });
-    else out.push({ text: relTime(a.created_at, { now: clock.now }) });
-    return out;
+    return exp && at && at.getTime() - clock.now < 15 * 60_000 ? { text: exp.text, warn: true } : null;
   }
 
   // The Done tab: decisions of the last 30 days, grouped by day.
@@ -327,12 +329,17 @@
   {/if}
 {/snippet}
 
-{#snippet list(section: Row[])}
-  <ul class="mt-2" onfocusin={(e) => (cursor = (e.target as Element).closest<HTMLElement>('[data-row]')?.dataset.row ?? cursor)}>
+<!-- The count follows the heading rather than sitting in it, so the heading keeps its plain name. -->
+{#snippet heading(id: string, title: string, n: number)}
+  <div class="flex items-baseline gap-2"><h2 {id} class="section-title">{title}</h2><span class="text-heading font-normal text-muted tabular-nums">{n}</span></div>
+{/snippet}
+
+{#snippet list(section: Row[], mine: boolean)}
+  <ul class="mt-2 space-y-2" onfocusin={(e) => (cursor = (e.target as Element).closest<HTMLElement>('[data-row]')?.dataset.row ?? cursor)}>
     {#each section as r (r.key)}
-      <li data-row={r.key} class="scroll-mt-6 border-b border-border last:border-b-0" out:collapse>
+      <li data-row={r.key} class="scroll-mt-6" out:collapse>
         {#if expanded === r.key}
-          <div class="py-3">
+          <div>
             {#if r.approval}
               <ApprovalCard approval={r.approval} mode="inbox" level={3} onresolve={(c, _n, res) => onApprovalResolved(r.key, c, res)} />
             {:else if r.item}
@@ -341,16 +348,20 @@
           </div>
         {:else}
           {@const q = r.approval ? rowTitle(r.approval) : itemQuestion(r.item!)}
+          {@const st = rowStatus(r, mine)}
           <button
             type="button"
-            class="-mx-2 flex min-h-10 w-[calc(100%+1rem)] cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-subtle focus-visible:outline-offset-[-2px] max-sm:flex-col max-sm:items-start max-sm:gap-0.5 pointer-coarse:min-h-12"
+            class="flex min-h-14 w-full cursor-pointer flex-wrap items-center gap-x-3 rounded-lg border border-border bg-surface px-4 py-3 text-left shadow-card hover:bg-subtle focus-visible:outline-offset-2"
             aria-expanded="false"
             onclick={() => expand(r.key)}
           >
-            <span class="w-full min-w-0 flex-1 truncate text-body font-medium text-text" title={q} data-copy-ignore={r.approval ? true : undefined}>{q}</span>
-            <span class="flex shrink-0 gap-1 text-small text-muted tabular-nums">
-              {#each rowMeta(r) as m, i (i)}{#if i > 0}<span aria-hidden="true">·</span>{/if}<span class={m.warn ? 'text-warning-text' : ''}>{m.text}</span>{/each}
+            <Icon name={r.approval ? approvalIcon(r.approval) : itemIcon(r.item!)} size={18} class="text-muted" />
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-body font-medium text-text" title={q} data-copy-ignore={r.approval ? true : undefined}>{q}</span>
+              <span class="block truncate text-small text-muted tabular-nums">{rowMeta(r)}</span>
             </span>
+            {#if st}<span class="flex shrink-0 items-center gap-1.5 text-small tabular-nums max-sm:order-last max-sm:basis-full max-sm:pl-7.5 {st.warn ? 'text-warning-text' : 'text-muted'}">{#if st.clock}<Icon name="clock" />{/if}{st.text}</span>{/if}
+            <Icon name="chevron-right" class="text-muted" />
           </button>
         {/if}
       </li>
@@ -368,14 +379,14 @@
       {#each groups as g, gi (g.label)}
         <section class={gi > 0 ? 'mt-10' : ''} aria-labelledby="done-{gi}">
           <h2 id="done-{gi}" class="section-title">{g.label}</h2>
-          <ul class="mt-2">
+          <ul class="list-card mt-2">
             {#each g.list as a (a.id)}
               {@const linked = fromTeam(a) ? !!a.card?.context : !!a.session_id && a.principal_id === session.me?.user.id}
               <li class="border-b border-border py-3 last:border-b-0">
                 {#snippet source()}{@render chatLink(a)}{/snippet}
                 <DecidedLine approval={a} list source={linked ? source : undefined} expanded={showing === a.id} onshow={() => (showing = showing === a.id ? null : a.id)} />
                 {#if showing === a.id}
-                  <div class="mt-3"><ApprovalCard approval={a} mode="readonly" level={3} /></div>
+                  <div class="mt-3"><ApprovalCard approval={a} mode="readonly" level={3} class="border-0 p-0 shadow-none sm:p-0" /></div>
                 {/if}
               </li>
             {/each}
@@ -408,19 +419,19 @@
       <div bind:this={listEl}>
         {#if forYou.length}
           <section aria-labelledby="for-you">
-            <h2 id="for-you" class="section-title">For you</h2>
-            {@render list(forYou)}
+            {@render heading('for-you', 'For you', forYou.length)}
+            {@render list(forYou, true)}
           </section>
         {:else}
           <!-- Above requests waiting for others, the second sentence would describe a page that isn't empty. -->
           <div bind:this={emptyEl} tabindex="-1" class="outline-offset-2">
-            <EmptyState text="Nothing needs your approval." more={others.length ? undefined : "When Bothy needs someone's OK, it shows up here."} />
+            <EmptyState picture text="Nothing needs your approval." more={others.length ? undefined : "When Bothy needs someone's OK, it shows up here."} />
           </div>
         {/if}
         {#if others.length}
           <section class="mt-10" aria-labelledby="for-others">
-            <h2 id="for-others" class="section-title">Waiting for others</h2>
-            {@render list(others)}
+            {@render heading('for-others', 'Waiting for others', others.length)}
+            {@render list(others, false)}
           </section>
         {/if}
       </div>

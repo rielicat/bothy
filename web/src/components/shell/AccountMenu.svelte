@@ -126,7 +126,7 @@
   const itemClass =
     'flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-body hover:bg-hover focus:bg-hover focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus aria-disabled:cursor-not-allowed pointer-coarse:min-h-11';
   const panel =
-    'fixed inset-auto z-50 m-0 min-w-48 rounded-lg border border-border bg-surface p-1 text-text shadow-[var(--shadow-overlay)] transition-[opacity,translate] duration-120 ease-out starting:open:-translate-y-1 starting:open:opacity-0';
+    'fixed inset-auto z-50 m-0 min-w-48 rounded-lg border border-border bg-surface p-1 text-text shadow-overlay transition-[opacity,translate] duration-120 ease-out starting:open:-translate-y-1 starting:open:opacity-0';
 </script>
 
 <button

@@ -191,7 +191,7 @@
   {:else if !history.length && !pending.length && !deploys.length}
     <EmptyState text="No deploys yet. Ask Bothy in a chat, for example “Deploy main to staging”." />
   {:else}
-    <ul>
+    <ul class="list-card">
       {#each environments as { env, last, status, before } (env.name)}
         <li class="border-b border-border py-2 last:border-b-0">
           <!-- Not a link to anything, so the name wraps instead of truncating; a long status moves under it. -->
@@ -212,7 +212,7 @@
     {#if history.length}
       <section class="mt-10">
         <h2 class="section-title">History</h2>
-        <ul class="mt-2">
+        <ul class="list-card mt-2">
           {#each history as h (h.key)}
             <li class="flex min-h-14 flex-col justify-center border-b border-border py-2 last:border-b-0">
               <!-- On a phone the title wraps, since rows differ at its end (environment, commit), and the status leads the meta line. -->

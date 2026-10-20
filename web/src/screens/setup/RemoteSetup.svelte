@@ -8,7 +8,7 @@
   const t = $derived(tunnel(fix));
 </script>
 
-<Frame title="Finish setup on the server" intro="For safety, setup only works on the computer Bothy runs on. Run this on your own computer to connect to it:">
+<Frame title="Finish setup on the server" intro="For safety, setup only works on the computer Bothy runs on. Run this on your own computer to connect to it:" card>
   <CommandBlock code={t.cmd} />
   <p class="mt-3 text-body text-muted">
     {#if t.placeholder}

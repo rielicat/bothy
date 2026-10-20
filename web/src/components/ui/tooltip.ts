@@ -6,7 +6,7 @@ import { finePointer, focusables, place, popoverAttr, showLayer } from './layer'
 
 let seq = 0;
 
-const TIP = 'pointer-events-none fixed inset-auto z-50 m-0 max-w-64 rounded-sm border-0 bg-text px-2 py-1 text-small text-bg shadow-[var(--shadow-overlay)]';
+const TIP = 'pointer-events-none fixed inset-auto z-50 m-0 max-w-64 rounded-sm border-0 bg-text px-2 py-1 text-small text-bg shadow-overlay';
 
 function focusVisible(el: Element): boolean {
   try {

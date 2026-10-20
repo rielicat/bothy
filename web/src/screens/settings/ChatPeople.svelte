@@ -198,7 +198,7 @@
   });
 </script>
 
-<SettingsSection title="In chat apps">
+<SettingsSection title="In chat apps" bare>
   {#if teamAccess}<Notice class="mb-3" text="People in chat apps no longer link to Bothy accounts. Check who can use Bothy and who can approve below." />{/if}
   <!-- Without a chat app there's nobody to approve and nothing to share, so only the way to connect one shows. -->
   {#if !noApps}
@@ -237,7 +237,7 @@
     {:else}
       {#if nobodyApproves}<p class="mt-3 text-body text-text">Nobody can approve in chat apps yet, so requests from chat apps wait for an admin in Approvals.</p>{/if}
       {#if people.length > 20}<TextField class="mt-3" label="Find someone" type="search" bind:value={q} />{/if}
-      <ul class="mt-2">
+      <ul class="list-card mt-2">
         {#each shown as t (key(t))}
           <li class="border-b border-border last:border-b-0">
             <div class="flex min-h-14 items-center gap-3 py-2">

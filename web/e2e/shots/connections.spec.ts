@@ -1,5 +1,5 @@
 // C8 Settings → Connections (docs/design/ui.md §12, §18.3): every route and
-// state, at 1280 × 800 and 360 × 780, light and dark, with the G4 probes.
+// state, at 1280 × 800 and 375 × 812, light and dark, with the G4 probes.
 //
 //   npm run build && SHOTS=1 npx playwright test e2e/shots/connections.spec.ts
 import type { Page } from '@playwright/test';

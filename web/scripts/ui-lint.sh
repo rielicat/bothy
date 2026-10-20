@@ -16,6 +16,15 @@ rule() {
 		fail=1
 	fi
 }
+# The same, over the files whose path doesn't match $3 (the one place a pattern is allowed).
+rule_except() {
+	local what=$1 re=$2 allowed=$3 hits list=()
+	for f in "${files[@]}"; do [[ $f =~ $allowed ]] || list+=("$f"); done
+	if hits=$(grep -nE -- "$re" "${list[@]}"); then
+		printf 'ui-lint: %s\n%s\n' "$what" "$hits" >&2
+		fail=1
+	fi
+}
 
 # A class token: preceded by the start of a class list, a quote, a backtick,
 # a brace, whitespace or a variant colon, and followed by the same or a slash.
@@ -24,9 +33,17 @@ e='([[:space:]"'\''`}/]|$)'
 
 rule 'chips and pills (§2.1)' "${b}chip(-[a-z]+)?${e}"
 rule 'backdrop blur (§3.4)' 'backdrop-blur|backdrop-filter'
-rule 'radii above 8 px (§3.4)' "${b}rounded(-[trblse]{1,2})?-(xl|2xl|3xl)${e}"
+rule 'radii above 20 px (§3.4)' "${b}rounded(-[trblse]{1,2})?-(2xl|3xl)${e}"
+rule_except 'the 20 px radius is the sign-in card only (§3.4)' "${b}rounded(-[trblse]{1,2})?-xl${e}" '^\./screens/setup/Frame\.svelte$'
 rule 'bare rounded; use rounded-sm, -md, -lg or -full (§3.4)' "${b}rounded${e}"
 rule 'shadows outside floating layers (§3.4)' "${b}shadow(-(xs|sm|md|lg|xl|2xl))?${e}"
+rule 'literal shadows; use a named elevation (§3.4)' "${b}[a-z:-]*shadow-\["
+rule 'the ember dot colour as text; use text-warning-text (§3.1)' "${b}[a-z:-]*text-warning${e}"
+rule 'filled icons; state is colour (§3.7)' "${b}[a-z:-]*fill-[a-z]"
+rule_except 'inline SVG; icons come from the sprite through Icon.svelte (§3.7)' '<svg' '^\./(components/Icon\.svelte|lib/icons\.ts)$'
+rule 'pulsing, pinging or bouncing marks; no caret (§3.6)' "${b}[a-z:-]*animate-(pulse|ping|bounce)${e}"
+rule 'web fonts; the system stack only (§3.2)' '@font-face'
+rule 'the display size is gone; use text-title (§3.2)' "${b}text-display${e}"
 rule 'uppercase labels (§3.2)' "${b}uppercase${e}"
 rule 'letter-spaced labels (§3.2)' "${b}tracking-(wide|wider|widest)${e}"
 rule 'bold weight; use 500 or 600 (§3.2)' "${b}font-(bold|extrabold|black)${e}"

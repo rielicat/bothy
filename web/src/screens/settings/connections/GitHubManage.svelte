@@ -263,33 +263,35 @@
       </div>
     </div>
     {#if app && notInstalled && conn.status === 'error'}<StatusLine class="mt-3" tone="warning" text="{app.name} isn't installed yet." />{/if}
-    <div class="pt-3">
-      <Button variant="danger-text" class="-ml-4" onclick={() => (leaving = true)}>Disconnect GitHub…</Button>
+    <div class="py-2">
+      <Button variant="danger-text" class="-ml-3" onclick={() => (leaving = true)}>Disconnect GitHub…</Button>
     </div>
   </SettingsSection>
 
-  <SettingsSection title="Repositories">
-    {#each repos as r (full(r))}
-      {@const read = readLine(r)}
-      <div class="flex min-h-14 items-center gap-3 border-b border-border py-2 pointer-coarse:min-h-16">
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-body font-medium text-text" title={full(r)}>{full(r)}</p>
-          <p class="text-small {read.danger ? 'text-danger-text' : 'text-muted'}">{read.text}</p>
+  <SettingsSection title="Repositories" bare>
+    <div class="list-card">
+      {#each repos as r (full(r))}
+        {@const read = readLine(r)}
+        <div class="flex min-h-14 items-center gap-3 border-b border-border py-2 pointer-coarse:min-h-16">
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-body font-medium text-text" title={full(r)}>{full(r)}</p>
+            <p class="text-small {read.danger ? 'text-danger-text' : 'text-muted'}">{read.text}</p>
+          </div>
+          <Switch label="Bothy can use {full(r)}" hideLabel checked={r.allowed} onchange={(v) => setAllowed(r, v)} />
+          <Menu
+            placement="bottom-end"
+            items={[
+              ...(r.allowed && indexed.some((x) => x.repo === full(r).toLowerCase()) ? [{ label: 'Read again', onselect: () => readAgain(r) }] : []),
+              { label: 'View on GitHub ↗', onselect: () => window.open(`${web}/${full(r)}`, '_blank', 'noopener,noreferrer') },
+            ]}
+          >
+            {#snippet trigger(props)}<IconButton icon="more" label="Options for {full(r)}" size="sm" variant="quiet" {...props} />{/snippet}
+          </Menu>
         </div>
-        <Switch label="Bothy can use {full(r)}" hideLabel checked={r.allowed} onchange={(v) => setAllowed(r, v)} />
-        <Menu
-          placement="bottom-end"
-          items={[
-            ...(r.allowed && indexed.some((x) => x.repo === full(r).toLowerCase()) ? [{ label: 'Read again', onselect: () => readAgain(r) }] : []),
-            { label: 'View on GitHub ↗', onselect: () => window.open(`${web}/${full(r)}`, '_blank', 'noopener,noreferrer') },
-          ]}
-        >
-          {#snippet trigger(props)}<IconButton icon="more" label="Options for {full(r)}" size="sm" variant="quiet" {...props} />{/snippet}
-        </Menu>
-      </div>
-    {:else}
-      <p class="py-3 text-body text-muted">Bothy can't use any repositories yet.</p>
-    {/each}
+      {:else}
+        <p class="py-3 text-body text-muted">Bothy can't use any repositories yet.</p>
+      {/each}
+    </div>
     <Button class="mt-4" onclick={openAdd}>Add repositories</Button>
   </SettingsSection>
 
@@ -298,7 +300,7 @@
       <h2 id="gh-envs" class="section-title">Deploy environments</h2>
       {#if envs.length}<Button size="sm" onclick={() => ((editing = null), (envOpen = true))}>Add environment</Button>{/if}
     </div>
-    <div class="mt-2">
+    <div class="mt-2 {envs.length ? 'list-card' : ''}">
       {#each envs as e (e.name)}
         <div class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
           <div class="min-w-0 flex-1">

@@ -59,7 +59,7 @@
   }
 </script>
 
-<SettingsSection title="Model prices">
+<SettingsSection title="Model prices" bare>
   <p class="text-small text-muted">In dollars per million tokens.</p>
   {#if overrides.length}
     <!-- Under 640 px each row folds into name, id and one price line, like Rules. -->

@@ -56,7 +56,8 @@
   const uid = $props.id();
   const blocked = $derived(disabled || !!reason);
   const classes = $derived(['btn', `btn-${variant}`, size === 'sm' ? 'btn-sm' : '', cls].filter(Boolean).join(' '));
-  const iconSize = 16;
+  // Brand marks carry fine detail, so they draw a size up (§3.7).
+  const iconSize = $derived(icon === 'google' || icon === 'github' ? 18 : 16);
 
   let el: HTMLElement | undefined = $state();
   let lockedWidth: number | null = $state(null);
@@ -81,7 +82,7 @@
 
 {#snippet body()}
   {#if loading}
-    <Spinner size={iconSize} />
+    <Spinner />
     <span>{#if loadingLabel}{loadingLabel}{:else}{@render children()}{/if}</span>
   {:else}
     {#if icon}<Icon name={icon} size={iconSize} />{/if}

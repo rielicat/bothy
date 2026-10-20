@@ -61,7 +61,7 @@ const states: ShotState[] = [
     full: false,
     setup: framed(async (page) => {
       await page.getByRole('radio', { name: 'Careful' }).check();
-      await page.getByText('Saved', { exact: true }).first().waitFor();
+      await page.getByText(/^(Changes saved|Saved)$/).first().waitFor();
       await page.getByRole('radio', { name: 'Careful' }).scrollIntoViewIfNeeded();
     }),
   },
@@ -72,7 +72,7 @@ const states: ShotState[] = [
     full: false,
     setup: framed(async (page) => {
       await page.getByLabel('If nobody answers a chat request').selectOption('deny-1h');
-      await page.getByText('Saved', { exact: true }).first().waitFor();
+      await page.getByText(/^(Changes saved|Saved)$/).first().waitFor();
       await page.getByText('If nobody answers a scheduled request').scrollIntoViewIfNeeded();
     }),
   },

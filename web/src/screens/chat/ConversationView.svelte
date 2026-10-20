@@ -118,6 +118,19 @@
     }
     return new Set([...out.values()].filter((b) => b.kind === 'assistant' && b.text).map((b) => b.key));
   });
+  // Bothy's picture goes on the first reply, stream or steps block of each turn (§7.3).
+  const faces = $derived.by(() => {
+    const out = new Set<string>();
+    let open = true;
+    for (const b of blocks) {
+      if (b.kind === 'user') open = true;
+      else if (open && (b.kind === 'assistant' || b.kind === 'stream' || b.kind === 'steps')) {
+        out.add(b.key);
+        open = false;
+      }
+    }
+    return out;
+  });
   const latestReply = $derived([...blocks].reverse().find((b) => b.kind === 'assistant' && b.text)?.key ?? '');
   const lastUser = $derived([...conv.items].reverse().find((i) => i.kind === 'user'));
   // The welcome chat, until the person writes in it.
@@ -158,6 +171,7 @@
   const modelLabel = $derived(modelValue ? models.name(modelValue) : models.main ? models.name(models.main) : 'Main model');
   const starter = $derived(people.name(s?.principal_id, { you: false }));
   const from = $derived(conv.detail?.from);
+  const parent = $derived(from?.kind === 'chat' && from.id ? from : null);
   // [before, link text, href, after]: the chat or schedule it came from, unlinked once deleted.
   const fromLine = $derived(
     !from
@@ -560,6 +574,18 @@
   >
 {/snippet}
 
+<!-- Bothy's picture, as the chat apps show it (D49). -->
+{#snippet face()}
+  <img
+    src="/api/agent/picture"
+    alt=""
+    width="28"
+    height="28"
+    decoding="async"
+    class="mb-1.5 block size-5 rounded-full sm:absolute sm:top-0 sm:left-0 sm:mb-0 sm:size-7 dark:border dark:border-border-strong"
+  />
+{/snippet}
+
 {#snippet approvalFor(st: StepView, afterStep: boolean)}
   {@const a = st.approval!}
   {#if a.status === 'pending' || a.status === 'parked'}
@@ -586,8 +612,12 @@
   }}
 >
   {#if !isNew}
-    <header class="sticky top-[var(--bar,0px)] z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
-      <div class="min-w-0 flex-1">
+    <header class="sticky top-[calc(var(--bar,0px)+var(--inset))] z-10 flex min-h-13 items-center gap-2 border-b bg-bg py-1 max-lg:sr-only {scrolled ? 'border-border' : 'border-transparent'}">
+      <div data-edge class="flex min-w-0 flex-1 items-center gap-1.5">
+        {#if parent}<a href="/chat/{parent.id}" onclick={router.link} class="inline-flex min-h-6 max-w-[40%] shrink-0 items-center text-body text-muted hover:text-text max-lg:hidden"
+            ><span class="sr-only">Continued from</span>{' '}<span class="truncate" data-copy-ignore>{parent.title}</span></a
+          ><span aria-hidden="true" class="text-faint max-lg:hidden">/</span>{/if}
+        <div class="min-w-0 flex-1">
         <!-- The chat title stays the page's h1 while it is being renamed. -->
         <h1 class="flex min-w-0" tabindex="-1">
           {#if editing && wide}
@@ -604,6 +634,7 @@
         </h1>
         {#if editing && wide && renameError}<p id="rename-error" class="field-error">{renameError}</p>{/if}
         {#if !editing && where}<p class="truncate text-small text-muted">{where}</p>{/if}
+        </div>
       </div>
       <div class="max-lg:hidden">{@render chatMenu()}</div>
     </header>
@@ -622,13 +653,14 @@
     {:else}
       {#if fromLine}
         <!-- Where the chat came from, above everything it holds (§7.1). -->
-        <p class="mb-4 text-small text-muted">{fromLine[0]}{#if fromLine[2]}<a class="link" href={fromLine[2]} onclick={router.link}>{fromLine[1]}</a>{fromLine[3]}{/if}</p>
+        <p class="mb-4 text-small text-muted {parent ? 'lg:hidden' : ''}">{fromLine[0]}{#if fromLine[2]}<a class="link" href={fromLine[2]} onclick={router.link}>{fromLine[1]}</a>{fromLine[3]}{/if}</p>
       {/if}
       {#if conv.hasMore}
         <div class="mb-4 flex justify-center"><Button size="sm" variant="ghost" onclick={() => conv.loadEarlier().catch(() => {})}>Load earlier messages</Button></div>
       {/if}
       {#each blocks as b, i (b.key)}
-        <div class={gap(blocks[i - 1], b)}>
+        <div class="{gap(blocks[i - 1], b)} {b.kind === 'user' || b.kind === 'day' ? '' : 'sm:relative sm:pl-10'}">
+          {#if faces.has(b.key)}{@render face()}{/if}
           {#if b.kind === 'day'}
             <p class="text-center text-caption text-muted">{b.label}</p>
           {:else if b.kind === 'user'}
@@ -718,23 +750,26 @@
       {/each}
 
       <!-- The welcome chat offers the starters under its message until the person writes (§7.1). -->
-      {#if welcome}<NewChat bare onpick={(t) => composer?.fill(t)} />{/if}
+      {#if welcome}<div class="sm:pl-10"><NewChat bare onpick={(t) => composer?.fill(t)} /></div>{/if}
 
-      {#each strayApprovals as a (a.id)}<div class="mt-3"><ApprovalCard approval={a} onresolved={decided} /></div>{/each}
+      {#each strayApprovals as a (a.id)}<div class="mt-3 sm:pl-10"><ApprovalCard approval={a} onresolved={decided} /></div>{/each}
 
-      {#if conv.queued.length}<div class="mt-3"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
+      {#if conv.queued.length}<div class="mt-3 sm:pl-10"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
       {#if working}
-        <p class="mt-3 flex min-h-8 items-center gap-2 text-body text-muted" role="status"><Spinner size={16} />{workingLabel}</p>
+        <div class="mt-3 sm:relative sm:pl-10">
+          {#if !faces.size || blocks[blocks.length - 1]?.kind === 'user'}{@render face()}{/if}
+          <p class="flex min-h-8 items-center gap-2 text-body text-muted" role="status"><Spinner size={16} />{workingLabel}</p>
+        </div>
       {/if}
       {#if outcome}
-        <div class="mt-3"><ChatNotice {...outcome} alert={!!outcome.error && conv.finished?.run_id === conv.outcome?.run_id} /></div>
+        <div class="mt-3 sm:pl-10"><ChatNotice {...outcome} alert={!!outcome.error && conv.finished?.run_id === conv.outcome?.run_id} /></div>
       {:else if auth.paused && lastUser && conv.items[conv.items.length - 1] === lastUser}
-        <div class="mt-3"><ChatNotice text="Bothy is paused. Your message will be answered when it's resumed." /></div>
+        <div class="mt-3 sm:pl-10"><ChatNotice text="Bothy is paused. Your message will be answered when it's resumed." /></div>
       {/if}
     {/if}
   </section>
 
-  <div class="sticky bottom-0 z-10 bg-bg pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+  <div class="sticky bottom-(--inset) z-10 bg-bg pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
     {#if !atBottom && conv.id && !welcome}
       <div class="pointer-events-none absolute inset-x-0 -top-11 flex justify-center">
         <Button size="sm" class="pointer-events-auto" onclick={scrollDown}>Jump to latest</Button>

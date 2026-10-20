@@ -1,6 +1,10 @@
-// Hand-drawn 24×24 stroke icons (one path each, round caps and joins): the
-// 18 of docs/design/ui.md §3.7 and nothing else.
+// Hand-drawn 24×24 outline icons (round caps and joins, 1.5 px stroke), the
+// set of docs/design/ui.md §3.7. vite.config.ts writes them into index.html as
+// an SVG sprite, so none of this reaches the JavaScript bundle; components
+// import only the IconName type.
 const c = (cx: number, cy: number, r: number) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0z`;
+const rr = (x: number, y: number, w: number, h: number, r: number) =>
+  `M${x + r} ${y}h${w - 2 * r}a${r} ${r} 0 0 1 ${r} ${r}v${h - 2 * r}a${r} ${r} 0 0 1 ${-r} ${r}h${2 * r - w}a${r} ${r} 0 0 1 ${-r} ${-r}v${2 * r - h}a${r} ${r} 0 0 1 ${r} ${-r}z`;
 
 export const paths = {
   plus: 'M12 5v14M5 12h14',
@@ -21,6 +25,54 @@ export const paths = {
   back: 'M19 12H5M11 6l-6 6 6 6',
   refresh: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   spinner: 'M12 3a9 9 0 1 1-9 9',
+  compose: 'M11 4.5H6.5a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V13M17.6 3.9a1.9 1.9 0 0 1 2.7 2.7l-7.8 7.8-3.5.9.9-3.5z',
+  approvals: 'M8.5 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-1.5' + rr(8.5, 3, 7, 4, 1) + 'M9 13.5l2 2 4-4',
+  knowledge: 'M12 7.5V20M12 7.5C10.6 5.9 8.4 5 4 5v13c4.4 0 6.6.6 8 2 1.4-1.4 3.6-2 8-2V5c-4.4 0-6.6.9-8 2.5z',
+  activity: 'M4 12a8 8 0 1 0 2.3-5.7L4 8.5M4 4.5v4h4M12 8v4l2.8 1.8',
+  settings:
+    'M10.3 5.6l.3-2.5h2.8l.3 2.5 1.6.7 2-1.6 2 2-1.6 2 .7 1.6 2.5.3v2.8l-2.5.3-.7 1.6 1.6 2-2 2-2-1.6-1.6.7-.3 2.5h-2.8l-.3-2.5-1.6-.7-2 1.6-2-2 1.6-2-.7-1.6-2.5-.3v-2.8l2.5-.3.7-1.6-1.6-2 2-2 2 1.6z' +
+    c(12, 12, 3),
+  user: c(12, 8, 3.5) + 'M5 20a7 7 0 0 1 14 0',
+  sliders: 'M4 7h9M17 7h3M4 17h3M11 17h9' + c(15, 7, 2) + c(9, 17, 2),
+  models: rr(6, 6, 12, 12, 2) + rr(9.5, 9.5, 5, 5, 0.5) + 'M9.5 2.5V6M14.5 2.5V6M9.5 18v3.5M14.5 18v3.5M2.5 9.5H6M2.5 14.5H6M18 9.5h3.5M18 14.5h3.5',
+  plug: 'M9 2.5V7M15 2.5V7M6 7h12v4a6 6 0 0 1-12 0zM12 17v4.5',
+  users: c(9, 8, 3.5) + 'M3 20a6 6 0 0 1 12 0M15.5 4.6a3.5 3.5 0 0 1 0 6.8M17.5 14.2A6 6 0 0 1 21 20',
+  shield: 'M12 3l7.5 3v5.5c0 4.5-3.2 8.3-7.5 9.5-4.3-1.2-7.5-5-7.5-9.5V6z',
+  code: 'M8.5 7l-5 5 5 5M15.5 7l5 5-5 5',
+  target: c(12, 12, 8.5) + c(12, 12, 4.5) + c(12, 12, 0.75),
+  'pull-request': c(6, 6, 2.5) + c(6, 18, 2.5) + c(18, 18, 2.5) + 'M6 8.5v7M18 15.5V9a3 3 0 0 0-3-3h-4M13.5 3.5L11 6l2.5 2.5',
+  mail: rr(3, 5, 18, 14, 2) + 'M3.5 7l8.5 6 8.5-6',
+  deploy: 'M8 18H7a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 17.6 9 4.5 4.5 0 0 1 17 18h-1M12 20.5v-8M9 15.5l3-3 3 3',
+  terminal: rr(3, 4.5, 18, 15, 2) + 'M7 9.5l3 2.5-3 2.5M12.5 14.5H17',
+  file: 'M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M9 13h6M9 17h4',
+  globe: c(12, 12, 9) + 'M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9s-1 6.5-3.5 9c-2.5-2.5-3.5-5.5-3.5-9s1-6.5 3.5-9z',
+  calendar: rr(3.5, 5, 17, 15.5, 2) + 'M3.5 10h17M8 3v4M16 3v4',
+  upload: 'M12 15V4M7.5 8.5L12 4l4.5 4.5M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3',
+  eye: 'M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z' + c(12, 12, 3),
+  'eye-off': 'M10 5.7a9.6 9.6 0 0 1 2-.2c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.4 3.2M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.9 0 3.6-.6 5-1.5M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18',
 } as const;
 
-export type IconName = keyof typeof paths;
+// Brand marks keep their own artwork: never recoloured, never redrawn (§3.7).
+export const brands = {
+  google: {
+    viewBox: '0 0 48 48',
+    body:
+      '<path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>' +
+      '<path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>' +
+      '<path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>' +
+      '<path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>',
+  },
+  github: {
+    viewBox: '0 0 24 24',
+    body: '<path fill="currentColor" stroke="none" d="M12 1C5.923 1 1 5.923 1 12c0 4.867 3.149 8.979 7.521 10.436.55.096.756-.233.756-.522 0-.262-.013-1.128-.013-2.049-2.764.509-3.479-.674-3.699-1.292-.124-.317-.66-1.293-1.127-1.554-.385-.207-.936-.715-.014-.729.866-.014 1.485.797 1.691 1.128.99 1.663 2.571 1.196 3.204.907.096-.715.385-1.196.701-1.471-2.448-.275-5.005-1.224-5.005-5.432 0-1.196.426-2.186 1.128-2.956-.111-.275-.496-1.402.11-2.915 0 0 .921-.288 3.024 1.128a10.193 10.193 0 0 1 2.75-.371c.936 0 1.871.123 2.75.371 2.104-1.43 3.025-1.128 3.025-1.128.605 1.513.221 2.64.111 2.915.701.77 1.127 1.747 1.127 2.956 0 4.222-2.571 5.157-5.019 5.432.399.344.743 1.004.743 2.035 0 1.471-.014 2.654-.014 3.025 0 .289.206.632.756.522C19.851 20.979 23 16.854 23 12c0-6.077-4.922-11-11-11Z"/>',
+  },
+} as const;
+
+export type IconName = keyof typeof paths | keyof typeof brands;
+
+/** The sprite vite.config.ts puts at the top of <body>. */
+export function sprite(): string {
+  const strokes = Object.entries(paths).map(([n, d]) => `<symbol id="i-${n}" viewBox="0 0 24 24"><path d="${d}" vector-effect="non-scaling-stroke"/></symbol>`);
+  const marks = Object.entries(brands).map(([n, b]) => `<symbol id="i-${n}" viewBox="${b.viewBox}" stroke="none">${b.body}</symbol>`);
+  return `<svg id="icons" width="0" height="0" aria-hidden="true">${strokes.join('')}${marks.join('')}</svg>`;
+}

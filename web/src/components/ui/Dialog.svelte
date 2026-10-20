@@ -94,7 +94,7 @@
   aria-labelledby="{uid}-title"
   aria-modal="true"
   aria-busy={busy || undefined}
-  class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] flex-col overflow-hidden rounded-lg border border-border bg-surface p-0 text-text shadow-[var(--shadow-overlay)] transition-[opacity,scale] duration-180 ease-out open:flex starting:open:scale-98 starting:open:opacity-0 {width[
+  class="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] flex-col overflow-hidden rounded-lg border border-border bg-surface p-0 text-text shadow-overlay transition-[opacity,scale] duration-180 ease-out open:flex starting:open:scale-98 starting:open:opacity-0 {width[
     size
   ]} {sheet ? 'max-sm:h-dvh max-sm:max-h-none max-sm:w-full max-sm:max-w-none max-sm:rounded-none max-sm:border-0' : ''}"
   oncancel={(e) => {

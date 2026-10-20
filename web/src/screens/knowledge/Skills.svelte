@@ -107,7 +107,7 @@
       action={admin ? { label: 'Add skill', onclick: () => picker?.click() } : undefined}
     />
   {:else}
-    <div>
+    <div class="list-card">
       {#each skills as s (s.name)}
         <ListRow href={href(s)} title={skillName(s.name)} description={s.description}>
           {#snippet trailing()}

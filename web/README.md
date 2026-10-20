@@ -49,7 +49,7 @@ src/
     text.ts             bidi/zero-width visualisation and punycode for approval cards
     transcript.ts       persisted messages + live run events → transcript rows
     config.svelte.ts    effective config (§7.3) for Security and Advanced
-    icons.ts            the 18 inline icons
+    icons.ts            the 43 icons; vite.config.ts writes them into index.html as one SVG sprite
     qr.ts               QR encoder, byte mode, versions 1–6, level M (lazy chunk)
   components/
     ui/                 primitives (buttons, fields, lists, dialogs, menus, notices, DiffView…) and Gallery (/dev/ui, dev only)

@@ -114,7 +114,9 @@ test('a new related chat is listed at once, under the chat it came from and sele
   const kids = nav.getByRole('list', { name: 'Related to “Fix login redirect”' });
   await expect(kids.getByRole('link', { name: 'Fix login redirect (clean)' })).toHaveAttribute('aria-current', 'page');
   await expect(nav.getByRole('button', { name: 'Related chats for “Fix login redirect”' })).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('main').getByText('Continued from “Fix login redirect”')).toBeVisible();
+  // On a wide screen the header names the parent; the transcript line is for phones.
+  await expect(page.getByRole('main').getByRole('link', { name: 'Continued from Fix login redirect' })).toBeVisible();
+  await expect(page.getByRole('main').getByText('Continued from “Fix login redirect”')).toBeHidden();
   expect(problems).toEqual([]);
 });
 

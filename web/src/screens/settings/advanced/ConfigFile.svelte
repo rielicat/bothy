@@ -40,7 +40,7 @@
   }
 </script>
 
-<SettingsSection title="Configuration file">
+<SettingsSection title="Configuration file" bare>
   {#if config.view?.safe_mode || errors.length}
     <Notice tone="danger" class="mb-3" text={config.view?.safe_mode ? safeMode : fellBack} />
     {#if errors.length}

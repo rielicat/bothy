@@ -78,11 +78,34 @@ describe('Settings → General', () => {
     expect(patches(calls)).toEqual([]);
   });
 
-  it('saves a choice as soon as it changes', async () => {
-    const tone = screen.getByLabelText('Tone') as HTMLSelectElement;
-    await fireEvent.change(tone, { target: { value: 'formal' } });
+  it('offers the tone as three cards with a sample reply, and saves the one picked', async () => {
+    const group = screen.getByRole('radiogroup', { name: 'Tone' });
+    const radios = within(group).getAllByRole('radio') as HTMLInputElement[];
+    expect(radios.map((r) => r.closest('label')!.querySelector('span')!.textContent)).toEqual(['Warm and brief', 'Straight to the point', 'Calm and formal']);
+    expect(group.textContent).toContain('“Good morning. The release notes are ready for your review.”');
+    expect(radios.find((r) => r.checked)?.value).toBe('warm');
+    await fireEvent.click(within(group).getByLabelText(/Calm and formal/));
     await waitFor(() => expect(patches(calls)).toEqual([{ 'agent.tone': 'formal' }]));
-    await within(row('Tone')).findByText('Saved');
+    expect((within(group).getByLabelText(/Calm and formal/) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('puts the tone back when saving it fails', async () => {
+    installApi({ override: (m, url) => (m === 'PATCH' && url === '/api/config' ? new Response(JSON.stringify({ error: { code: 'internal', message: 'x' } }), { status: 500 }) : undefined) });
+    const group = screen.getByRole('radiogroup', { name: 'Tone' });
+    await fireEvent.click(within(group).getByLabelText(/Straight to the point/));
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    await waitFor(() => expect((within(group).getByLabelText(/Warm and brief/) as HTMLInputElement).checked).toBe(true));
+  });
+
+  it("shows today's spending against the limit above the limit, and follows the limit as it is saved", async () => {
+    const meter = await screen.findByRole('progressbar', { name: "Today's spending" });
+    expect(meter.getAttribute('aria-valuetext')).toMatch(/^\$\d+\.\d\d of \$3\.00$/);
+    expect(screen.getByText('Resets at midnight')).toBeTruthy();
+    const limit = screen.getByLabelText('Daily limit') as HTMLInputElement;
+    await fireEvent.input(limit, { target: { value: '8' } });
+    await fireEvent.blur(limit);
+    await waitFor(() => expect(meter.getAttribute('aria-valuetext')).toMatch(/ of \$8\.00$/));
+    expect(screen.getByText('of $8.00 today')).toBeTruthy();
   });
 
   it('keeps an invalid value unsaved and says why under the field', async () => {
@@ -179,7 +202,7 @@ describe("Settings → General, Bothy's picture", () => {
     await open();
     const r = picture();
     expect(within(r).getByRole('img', { name: 'Bothy' }).getAttribute('src')).toMatch(/^\/api\/agent\/picture\?v=/);
-    expect(within(r).getByText('Bothy uses it in the chat apps.')).toBeTruthy();
+    expect(within(r).getByText("Shown on Bothy's replies here and in the chat apps.")).toBeTruthy();
     expect(within(r).queryByRole('button', { name: 'Use default' })).toBeNull();
     expect(within(r).getByText("In Slack, upload it under App icon in Slack's app settings.")).toBeTruthy();
     const download = within(r).getByRole('link', { name: 'Download picture' });
@@ -307,7 +330,7 @@ describe("Settings → General, Bothy's picture", () => {
   it('names the row on its buttons for screen readers', async () => {
     await open({ mock: 'picture-custom' });
     for (const name of ['Change…', 'Use default']) {
-      expect(description(within(picture()).getByRole('button', { name }))).toBe('Picture Bothy uses it in the chat apps.');
+      expect(description(within(picture()).getByRole('button', { name }))).toBe("Picture Shown on Bothy's replies here and in the chat apps.");
     }
   });
 

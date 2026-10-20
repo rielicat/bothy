@@ -121,7 +121,7 @@
     {#if !allow.length}
       <EmptyState text="No websites yet." more="Code Bothy runs can only reach the websites you add here." />
     {:else}
-      <div bind:this={list}>
+      <div bind:this={list} class="list-card">
         {#each allow as site, i (site)}
           <div class="border-b border-border last:border-b-0">
             <div class="flex min-h-10 items-center gap-3 py-2 pointer-coarse:min-h-12">

@@ -11,14 +11,16 @@ test.describe('layout probes', () => {
   test('pass on a page that follows the rules', async ({ page }) => {
     await page.setViewportSize(page1280);
     await page.setContent(`
+      <style>:root{--elevation-card:0 1px 2px rgb(74 58 33 / .05), 0 6px 16px -8px rgb(74 58 33 / .12)}</style>
       <body style="margin:0;font:14px system-ui">
         <main style="width:720px;margin-left:408px">
           <h1 style="font-size:20px;margin:0">Approvals</h1>
-          <div style="border:1px solid #d3cfc6;padding:16px">
+          <div style="border:1px solid #d3cfc6;padding:16px;box-shadow:0 0 #0000, var(--elevation-card)">
             <p>Delete notes/staging.md?</p>
             <input style="border:1px solid #8f8a80;height:36px"> <button style="border:1px solid #d3cfc6;height:36px">Deny</button>
             <a href="#" style="border:1px solid #ccc;display:inline-block;height:36px">Details</a>
             <p>Read the <a href="#">guide</a> first.</p>
+            <div role="menu" style="border:1px solid #e6e3dc">a row's menu, rendered inside the card</div>
           </div>
           <div style="border-bottom:1px solid #e6e3dc">a row with a hairline</div>
           <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);font-size:8px">screen reader text</span>
@@ -38,7 +40,7 @@ test.describe('layout probes', () => {
           <h1>Settings</h1>
           <p style="font-size:11px">Tiny meta</p>
           <div style="backdrop-filter:blur(4px)">frosted</div>
-          <div style="box-shadow:0 1px 2px rgb(0 0 0 / .1)">card with a shadow</div>
+          <div style="box-shadow:0 1px 2px rgb(0 0 0 / .1)">card with a shadow that is no named elevation</div>
           <section style="border:1px solid #ccc"><div style="border:1px solid #ccc">card in a card</div></section>
         </main>
       </body>`);
@@ -46,6 +48,12 @@ test.describe('layout probes', () => {
     expect(problems.map((p) => p.split(':')[0])).toEqual(['overflow', 'left-edge', 'min-text', 'blur', 'shadow', 'nesting']);
     expect(problems[1]).toContain('x = 300');
     expect(problems[2]).toContain('11px');
+  });
+
+  test('measure the chat header from its [data-edge] box', async ({ page }) => {
+    await page.setViewportSize(page1280);
+    await page.setContent('<body style="margin:0"><header><div data-edge style="margin-left:408px;display:flex"><a href="#">Q3 notes</a><h1 style="margin:0 0 0 8px">Pricing</h1></div></header></body>');
+    expect(await probe(page, { leftEdge: true, overflow: false, minText: false, blur: false, shadows: false, nesting: false, targets: false })).toEqual([]);
   });
 
   test('can be switched off one by one', async ({ page }) => {
@@ -62,7 +70,7 @@ test.describe('layout probes', () => {
     await page.focus('#t');
     expect(await probe(page)).toEqual([]);
     await page.evaluate(() => (document.activeElement as HTMLElement).blur());
-    expect(await probe(page)).toEqual([expect.stringContaining('shadow: box-shadow outside a floating layer')]);
+    expect(await probe(page)).toEqual([expect.stringContaining('shadow: a box-shadow that is no named elevation')]);
   });
 });
 
@@ -132,7 +140,7 @@ test('the phone shot is a touch device with a coarse pointer', async ({ browser 
   const page = await openPage(browser, info, viewports.phone, 'dark');
   try {
     await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><p>x</p>');
-    expect(await page.evaluate(() => [innerWidth, matchMedia('(pointer: coarse)').matches, matchMedia('(hover: hover)').matches, matchMedia('(prefers-color-scheme: dark)').matches])).toEqual([360, true, false, true]);
+    expect(await page.evaluate(() => [innerWidth, matchMedia('(pointer: coarse)').matches, matchMedia('(hover: hover)').matches, matchMedia('(prefers-color-scheme: dark)').matches])).toEqual([375, true, false, true]);
   } finally {
     await page.context().close();
   }

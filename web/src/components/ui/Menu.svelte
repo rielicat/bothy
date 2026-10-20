@@ -172,7 +172,7 @@
     aria-labelledby="{uid}-trigger"
     tabindex="-1"
     popover={popoverAttr}
-    class="fixed inset-auto z-50 m-0 max-h-[min(24rem,calc(100dvh-1rem))] max-w-[calc(100vw-1rem)] min-w-48 overflow-y-auto rounded-lg border border-border bg-surface p-1 text-text shadow-[var(--shadow-overlay)] transition-[opacity,translate] duration-120 ease-out starting:open:-translate-y-1 starting:open:opacity-0"
+    class="fixed inset-auto z-50 m-0 max-h-[min(24rem,calc(100dvh-1rem))] max-w-[calc(100vw-1rem)] min-w-48 overflow-y-auto rounded-lg border border-border bg-surface p-1 text-text shadow-overlay transition-[opacity,translate] duration-120 ease-out starting:open:-translate-y-1 starting:open:opacity-0"
     onkeydown={menuKey}
     {@attach floating(() => anchor, placement)}
     {@attach outside(
