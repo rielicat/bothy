@@ -258,6 +258,21 @@ describe('the Friendly shell (D46, D47)', () => {
     expect(appr.querySelector('.text-warning-text .bg-warning')).toBeTruthy();
     expect(icon(n.getByRole('link', { name: /^Settings/ }))).toBe('#i-settings');
   });
+
+  it('raises only the current page: New chat is moss words until it is the page', async () => {
+    await start('/activity');
+    const n = within(nav());
+    const fresh = n.getByRole('link', { name: 'New chat' });
+    expect(fresh.getAttribute('aria-current')).toBeNull();
+    expect(fresh.classList.contains('text-accent-text')).toBe(true);
+    expect(fresh.className).not.toMatch(/(^|\s)(bg-raised|shadow-raised)(\s|$)/);
+    expect(n.getByRole('link', { name: 'Activity' }).getAttribute('aria-current')).toBe('page');
+    expect(nav().querySelectorAll('[aria-current=page]')).toHaveLength(1);
+
+    router.navigate('/chat');
+    await waitFor(() => expect(fresh.getAttribute('aria-current')).toBe('page'));
+    expect(nav().querySelectorAll('[aria-current=page]')).toHaveLength(1);
+  });
 });
 
 describe('settings mode (§4.3)', () => {
@@ -294,12 +309,22 @@ describe('account menu', () => {
   it('lists the items, with Theme as a submenu of menuitemradio choices', async () => {
     await start('/activity');
     const trigger = await waitFor(() => within(nav()).getByRole('button', { name: /^Account:/ }));
+    // The row says who is signed in and as what.
+    expect(trigger.textContent).toContain('Owner');
     await fireEvent.click(trigger);
     const menu = screen.getByRole('menu');
-    expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent?.trim())).toEqual(['Your account', 'Theme', 'Keyboard shortcuts', 'Pause Bothy…', 'Sign out']);
-    expect(document.activeElement?.textContent?.trim()).toBe('Your account');
+    // What a screen reader names each item: the Theme row's current choice is shown, not read.
+    const said = (el: Element | null) =>
+      [...(el?.childNodes ?? [])]
+        .filter((n) => !(n instanceof Element && n.getAttribute('aria-hidden') === 'true'))
+        .map((n) => n.textContent)
+        .join('')
+        .trim();
+    expect(within(menu).getAllByRole('menuitem').map(said)).toEqual(['Your account', 'Theme', 'Keyboard shortcuts', 'Pause Bothy…', 'Sign out']);
+    expect(within(menu).getByRole('menuitem', { name: 'Theme' }).textContent).toContain('System');
+    expect(said(document.activeElement)).toBe('Your account');
     await fireEvent.keyDown(menu, { key: 'ArrowDown' });
-    expect(document.activeElement?.textContent?.trim()).toBe('Theme');
+    expect(said(document.activeElement)).toBe('Theme');
     await fireEvent.keyDown(menu, { key: 'ArrowRight' });
     const sub = await waitFor(() => screen.getByRole('menu', { name: 'Theme' }));
     const radios = within(sub).getAllByRole('menuitemradio');
@@ -307,7 +332,7 @@ describe('account menu', () => {
     expect(radios[0].getAttribute('aria-checked')).toBe('true');
     await fireEvent.keyDown(sub, { key: 'ArrowLeft' });
     expect(screen.queryByRole('menu', { name: 'Theme' })).toBeNull();
-    expect(document.activeElement?.textContent?.trim()).toBe('Theme');
+    expect(said(document.activeElement)).toBe('Theme');
     await fireEvent.keyDown(menu, { key: 'Enter' });
     await fireEvent.click(document.activeElement as HTMLElement);
     await fireEvent.click(within(screen.getByRole('menu', { name: 'Theme' })).getByRole('menuitemradio', { name: 'Dark' }));
@@ -411,7 +436,28 @@ describe('search dialog (§6.3)', () => {
     shell.search = true;
     const box = await waitFor(() => screen.getByRole('combobox'));
     await fireEvent.input(box, { target: { value: 'zebra' } });
-    await waitFor(() => expect(screen.getByText('No results for “zebra”.')).toBeTruthy());
+    const none = await waitFor(() => screen.getByText('No results for “zebra”.'));
+    // Beside the listbox, which may hold only options.
+    expect(none.closest('[role=listbox]')).toBeNull();
+  });
+
+  it('says there are no chats yet instead of an empty list', async () => {
+    await start('/activity', { mock: 'chat-empty' });
+    await waitFor(() => expect(chats.loaded).toBe(true));
+    shell.search = true;
+    await waitFor(() => screen.getByRole('combobox', { name: 'Search chats' }));
+    const none = screen.getByText('No chats yet. The ones you start show up here.');
+    expect(none.closest('dialog')).toBeTruthy();
+    expect(none.closest('[role=listbox]')).toBeNull();
+  });
+
+  // The list ends loading when it fails too; "No chats yet" would then be untrue.
+  it("doesn't say there are no chats when the list didn't load", async () => {
+    await start('/activity', { override: (m, url) => (m === 'GET' && url.startsWith('/api/sessions?') ? new Response('{"error":"internal"}', { status: 500 }) : undefined) });
+    await waitFor(() => expect(chats.failed).toBe(true));
+    shell.search = true;
+    await waitFor(() => screen.getByRole('combobox', { name: 'Search chats' }));
+    expect(screen.queryByText(/^No chats yet/)).toBeNull();
   });
 });
 
@@ -556,8 +602,10 @@ describe('banners and blocking states', () => {
   it('says a page does not exist', async () => {
     await start('/nope');
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeTruthy());
-    expect(screen.getByText('Check the address, or go back to your chats.')).toBeTruthy();
+    const words = screen.getByText('Check the address, or go back to your chats.');
     expect(screen.getByRole('link', { name: 'Go to chat' }).getAttribute('href')).toBe('/chat');
+    // Bothy's mark beside the sentence, as on the other empty pages, and decorative.
+    expect(words.parentElement?.parentElement?.querySelector('img[src="/icon.svg"]')?.getAttribute('alt')).toBe('');
   });
 
   it('tells a member an admin page is for admins', async () => {

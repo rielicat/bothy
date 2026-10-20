@@ -11,6 +11,8 @@ describe('a screen still loading (§13.2)', () => {
       expect(p.classList.contains('invisible')).toBe(true);
       await vi.advanceTimersByTimeAsync(400);
       expect(p.classList.contains('invisible')).toBe(false);
+      // The words come with the spinner, the one looping mark (§3.6).
+      expect(p.querySelector('use')?.getAttribute('href')).toBe('#i-spinner');
     } finally {
       vi.useRealTimers();
     }

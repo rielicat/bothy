@@ -49,7 +49,7 @@
   bind:this={el}
   aria-labelledby="{uid}-title"
   aria-modal="true"
-  class="fixed inset-y-0 m-0 h-dvh max-h-none max-w-full flex-col border-border bg-surface p-0 text-text shadow-overlay transition-[translate] duration-200 ease-out open:flex max-sm:w-full! {side ===
+  class="fixed inset-y-0 m-0 h-dvh max-h-none max-w-full flex-col border-border bg-bg p-0 text-text shadow-overlay transition-[translate] duration-200 ease-out open:flex max-sm:w-full! max-sm:border-0 {side ===
   'right'
     ? 'right-0 left-auto border-l starting:open:translate-x-full sm:rounded-l-lg'
     : 'right-auto left-0 border-r starting:open:-translate-x-full sm:rounded-r-lg'}"

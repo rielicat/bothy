@@ -42,8 +42,9 @@
     return () => el.removeEventListener('scroll', onscroll);
   };
 
-  const row = 'group/i flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-body font-medium text-text focus-visible:-outline-offset-2 pointer-coarse:h-11';
-  const item = `${row} hover:bg-hover aria-[current=page]:bg-raised aria-[current=page]:shadow-raised`;
+  const row =
+    'group/i flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-body font-medium hover:bg-hover focus-visible:-outline-offset-2 aria-[current=page]:bg-raised aria-[current=page]:shadow-raised pointer-coarse:h-11';
+  const item = `${row} text-text`;
 </script>
 
 {#snippet lead(icon: IconName, accent = false)}<Icon name={icon} size={18} class="-ml-0.5 {accent ? 'text-accent-text' : 'text-muted group-aria-[current=page]/i:text-accent-text'}" />{/snippet}
@@ -58,8 +59,8 @@
     </div>
     <ul class="mt-1 shrink-0 space-y-1">
       <li>
-        <!-- Raised even when not current: starting a chat is the sidebar's main action (§4.2). -->
-        <a href="/chat" onclick={router.link} aria-current={router.path === '/chat' ? 'page' : undefined} class="{row} bg-raised shadow-raised">{@render lead('compose', true)}New chat</a>
+        <!-- Moss words, not a raised row: starting a chat is the sidebar's one action, and only the current page is raised (§4.2). -->
+        <a href="/chat" onclick={router.link} aria-current={router.path === '/chat' ? 'page' : undefined} class="{row} text-accent-text">{@render lead('compose', true)}New chat</a>
       </li>
       <li>
         <button type="button" class={item} aria-haspopup="dialog" onclick={() => (shell.search = true)}>

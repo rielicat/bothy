@@ -9,8 +9,9 @@
 
   // docs/design/ui.md §6.4, the only place keys are drawn.
   const mac = isMac();
-  const sections: { title?: string; rows: { label: string; keys: string[][] }[] }[] = [
+  const sections: { title: string; rows: { label: string; keys: string[][] }[] }[] = [
     {
+      title: 'Anywhere',
       rows: [
         { label: 'Search', keys: [mac ? ['⌘', 'K'] : ['Ctrl', 'K'], ['/']] },
         { label: 'New chat', keys: [mac ? ['⌘', '⇧', 'O'] : ['Ctrl', 'Shift', 'O']] },
@@ -41,7 +42,7 @@
 <Dialog bind:open={shell.shortcuts} title="Keyboard shortcuts">
   <div tabindex="-1" class="outline-none" {@attach focusFirst}>
     {#each sections as s, i (i)}
-      {#if s.title}<h3 class="mt-5 mb-1 text-caption text-muted">{s.title}</h3>{/if}
+      <h3 class="mb-1 text-caption text-muted {i ? 'mt-6' : ''}">{s.title}</h3>
       <dl>
         {#each s.rows as r (r.label)}
           <div class="flex min-h-10 items-center justify-between gap-4 border-b border-border py-2 last:border-b-0">

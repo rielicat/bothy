@@ -48,13 +48,13 @@
 </script>
 
 <Drawer bind:open title="Pinned to this chat" onclose={() => ((adding = false), (error = ''))}>
-  <p class="text-body text-muted">Bothy keeps these in mind for every reply in this chat.</p>
+  <p class="text-small text-muted">Bothy keeps these in mind for every reply in this chat.</p>
   {#if conv.pins.length}
-    <ul class="mt-4">
+    <ul class="list-card mt-3">
       {#each conv.pins as p (p.id)}
-        <li class="row">
+        <li class="row py-1.5">
           <span class="min-w-0 flex-1 text-body [overflow-wrap:anywhere]" data-copy-ignore>{p.text}</span>
-          <Button variant="ghost" size="sm" onclick={() => unpin(p)}>Unpin</Button>
+          <Button variant="quiet" size="sm" class="-mr-2" onclick={() => unpin(p)}>Unpin</Button>
         </li>
       {/each}
     </ul>
@@ -72,7 +72,7 @@
         <input id="pin-text" class="input mt-2" aria-describedby="pin-help" bind:value={text} />
         <p id="pin-help" class="field-help">A file in Bothy's files, like notes/launch.md, or a short instruction.</p>
       </div>
-      <Button type="submit" variant="primary" loading={busy} loadingLabel="Pinning…">Pin</Button>
+      <Button type="submit" variant="primary" class="max-sm:w-full" loading={busy} loadingLabel="Pinning…">Pin</Button>
     </form>
   {:else}
     <Button class="mt-4" onclick={startAdding}>Pin a file</Button>

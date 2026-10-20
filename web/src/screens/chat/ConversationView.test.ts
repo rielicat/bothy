@@ -38,6 +38,24 @@ describe('conversation', () => {
     expect(await screen.findByText("This chat doesn't exist or was deleted.")).toBeTruthy();
     expect(screen.queryByText(/Check your connection/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    // Its one way on is a new chat: no composer to write into it and no menu to rename it.
+    expect(screen.getByRole('link', { name: 'Start a new chat' }).getAttribute('href')).toBe('/chat');
+    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Chat options' })).toBeNull();
+  });
+
+  it("offers Try again when a chat didn't load, without the raw error", async () => {
+    let fail = true;
+    const down = () => new Response(JSON.stringify({ error: { code: 'unavailable', message: 'dial tcp: connection refused' } }), { status: 503 });
+    calls = installApi({ override: (m, url) => (fail && m === 'GET' && url.startsWith(`/api/sessions/${SID}`) ? down() : undefined) });
+    render(ConversationView, { id: SID });
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain("This chat didn't load. Check your connection and try again.");
+    expect(screen.queryByText(/connection refused/)).toBeNull();
+    fail = false;
+    await fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await loaded();
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 
   it('streams a run: Working…, a waiting step with its card, the result, then the persisted reply', async () => {
@@ -166,7 +184,10 @@ describe('conversation', () => {
 
     emit('run.started', { trigger: 'message', model: 'anthropic/claude-sonnet-4-6' }, 'run_2');
     emit('run.finished', { status: 'budget_exceeded', budget: 'steps', error: 'budget exceeded: steps', steps: 25, usage: { input: 1, output: 1, cache_read: 0, cache_write: 0, reasoning: 0 }, cost_micros: 5000 }, 'run_2');
-    expect(await screen.findByRole('button', { name: 'Keep going' })).toBeTruthy();
+    const keep = await screen.findByRole('button', { name: 'Keep going' });
+    // A stop the person can lift is a warning: an ember tint, not the red of a failure.
+    expect(keep.closest('.bg-warning-subtle')).toBeTruthy();
+    expect(keep.closest('.bg-danger-subtle')).toBeNull();
   });
 
   it('updates a repeated tool_call event in place instead of adding a row', async () => {
@@ -224,10 +245,13 @@ describe('conversation', () => {
 
   it('says a provider failure once, in plain words, with the raw message behind Details', async () => {
     render(ConversationView, { id: chatIds.notices });
-    expect(await screen.findByText(/^Anthropic had a problem answering\./)).toBeTruthy();
+    const failed = await screen.findByText(/^Anthropic had a problem answering\./);
     expect(screen.getAllByText(/had a problem answering/)).toHaveLength(1);
     expect(document.body.textContent).not.toContain('.).');
-    expect(screen.getByText('Older messages were summarised so this chat can keep going.')).toBeTruthy();
+    // A failure sits on a red tint sized to its words; a plain notice stays a muted line.
+    expect(failed.closest('.bg-danger-subtle')?.classList.contains('w-fit')).toBe(true);
+    const summarised = screen.getByText('Older messages were summarised so this chat can keep going.');
+    expect(summarised.closest('.bg-danger-subtle, .bg-warning-subtle')).toBeNull();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
   });
 
@@ -349,6 +373,19 @@ describe('where a chat came from (§7.1)', () => {
     expect(pictures).toHaveLength(2);
     expect(pictures.every((p) => p.alt === '')).toBe(true);
     expect(pictures.map((p) => p.parentElement!.textContent?.trim())).toEqual([expect.stringContaining('Hi there.'), expect.stringContaining('That one too.')]);
+  });
+
+  it("shows Bothy's own mark when its picture doesn't load", async () => {
+    const turn2 = { ...userMsg('And the other one?', 'web:usr_1'), id: 3, seq: 3 };
+    const reply2 = { ...reply('That one too.'), id: 4, seq: 4, run_id: 'run_2' };
+    serve(undefined, [userMsg('Hello', 'web:usr_1'), reply('Hi there.'), turn2, reply2]);
+    render(ConversationView, { id: SID });
+    await screen.findByText('That one too.');
+    const first = document.querySelector<HTMLImageElement>('section img[src="/api/agent/picture"]')!;
+    await fireEvent.error(first);
+    // Every turn falls back, not only the one whose picture failed first.
+    await waitFor(() => expect(document.querySelectorAll('section img[src="/icon.svg"]')).toHaveLength(2));
+    expect(document.querySelector('section img[src="/api/agent/picture"]')).toBeNull();
   });
 
   it('says nothing for a chat that came from nowhere', async () => {

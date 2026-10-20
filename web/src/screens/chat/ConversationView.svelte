@@ -23,10 +23,12 @@
   import Markdown from '../../components/Markdown.svelte';
   import Button from '../../components/ui/Button.svelte';
   import Disclosure from '../../components/ui/Disclosure.svelte';
+  import EmptyState from '../../components/ui/EmptyState.svelte';
   import FileToken from '../../components/ui/FileToken.svelte';
   import IconButton from '../../components/ui/IconButton.svelte';
   import { finePointer } from '../../components/ui/layer';
   import { announce } from '../../components/ui/live.svelte';
+  import Loading from '../../components/ui/Loading.svelte';
   import Menu, { type MenuItem } from '../../components/ui/Menu.svelte';
   import Spinner from '../../components/ui/Spinner.svelte';
   import { toast } from '../../components/ui/toast.svelte';
@@ -75,6 +77,8 @@
   let detailsRun = $state('');
   let sendError = $state('');
   let dragging = $state(false);
+  // Bothy's own mark stands in when the picture doesn't load (§7.1).
+  let pictureFailed = $state(false);
   let pendingModel = $state('');
   let refine = $state(untrack(() => refineByChat.get(id)) ?? models.refine?.enabled ?? false);
   let est: RefineEstimate | null = $state(null);
@@ -196,7 +200,8 @@
     return m > 1 ? `${head} Costs about ${m}× a normal reply.` : `${head} Slower, and costs several times more.`;
   });
 
-  const outcome = $derived.by((): { text: string; error?: boolean; action?: { label: string; onclick: () => void }; details?: string } | null => {
+  // A stop the person can lift (steps, spending) is a warning; a failure is an error (§7.6).
+  const outcome = $derived.by((): { text: string; error?: boolean; tone?: 'warning'; action?: { label: string; onclick: () => void }; details?: string } | null => {
     const o = conv.outcome;
     if (!o) return null;
     const admin = auth.isAdmin;
@@ -207,17 +212,19 @@
         return { text: 'Bothy stopped because it kept repeating the same step. Try asking in a different way.' };
       case 'budget_exceeded': {
         const run = conv.runs[o.run_id]?.run;
-        if (o.budget === 'steps') return { text: `Bothy paused after ${o.steps ?? run?.steps ?? 0} steps to check in.`, action: { label: 'Keep going', onclick: () => keepGoing(o.run_id) } };
+        if (o.budget === 'steps') return { text: `Bothy paused after ${o.steps ?? run?.steps ?? 0} steps to check in.`, tone: 'warning', action: { label: 'Keep going', onclick: () => keepGoing(o.run_id) } };
         if (o.budget === 'daily_cost') {
           const limit = auth.today?.limit_micros ? ` ${money(auth.today.limit_micros)}` : '';
           return {
             text: `Bothy has reached today's${limit} spending limit. It can start again at midnight (${auth.today?.timezone || 'server time'}).`,
+            tone: 'warning',
             action: admin ? { label: 'Change limit', onclick: () => router.navigate('/settings/general') } : undefined,
           };
         }
         const limit = run?.limits.max_cost_micros ? ` ${money(run.limits.max_cost_micros)}` : '';
         return {
           text: o.budget === 'run_cost' ? `Bothy stopped because this task reached its${limit} limit.` : 'Bothy stopped because this task reached its limit.',
+          tone: 'warning',
           action: admin && o.budget === 'run_cost' ? { label: 'Keep going', onclick: () => keepGoing(o.run_id) } : undefined,
         };
       }
@@ -526,7 +533,7 @@
 
   // Below 1024 px the shell's top bar shows the title and this menu (§4.4); the header stays for screen readers and renaming.
   $effect(() => {
-    if (!isNew) return topBarActions(chatMenu);
+    if (!isNew && !conv.missing) return topBarActions(chatMenu);
   });
 
   function dragover(e: DragEvent) {
@@ -577,11 +584,12 @@
 <!-- Bothy's picture, as the chat apps show it (D49). -->
 {#snippet face()}
   <img
-    src="/api/agent/picture"
+    src={pictureFailed ? '/icon.svg' : '/api/agent/picture'}
     alt=""
     width="28"
     height="28"
     decoding="async"
+    onerror={() => (pictureFailed = true)}
     class="mb-1.5 block size-5 rounded-full sm:absolute sm:top-0 sm:left-0 sm:mb-0 sm:size-7 dark:border dark:border-border-strong"
   />
 {/snippet}
@@ -636,7 +644,7 @@
         {#if !editing && where}<p class="truncate text-small text-muted">{where}</p>{/if}
         </div>
       </div>
-      <div class="max-lg:hidden">{@render chatMenu()}</div>
+      {#if !conv.missing}<div class="max-lg:hidden">{@render chatMenu()}</div>{/if}
     </header>
   {/if}
 
@@ -645,11 +653,11 @@
     {#if isNew}
       <NewChat onpick={(t) => composer?.fill(t)} />
     {:else if conv.loading}
-      <p class="text-body text-muted" aria-busy="true">Loading…</p>
+      <Loading />
     {:else if conv.missing}
-      <ChatNotice error text="This chat doesn't exist or was deleted." />
+      <EmptyState picture text="This chat doesn't exist or was deleted." action={{ label: 'Start a new chat', href: '/chat' }} />
     {:else if conv.error}
-      <ChatNotice error text="This chat didn't load. Check your connection and try again." action={{ label: 'Try again', onclick: () => conv.load() }} details={conv.error} />
+      <Loading failed text="This chat didn't load. Check your connection and try again." retry={() => conv.load()} />
     {:else}
       {#if fromLine}
         <!-- Where the chat came from, above everything it holds (§7.1). -->
@@ -722,13 +730,14 @@
             {#if !(outcome && b.msg.run_id && b.msg.run_id === conv.outcome?.run_id)}<ChatNotice text={b.text} />{/if}
           {:else if b.kind === 'summary'}
             <ChatNotice text="Older messages were summarised so this chat can keep going." detailsLabel="Show summary">
-              {#snippet more()}<div class="text-small"><Markdown text={b.text} {exposed} /></div>{/snippet}
+              {#snippet more()}<Markdown class="md-small" text={b.text} {exposed} />{/snippet}
             </ChatNotice>
           {:else if b.kind === 'steps'}
             <!-- The code-off notice names the command and the fix, so its failed line isn't shown as well (§7.6). -->
             <ActivityGroup steps={steps.get(b.key) ?? []} live={!!liveRun && b.runId === liveRun && i === blocks.length - 1} approval={approvalFor} hide={codeOff.get(b.key)?.step} />
             {#if codeOff.has(b.key)}
               <ChatNotice
+                tone="warning"
                 phrase={codeOff.get(b.key)?.phrase}
                 action={auth.isAdmin ? { label: 'How to turn it on', onclick: () => router.navigate('/settings/security') } : undefined}
               />
@@ -769,7 +778,8 @@
     {/if}
   </section>
 
-  <div class="sticky bottom-(--inset) z-10 bg-bg pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]">
+  <!-- A chat that doesn't exist has nothing to write to; its one way on is Start a new chat. -->
+  <div class="sticky bottom-(--inset) z-10 bg-bg pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]" hidden={conv.missing}>
     {#if !atBottom && conv.id && !welcome}
       <div class="pointer-events-none absolute inset-x-0 -top-11 flex justify-center">
         <Button size="sm" class="pointer-events-auto" onclick={scrollDown}>Jump to latest</Button>

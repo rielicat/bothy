@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { events } from '../../lib/sse.svelte';
   import { announce } from '../ui/live.svelte';
+  import Spinner from '../ui/Spinner.svelte';
 
   // Live updates lost (docs/design/ui.md §13.2): a muted line, never a banner.
   // The first connection says nothing; only losing an open one does.
@@ -45,5 +46,9 @@
 </script>
 
 {#if shown !== 'hidden'}
-  <p class="bg-bg px-6 py-2 text-small text-muted transition-opacity duration-200 max-sm:px-4 {fading ? 'opacity-0' : ''}">{text[shown]}</p>
+  <div class="bg-bg">
+    <p class="mx-auto flex max-w-3xl items-center gap-2 px-6 py-2 text-small text-muted transition-opacity duration-200 max-sm:px-4 {fading ? 'opacity-0' : ''}">
+      {#if shown === 'reconnecting'}<Spinner size={12} class="motion-reduce:hidden" />{/if}{text[shown]}
+    </p>
+  </div>
 {/if}

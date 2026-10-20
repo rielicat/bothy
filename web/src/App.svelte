@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import NotFound from './components/shell/NotFound.svelte';
   import ScreenLoading from './components/shell/ScreenLoading.svelte';
-  import EmptyState from './components/ui/EmptyState.svelte';
+  import Button from './components/ui/Button.svelte';
+  import Loading from './components/ui/Loading.svelte';
   import { adminOnlyTitle, unknownGroup } from './components/shell/settings';
   import Shell from './components/shell/Shell.svelte';
   import LiveRegion from './components/ui/LiveRegion.svelte';
@@ -40,16 +41,9 @@
   const wide = () => window.matchMedia?.('(min-width: 1024px)').matches ?? true;
   const settingsMoves = $derived(pattern === '/settings' && wide());
 
-  // "Loading…" only after 400 ms (§13.2), so a fast start shows nothing at all.
-  let slow = $state(false);
   onMount(() => {
     void session.init();
-    const t = setTimeout(() => (slow = true), 400);
-    const off = prefetchLinks();
-    return () => {
-      clearTimeout(t);
-      off();
-    };
+    return prefetchLinks();
   });
 
   // Fetched alongside the session check, so a deep link doesn't wait twice.
@@ -122,13 +116,16 @@
 {/snippet}
 
 {#if !session.ready}
-  <div class="grid h-dvh place-items-center" aria-busy="true">
-    <p class="text-body text-muted" class:invisible={!slow}>Loading…</p>
-  </div>
+  <div class="grid h-dvh place-items-center" aria-busy="true"><Loading /></div>
 {:else if session.down}
-  <!-- Not "signed out": the server didn't say, and sign-in would fail the same way (§13.2). -->
-  <main class="grid h-dvh place-items-center px-4">
-    <EmptyState text="Bothy isn't responding. It may be restarting." action={{ label: 'Try again', onclick: () => window.location.reload(), variant: 'secondary' }} />
+  <!-- Not "signed out": the server didn't say, and sign-in would fail the same way (§13.2). It takes sign-in's place, so it sits on sign-in's canvas. -->
+  <main class="grid min-h-dvh place-items-center bg-bg px-4 sm:bg-sidebar">
+    <div class="pb-[10vh] text-center">
+      <img src="/icon.svg" alt="" width="56" height="56" class="mx-auto size-14 rounded-lg dark:border dark:border-border-strong" />
+      <h1 class="mt-5 text-title text-text">Bothy isn't responding</h1>
+      <p class="mt-2 text-reading text-muted">It may be restarting.</p>
+      <Button class="mt-8" onclick={() => window.location.reload()}>Try again</Button>
+    </div>
   </main>
 {:else if bare || !session.me}
   {@render screen()}

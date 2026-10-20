@@ -12,7 +12,7 @@ async function open(id: string, mock = '') {
   session.ready = false;
   await session.init();
   router.navigate(`/activity/tasks/${id}`);
-  render(TaskDetail, { params: { id } });
+  return render(TaskDetail, { params: { id } });
 }
 
 describe('Task detail (docs/design/ui.md §10.2)', () => {
@@ -24,17 +24,17 @@ describe('Task detail (docs/design/ui.md §10.2)', () => {
 
   it('points an admin at the GitHub connection when GitHub refused Bothy, which Open chat cannot fix', async () => {
     await open('run_01jprdigest1000000000000');
-    const fix = await screen.findByRole('link', { name: 'Check the GitHub connection ›' });
+    const fix = await screen.findByRole('link', { name: 'Check the GitHub connection' });
     expect(fix.getAttribute('href')).toBe('/settings/connections/github');
   });
 
   it("doesn't send a member to settings they can't change", async () => {
     session.me = null;
     await open('run_01jprdigest1000000000000');
-    await screen.findByRole('link', { name: 'Check the GitHub connection ›' });
+    await screen.findByRole('link', { name: 'Check the GitHub connection' });
     session.me!.user.role = 'member';
     await screen.findByText("Couldn't check builds in acme/web", { exact: false });
-    expect(screen.queryByRole('link', { name: 'Check the GitHub connection ›' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Check the GitHub connection' })).toBeNull();
     session.me!.user.role = 'owner';
   });
 
@@ -51,6 +51,31 @@ describe('Task detail (docs/design/ui.md §10.2)', () => {
     (await screen.findByRole('button', { name: 'Correction 2, round 2' })).click();
     const text = await screen.findByText('Raise the team plan to $24 from January …');
     expect(text.closest('pre, code')).toBeNull();
+    // Small words on a guide line under their toggle, so a draft doesn't read as the page's own text.
+    expect(text.closest('.md-small')?.parentElement?.classList.contains('border-l')).toBe(true);
+  });
+
+  it('lists the steps as rows of one group card, each opening its details', async () => {
+    await open('run_01jfixlogin0000000000000');
+    const step = await screen.findByRole('button', { name: /^Ran npm test/ });
+    expect(step.closest('ul')?.classList.contains('list-card')).toBe(true);
+    expect(step.getAttribute('aria-expanded')).toBe('false');
+    step.click();
+    await screen.findByText(/^How it was allowed/);
+    expect(step.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  // Every step finished, so no row needs a state glyph and the words start at the card's edge.
+  it('keeps a glyph column only when some step has a glyph', async () => {
+    const view = await open('run_01jfixlogin0000000000000');
+    const done = await screen.findByRole('button', { name: /^Ran npm test/ });
+    expect(done.querySelector('.w-4')).toBeNull();
+    view.unmount();
+    await open('run_01jdeployweb000000000000');
+    const waiting = await screen.findByRole('button', { name: /^Waiting for approval to deploy/ });
+    const rows = [...waiting.closest('ul')!.querySelectorAll('li > div > button')];
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.every((r) => r.querySelector('.w-4'))).toBe(true);
   });
 
   // The server answers 404 both for a deleted task and for someone else's (internal/httpapi/idor_test.go).

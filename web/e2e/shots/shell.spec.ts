@@ -212,7 +212,7 @@ const states: ShotState[] = [
     setup: async (page) => {
       await page.keyboard.press('/');
       await page.getByRole('combobox', { name: 'Search chats' }).fill('zebra crossing');
-      await page.getByRole('listbox').getByText('No results for “zebra crossing”.').waitFor();
+      await page.getByRole('dialog').getByText('No results for “zebra crossing”.').waitFor();
     },
   },
 
@@ -227,6 +227,25 @@ const states: ShotState[] = [
       await page.getByRole('dialog', { name: 'Keyboard shortcuts' }).waitFor();
     },
   },
+
+  // Live updates lost (§13.2): the stream opens once, then every reconnect is refused.
+  {
+    name: 'reconnecting',
+    route: '/activity',
+    mock: TEAM,
+    ready: chatsReady(),
+    setup: async (page) => {
+      let n = 0;
+      const hello = { boot: 'b', seq: 0, paused: false, sandbox: true, banners: [] };
+      await page.route('**/api/events*', (r) =>
+        n++ === 0 ? r.fulfill({ status: 200, contentType: 'text/event-stream', body: `event: hello\ndata: ${JSON.stringify(hello)}\n\n` }) : r.fulfill({ status: 503, body: '' }),
+      );
+      await page.reload();
+      await page.getByText('Reconnecting…').first().waitFor();
+    },
+  },
+  // The server doesn't answer when the app opens (§13.2): it takes sign-in's place.
+  { name: 'unreachable', route: '/activity', mock: 'api-down', ready: "Bothy isn't responding", probes: { leftEdge: false } },
 
   // Not found and no access (§13.1)
   { name: 'not-found', route: '/nope', mock: TEAM },

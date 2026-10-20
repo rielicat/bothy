@@ -305,8 +305,9 @@
   .meta {
     @apply text-small text-muted tabular-nums;
   }
+  /* Tinted sans keycaps: the preflight sets kbd in mono, where ⌘ and ⇧ shrink and O reads as 0. */
   .kbd {
-    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-border px-1 font-mono text-caption text-muted;
+    @apply inline-flex h-6 min-w-6 items-center justify-center rounded-sm bg-subtle px-1.5 font-sans text-small font-medium text-text;
   }
 }
 
@@ -319,6 +320,10 @@
 /* Markdown output of lib/markdown.ts (chat, cards, SKILL.md). Headings map down (§3.2): a reply never shows a heading above 15 px. */
 .md {
   @apply text-reading break-words;
+}
+/* Markdown behind a disclosure (a chat's summary, Refine drafts) reads at the small size. */
+.md-small {
+  @apply text-small;
 }
 .md > * + * {
   @apply mt-3;
