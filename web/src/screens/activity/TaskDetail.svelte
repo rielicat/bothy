@@ -156,6 +156,18 @@
     {/if}
 
     <Disclosure label="Technical details" class="mt-10">
+      <!-- First: a refined answer's model calls below all read "agent", so its drafts would sit under a dozen tables. -->
+      {#if refine}
+        <h3 class="mt-4 text-small font-medium text-text">Refine</h3>
+        <p class="mt-1 text-small text-text">
+          {plural(refine.drafts, 'draft')}, {plural(refine.rounds, 'round')}. Draft {refine.winner + 1} was sent; {refine.votes[0]?.count ?? 1} of {refine.drafts} drafts reached its answer.
+        </p>
+        {#each refine.entries ?? [] as e, i (i)}
+          <Disclosure class="mt-1" label="{e.role === 'draft' ? 'Draft' : e.role === 'critique' ? 'Critique' : e.role === 'correct' ? 'Correction' : 'Continuation'} {e.draft + 1}{e.round ? `, round ${e.round}` : ''}">
+            <div class="text-small"><Markdown text={e.text} exposed /></div>
+          </Disclosure>
+        {/each}
+      {/if}
       {#each d.llm_calls ?? [] as c, i (c.id)}
         <h3 class="mt-4 text-small font-medium text-text">Model call {i + 1}</h3>
         {@render table([
@@ -180,15 +192,6 @@
         ])}
         {#if t.action}{@const code = JSON.stringify(t.action, null, 2)}<CodeBlock class="mt-2" label="Exact action" {code} wrap maxLines={clampLines(code, 8)} />{/if}
       {/each}
-      {#if refine}
-        <h3 class="mt-4 text-small font-medium text-text">Refine</h3>
-        <p class="mt-1 text-small text-text">{plural(refine.drafts, 'draft')}, {plural(refine.rounds, 'round')}, {agreed}</p>
-        {#each refine.entries ?? [] as e, i (i)}
-          <Disclosure class="mt-1" label="{e.role === 'draft' ? 'Draft' : e.role === 'critique' ? 'Critique' : e.role === 'correct' ? 'Correction' : 'Continuation'} {e.draft + 1}{e.round ? `, round ${e.round}` : ''}">
-            <CodeBlock code={e.text} wrap maxLines={clampLines(e.text, 12)} />
-          </Disclosure>
-        {/each}
-      {/if}
       <CodeBlock class="mt-4" label="Task id" code={run.id} />
     </Disclosure>
   </Page>
