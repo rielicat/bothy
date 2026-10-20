@@ -145,7 +145,14 @@ test("change Bothy's picture, see it under the CSP, then go back to the default"
   await page.getByRole('button', { name: 'Use default' }).click();
   await expect(page.getByText('Default picture restored.')).toBeVisible();
   // Telegram is on, so the ghost button stays as "Send to chat apps" and keeps focus.
-  await expect(page.getByRole('button', { name: 'Send to chat apps' })).toBeFocused();
+  const send = page.getByRole('button', { name: 'Send to chat apps' });
+  await expect(send).toBeFocused();
+  // Both buttons fit beside the picture, at every width.
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    const [a, b] = await Promise.all([page.getByRole('button', { name: 'Change…' }).boundingBox(), send.boundingBox()]);
+    expect(Math.abs(a!.y - b!.y), `buttons on one line at ${width}px`).toBeLessThan(2);
+  }
 });
 
 test('create a token from the keyboard and see it once', async ({ page }) => {
