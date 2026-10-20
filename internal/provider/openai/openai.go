@@ -26,8 +26,9 @@ const DefaultBaseURL = "https://api.openai.com/v1"
 
 // Client is the Chat Completions client; it implements core.Provider.
 type Client struct {
-	o      wire.Options
-	effort *EffortMemory
+	o          wire.Options
+	effort     *EffortMemory
+	openRouter bool
 }
 
 var _ core.Provider = (*Client)(nil)
@@ -43,7 +44,8 @@ func NewChat(o wire.Options, effort *EffortMemory) *Client {
 	if effort == nil {
 		effort = NewEffortMemory(64, nil)
 	}
-	return &Client{o: withDefaults(o), effort: effort}
+	o = withDefaults(o)
+	return &Client{o: o, effort: effort, openRouter: IsOpenRouter(o.Kind, o.BaseURL)}
 }
 
 func withDefaults(o wire.Options) wire.Options {

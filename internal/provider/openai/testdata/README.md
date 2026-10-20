@@ -25,7 +25,13 @@ Inline in `openai_test.go`:
   [error-code guide](https://developers.openai.com/api/docs/guides/error-codes),
   plus the looser bodies compatible servers return;
 - quirk chunks (no call id, every call on index 0, arguments as an object)
-  written in the documented chunk shape.
+  written in the documented chunk shape;
+- in `cache_test.go`, an OpenRouter stream for an Anthropic model, written
+  (not recorded) in its chunk shape with the usage fields of OpenRouter's
+  [prompt caching](https://openrouter.ai/docs/features/prompt-caching) page
+  (`prompt_tokens_details.cached_tokens` 10318, as in its example, and
+  `cache_write_tokens`); the expected `cache_control` request shape follows
+  the same page (fetched 2026-10-20).
 
 Faults (429 with `Retry-After`, 500, context overflow, mid-stream drop,
 malformed frame, missing usage) come from `internal/testkit/mockllm`.

@@ -79,6 +79,18 @@ func TestModelResolution(t *testing.T) {
 	if m.Price.Known || m.Context != defaultContext[core.KindOpenAICompat] || m.MaxOutput != 8192 || m.Local {
 		t.Fatalf("unknown compat model %+v", m)
 	}
+	// OpenRouter caches Claude only at the breakpoints the client sends.
+	m, _ = h.f.Model(core.ModelRef{Provider: "router", Model: "anthropic/claude-sonnet-4.5"})
+	if p := m.Price; m.Cache != core.CacheExplicit || p.CacheReadPerM != 300_000 || p.CacheWritePerM != 3_750_000 {
+		t.Fatalf("openrouter claude %+v", m)
+	}
+	if got := m.Price.Cost(core.Usage{Input: 1_000, CacheRead: 100_000, CacheWrite: 10_000, Output: 1_000}); got != 3_000+30_000+37_500+15_000 {
+		t.Fatalf("openrouter claude cost with cache = %d micros", got)
+	}
+	m, _ = h.f.Model(core.ModelRef{Provider: "router", Model: "openai/gpt-5"})
+	if m.Cache != core.CacheImplicit {
+		t.Fatalf("openrouter gpt cache %v", m.Cache)
+	}
 	// The pricing section overrides the catalog.
 	h.view.c.Pricing = map[string]config.PriceO{"anthropic/claude-haiku-4-5": {In: 0.8, Out: 4, CacheRead: 0.08, CacheWrite: 1}}
 	m, _ = h.f.Model(core.ModelRef{Provider: "anthropic", Model: "claude-haiku-4-5"})

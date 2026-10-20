@@ -21,6 +21,7 @@ type request struct {
 	ReasoningEffort     string         `json:"reasoning_effort,omitempty"`
 	Stream              bool           `json:"stream"`
 	StreamOptions       *streamOptions `json:"stream_options,omitempty"`
+	SessionID           string         `json:"session_id,omitempty"`
 }
 
 type streamOptions struct {
@@ -36,10 +37,20 @@ type message struct {
 }
 
 type contentPart struct {
-	Type     string    `json:"type"`
-	Text     string    `json:"text,omitempty"`
-	ImageURL *imageURL `json:"image_url,omitempty"`
+	Type         string        `json:"type"`
+	Text         string        `json:"text,omitempty"`
+	ImageURL     *imageURL     `json:"image_url,omitempty"`
+	CacheControl *cacheControl `json:"cache_control,omitempty"`
 }
+
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
+var ephemeral = &cacheControl{Type: "ephemeral"}
+
+// maxBreakpoints is Anthropic's limit on cache_control markers per request.
+const maxBreakpoints = 4
 
 type imageURL struct {
 	URL string `json:"url"`
@@ -97,16 +108,102 @@ func (c *Client) buildRequest(r *core.Request) request {
 			out.ToolChoice = "auto"
 		}
 	}
-	if sys := wire.SystemText(r.System); sys != "" {
+	if c.openRouter {
+		out.SessionID = r.CacheKey
+	}
+	explicit := c.explicitCache(r.Model)
+	if explicit {
+		if sys := systemParts(r.System); len(sys) > 0 {
+			out.Messages = append(out.Messages, message{Role: "system", Content: sys})
+		}
+	} else if sys := wire.SystemText(r.System); sys != "" {
 		out.Messages = append(out.Messages, message{Role: "system", Content: sys})
 	}
-	out.Messages = append(out.Messages, buildMessages(r.Messages, c.echoSig())...)
+	out.Messages = append(out.Messages, buildMessages(r.Messages, c.echoSig(), explicit)...)
+	if explicit {
+		if r.CacheTail {
+			markTail(out.Messages)
+		}
+		limitBreakpoints(out.Messages)
+	}
 	return out
 }
 
+// systemParts keeps each system block its own text part, so a block's
+// CacheBreak becomes a cache_control marker at its end.
+func systemParts(blocks []core.SystemBlock) []contentPart {
+	var out []contentPart
+	for _, s := range blocks {
+		if s.Text == "" {
+			continue
+		}
+		p := contentPart{Type: "text", Text: s.Text}
+		if s.CacheBreak {
+			p.CacheControl = ephemeral
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// markTail puts the rolling breakpoint on the last user or tool text, so
+// the next call (the next step, or a refine call that appends one message)
+// reads the whole conversation from the cache. Anthropic refuses a marker
+// on an empty text, and OpenRouter honours one on a tool message only
+// inside a content part, never on the message itself.
+func markTail(msgs []message) {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := &msgs[i]
+		switch m.Role {
+		case "tool":
+			if s, _ := m.Content.(string); s != "" {
+				m.Content = []contentPart{{Type: "text", Text: s, CacheControl: ephemeral}}
+				return
+			}
+		case "user":
+			ps, _ := m.Content.([]contentPart)
+			for j := len(ps) - 1; j >= 0; j-- {
+				if ps[j].Type == "text" && ps[j].Text != "" {
+					ps[j].CacheControl = ephemeral
+					return
+				}
+			}
+		}
+	}
+}
+
+// limitBreakpoints drops the earliest system markers past Anthropic's
+// limit; the rolling tail saves the most input on later calls.
+func limitBreakpoints(msgs []message) {
+	n := 0
+	for _, m := range msgs {
+		ps, _ := m.Content.([]contentPart)
+		for _, p := range ps {
+			if p.CacheControl != nil {
+				n++
+			}
+		}
+	}
+	for i := 0; i < len(msgs) && n > maxBreakpoints; i++ {
+		if msgs[i].Role != "system" {
+			continue
+		}
+		ps, _ := msgs[i].Content.([]contentPart)
+		for j := 0; j < len(ps) && n > maxBreakpoints; j++ {
+			if ps[j].CacheControl != nil {
+				ps[j].CacheControl = nil
+				n--
+			}
+		}
+	}
+}
+
 // buildMessages converts the history; thinking parts signed with echo
-// ("" for none) go back as the assistant turn's reasoning_content.
-func buildMessages(msgs []core.Message, echo string) []message {
+// ("" for none) go back as the assistant turn's reasoning_content. With
+// keep, user content always stays a list of parts and a merged user turn
+// appends its own, so a message added after a user turn (a refine call's)
+// leaves every earlier block, and so the cached prefix, byte-identical.
+func buildMessages(msgs []core.Message, echo string, keep bool) []message {
 	var out []message
 	for _, m := range msgs {
 		switch m.Role {
@@ -155,15 +252,19 @@ func buildMessages(msgs []core.Message, echo string) []message {
 			}
 			out = append(out, am)
 		default:
-			parts := userParts(m.Parts)
-			if len(parts) == 0 {
+			ps := userParts(m.Parts)
+			if len(ps) == 0 {
 				continue
 			}
 			if n := len(out); n > 0 && out[n-1].Role == "user" {
-				out[n-1].Content = mergeUser(out[n-1].Content, parts)
+				out[n-1].Content = mergeUser(out[n-1].Content, ps, keep)
 				continue
 			}
-			out = append(out, message{Role: "user", Content: userContent(parts)})
+			if keep {
+				out = append(out, message{Role: "user", Content: ps})
+				continue
+			}
+			out = append(out, message{Role: "user", Content: userContent(ps)})
 		}
 	}
 	return out
@@ -205,13 +306,16 @@ func userContent(ps []contentPart) any {
 	return strings.Join(texts, "\n\n")
 }
 
-func mergeUser(prev any, add []contentPart) any {
+func mergeUser(prev any, add []contentPart, keep bool) any {
 	var ps []contentPart
 	switch x := prev.(type) {
 	case string:
 		ps = append(ps, contentPart{Type: "text", Text: x})
 	case []contentPart:
 		ps = append(ps, x...)
+	}
+	if keep {
+		return append(ps, add...)
 	}
 	return userContent(append(ps, add...))
 }
