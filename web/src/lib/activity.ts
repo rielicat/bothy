@@ -82,6 +82,10 @@ export const knownTools = Object.keys(T);
 const CODE = new Set(['path', 'dir', 'command', 'host', 'hostpath', 'ref']);
 
 /** "create_issue" → "Create issue". */
+/** Where a tool's outside content came from, for "This came from outside your team ({source})". */
+export const outsideSource = (tool: string) =>
+  /^web_/.test(tool) ? 'a web page' : /^(repo_|github_|knowledge)/.test(tool) ? 'a repository' : /^mcp__/.test(tool) ? 'a connected tool' : 'content Bothy read';
+
 export function humanise(s: string): string {
   const t = s.replace(/[_-]+/g, ' ').trim();
   return t.charAt(0).toUpperCase() + t.slice(1);

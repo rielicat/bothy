@@ -1248,7 +1248,7 @@ Each line is a `<button aria-expanded>` that opens **Details** (indented 24 px, 
 - "Result": first 20 lines in a `CodeBlock` with "Show all"; file writes show `DiffView`.
 - "How it was allowed": "Allowed automatically", "You approved it", "Allowed by a saved permission", "Sam Patel approved it".
 - "What Bothy asked for": the action's fields, verbatim (`CodeBlock` of the exact Action JSON). When the Result above shows the action's diff, the JSON reads `"diff": "(shown above)"` instead of printing it twice.
-- "Technical": tool name, decision, rule, duration ("Took 1.2 s"), "Contacted api.github.com", and, for outside content, "This came from outside your team (a web page). Bothy treats it with caution." When "How it was allowed" is shown, the decision word is left out: "Tool fs_write · Rule default:local_write · Took 1 s"
+- "Technical": tool name, decision, rule, duration ("Took 1.2 s"), "Contacted api.github.com", and, for outside content, "This came from outside your team ({source}). Bothy treats it with caution.", the source named from the tool: "a web page", "a repository" (GitHub tools and Knowledge search), "a connected tool" (MCP), else "content Bothy read", in the chat's step Details and the task page alike When "How it was allowed" is shown, the decision word is left out: "Tool fs_write · Rule default:local_write · Took 1 s"
 
 `tool_search` and `use_tool` are never rendered or counted; the tool reached through them is shown as if called directly.
 
@@ -1346,7 +1346,7 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
 | Daily limit | "Bothy has reached today's {$5.00} spending limit. It can start again at midnight ({workspace time zone})." | Admins: "Change limit" |
 | Compaction | "Older messages were summarised so this chat can keep going." | — |
 | Auto-pin | "Pinned {file} so Bothy keeps it in mind." | — |
-| Becomes exposed (once per chat) | "From now on, Bothy will ask before sending anything out of this chat." | "Why?" → Details: "This chat has used private information and content from outside your team, like a web page. To keep that information from leaking, Bothy now asks first. A new related chat starts clean." |
+| Becomes exposed (once per chat) | "From now on, Bothy will ask before sending anything out of this chat." | "Why?" → Details: "This chat has used private information and content from outside your team, like a web page, a repository or a connected tool's reply. To keep that information from leaking, Bothy now asks first. A new related chat starts clean." (searching the team's repository or a reply from its MCP server counts too: anyone who can open an issue or a pull request, or whatever the server reads, may have written them) |
 | Needs code, code is off | "Bothy can't run code on this server, so it couldn't run `{command}`." The failed step's own activity line is hidden, since this notice names the command and links the fix. | Admins: "How to turn it on" → Security |
 | Paused | "Bothy is paused. Your message will be answered when it's resumed." | — |
 | Message queued | "Bothy will read this when it finishes the current step." | — |
