@@ -93,7 +93,8 @@
       if (running.length) status = { ...deployStatus(running[0]), text: running.length > 1 ? `${running.length} deploys running` : 'Deploying…' };
       else if (wait)
         status = { text: `Waiting for approval${votesOf(wait) ? ` (${votesOf(wait)!.approved} of ${votesOf(wait)!.required})` : ''}`, tone: 'warning', href: `/approvals/${encodeURIComponent(wait.id)}` };
-      else if (no) status = { text: 'Denied', tone: 'muted' };
+      // Not "Denied": beside "Last deployed …" that reads as if the environment itself were refused.
+      else if (no) status = { text: 'Last request denied', tone: 'muted' };
       else if (last) status = deployStatus(last);
       // A waiting or denied request is the status, so line 2 says it's about the last deploy, not that request.
       return { env, last, shown: running[0]?.id, status, before: !!last && !open(last) && (!!wait || !!no) };
