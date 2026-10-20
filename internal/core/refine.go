@@ -85,15 +85,7 @@ type RefineData struct {
 func (RefineData) eventData() {}
 
 // RefineMaxCalls bounds the model calls of one refined answer: every draft
-// makes one call and up to three per round.
-func RefineMaxCalls(drafts, depth int) int { return drafts * (1 + 3*depth) }
-
-// RefineTypicalCalls is about how many model calls a refined answer makes,
-// what its cost note quotes: early stop usually saves half the rounds.
-func RefineTypicalCalls(drafts, depth int, earlyStop bool) int {
-	drafts, rounds := max(drafts, 1), max(depth, 0)
-	if earlyStop {
-		rounds = (rounds + 1) / 2
-	}
-	return drafts * (1 + 3*rounds)
-}
+// makes one call and up to three per round. Cost notes quote it too, with no
+// early-stop discount: early stop needs drafts whose final lines match
+// exactly, which open-ended answers rarely have, so a discount ran low.
+func RefineMaxCalls(drafts, depth int) int { return max(drafts, 1) * (1 + 3*max(depth, 0)) }

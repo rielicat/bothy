@@ -141,10 +141,9 @@ func (s *Server) refineEstimate(w http.ResponseWriter, r *http.Request, a core.A
 
 // refineWork is the configured drafts and how many answer steps a refined
 // reply costs: every draft once, and continue, critique and correct for each
-// draft in every round. Early stop is counted as ending halfway through the
-// rounds, since drafts that agree stop deepening.
+// draft in every round (core.RefineMaxCalls).
 func refineWork(c config.Refine) (int, float64) {
-	return max(c.Drafts, 1), float64(core.RefineTypicalCalls(c.Drafts, c.Depth, c.EarlyStop))
+	return max(c.Drafts, 1), float64(core.RefineMaxCalls(c.Drafts, c.Depth))
 }
 
 // answerStepCost averages the cost of the chat's latest priced answer steps:

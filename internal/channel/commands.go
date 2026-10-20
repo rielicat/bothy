@@ -700,7 +700,7 @@ func (h *Hub) cmdRefine(ctx context.Context, tg target, chat core.ChatRef, arg s
 		return "Refine is off for this conversation, as by default. " + c("refine on") + " turns it on."
 	}
 	rc := h.cfg().Agent.Refine
-	calls := core.RefineTypicalCalls(rc.Drafts, rc.Depth, rc.EarlyStop)
+	calls := core.RefineMaxCalls(rc.Drafts, rc.Depth)
 	how := fmt.Sprintf("Bothy writes %d drafts, checks them and sends the best, so answers are slower and cost about %d times as much.", rc.Drafts, calls)
 	if rc.Drafts <= 1 {
 		how = fmt.Sprintf("Bothy checks each answer before sending it, so answers are slower and cost about %d times as much.", calls)

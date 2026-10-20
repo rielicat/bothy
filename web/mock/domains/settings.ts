@@ -119,8 +119,7 @@ on('GET', '/api/refine', (req, res) => {
   const drafts = Math.max(Number(v('agent.refine.drafts', 3)), 1);
   const depth = Math.max(Number(v('agent.refine.depth', 2)), 0);
   const early = v('agent.refine.early_stop', true) !== false;
-  const rounds = early ? Math.floor((depth + 1) / 2) : depth;
-  json(res, 200, { enabled: v('agent.refine.enabled', false) === true, drafts, depth, early_stop: early, critic_slot: 'main', max_calls: drafts * (1 + 3 * depth), multiplier: drafts * (1 + 3 * rounds) });
+  json(res, 200, { enabled: v('agent.refine.enabled', false) === true, drafts, depth, early_stop: early, critic_slot: 'main', max_calls: drafts * (1 + 3 * depth), multiplier: drafts * (1 + 3 * depth) });
 });
 
 const solo = scenario('people-solo', 'Only the owner has an account (People shows its empty state).', 'settings');

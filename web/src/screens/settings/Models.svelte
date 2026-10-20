@@ -122,7 +122,7 @@
   }
 
   const refineOn = $derived(settingsConfig.value<unknown>('agent.refine.enabled') === true);
-  // The server works out the cost from the drafts, rounds and early stop, so it is asked again after each change.
+  // The server works out the cost from the drafts and rounds, so it is asked again after each change.
   let multiplier = $state(0);
   $effect(() => {
     void settingsConfig.value('agent.refine.drafts');

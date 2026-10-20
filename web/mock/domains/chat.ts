@@ -914,7 +914,7 @@ on('GET', '/api/sessions/{id}/context', (_q, res) => json(res, 200, breakdown));
 on('GET', '/api/sessions/{id}/refine-estimate', (req, res) => {
   const kind = refineEst.arg(req);
   if (kind === 'none') return fail(res, 500, 'internal', 'mock: refine estimate failed');
-  json(res, 200, { multiplier: 12, drafts: 3, ...(kind === 'estimate' ? { usd: 0.18 } : {}) });
+  json(res, 200, { multiplier: 21, drafts: 3, ...(kind === 'estimate' ? { usd: 0.18 } : {}) });
 });
 // Runner.Fork: a clean chat with no history under the chat it came from,
 // listed at once, opening with a notice (SPEC §5.3).

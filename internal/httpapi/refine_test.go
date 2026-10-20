@@ -112,8 +112,8 @@ func TestRefineEstimate(t *testing.T) {
 	url := "/api/sessions/" + string(sess.ID) + "/refine-estimate"
 
 	got := decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member))
-	if got.USD != nil || got.Drafts != 3 || got.Multiplier != 12 {
-		t.Fatalf("a chat with no answer yet = %+v (3 drafts, early stop counted as 1 of 2 rounds: 3×(1+3))", got)
+	if got.USD != nil || got.Drafts != 3 || got.Multiplier != 21 {
+		t.Fatalf("a chat with no answer yet = %+v (3 drafts, every round counted despite early stop: 3×(1+3×2))", got)
 	}
 	mkRun := func(status core.RunStatus, at time.Time, calls ...core.CallInfo) {
 		run := &core.Run{ID: core.RunID(core.NewID(core.PrefixRun)), Session: sess.ID, Principal: mp, User: h.member.user,
@@ -138,8 +138,8 @@ func TestRefineEstimate(t *testing.T) {
 	mkRun(core.RunDone, base.Add(time.Minute), step(1, 30_000), step(1, 99_000), step(1, 99_000))
 	mkRun(core.RunFailed, base.Add(2*time.Minute), step(1, 5_000_000))
 	got = decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member))
-	if got.USD == nil || *got.USD < 0.2399 || *got.USD > 0.2401 {
-		t.Fatalf("estimate = %+v, want (10000+30000)/2 µ$ × 12 = $0.24", got)
+	if got.USD == nil || *got.USD < 0.4199 || *got.USD > 0.4201 {
+		t.Fatalf("estimate = %+v, want (10000+30000)/2 µ$ × 21 = $0.42", got)
 	}
 
 	if info := decodeAs[dto.RefineInfo](t, h.do("GET", "/api/refine", nil, h.member)); info.Multiplier != got.Multiplier {
@@ -147,7 +147,7 @@ func TestRefineEstimate(t *testing.T) {
 	}
 	h.cfg.update(func(c *config.Config) { c.Agent.Refine.EarlyStop = false })
 	if got := decodeAs[dto.RefineEstimate](t, h.do("GET", url, nil, h.member)); got.Multiplier != 21 {
-		t.Fatalf("without early stop every round counts: %+v", got)
+		t.Fatalf("early stop changes nothing: %+v", got)
 	}
 	expect(t, h.do("GET", url, nil, h.admin), http.StatusNotFound)
 }
