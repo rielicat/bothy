@@ -132,6 +132,8 @@
     no_access: "Found, but it can't use Bedrock right now.",
   };
   const awsProblem = (d?: Detection) => (d?.kind === 'bedrock' && d.problem ? (awsProblems[d.problem] ?? awsProblems.no_credentials) : '');
+  // Access that can't use Bedrock is fixed by another region or a permission, not by signing in again.
+  const awsSignIn = (d?: Detection) => !!awsProblem(d) && d?.problem !== 'no_access';
 
   // AWS, Ollama, LM Studio, other local servers, keys in the server's environment, then AWS settings without access (§5.6.1).
   function detectedRows(list: Detection[]): Row[] {
@@ -532,7 +534,7 @@
   {@const r = row(v)}
   {@const s = states[v]}
   {#if s}
-    {#if r.source === 'aws' && awsProblem(r.detection)}
+    {#if r.source === 'aws' && awsSignIn(r.detection)}
       <p class="text-body text-text">
         {#if r.detection?.problem === 'signin_expired'}
           Sign in again on the server with <code class="rounded-sm bg-subtle px-1 text-code whitespace-nowrap">aws sso login</code>, then check again.
@@ -548,6 +550,7 @@
       {@render status(v, false)}
     {:else if r.source === 'aws'}
       {@render regionSelect(v)}
+      {#if r.detection?.problem === 'no_access'}<Button class="mt-4" size="sm" onclick={() => check(v, { byPerson: true })}>Check again</Button>{/if}
       {@render status(v, false)}
     {:else if r.def.kind === 'bedrock'}
       {@render regionSelect(v)}
