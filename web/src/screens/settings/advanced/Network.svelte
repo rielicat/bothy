@@ -1,3 +1,5 @@
+<svelte:options runes />
+
 <script lang="ts">
   import AdvancedField from '../../../components/AdvancedField.svelte';
   import { SettingsSection } from '../../../components/ui';
