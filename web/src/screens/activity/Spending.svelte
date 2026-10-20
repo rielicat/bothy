@@ -1,5 +1,6 @@
 <script lang="ts">
   import BarChart, { type Bar } from '../../components/BarChart.svelte';
+  import Icon from '../../components/Icon.svelte';
   import { Disclosure, EmptyState, LinkButton, ProgressBar, Segmented } from '../../components/ui';
   import { api, qs } from '../../lib/api/client';
   import type { ModelInfo, Schedule, UsageResp, UsageToday } from '../../lib/api/types.gen';
@@ -159,56 +160,65 @@
   {:else if !total && !sections.length}
     <EmptyState text="Nothing spent in this period." />
   {:else}
-    <p class="text-figure text-text tabular-nums">{money(total)} {range === 'today' ? 'today' : `in the last ${days} days`}</p>
-    {#if today}
-      {#if range !== 'today'}
-        <p class="mt-1 text-body text-muted tabular-nums">Today: {money(spent)}{limit ? ` of the ${money(limit)} daily limit` : ''}</p>
-      {:else if limit}
-        <p class="mt-1 text-body text-muted tabular-nums">The daily limit is {money(limit)}.</p>
-      {/if}
-      {#if limit}
-        <ProgressBar class="mt-2 max-w-80" value={spent} max={limit} {tone} label="Today's spending" valueText="{money(spent)} of {money(limit)}" />
-        {#if tone === 'danger'}
-          <p class="mt-2 text-body text-danger-text">
-            Bothy reached today's limit. New work waits until midnight.{#if session.isAdmin}{' '}<LinkButton onclick={() => router.navigate('/settings/general')}>Change limit</LinkButton>{/if}
-          </p>
-        {:else if tone === 'warning'}
-          <p class="mt-2 text-body text-warning-text">Bothy will stop starting new work at {money(limit)}.</p>
+    <div class="list-card">
+      <div class="py-4 {days > 1 ? 'border-b border-border' : ''}">
+        <p><span class="text-figure text-text tabular-nums">{money(total)}</span> <span class="text-body text-muted">{range === 'today' ? 'today' : `in the last ${days} days`}</span></p>
+        {#if today}
+          {#if range !== 'today'}
+            <p class="mt-1 text-body text-muted tabular-nums">Today: {money(spent)}{limit ? ` of the ${money(limit)} daily limit` : ''}</p>
+          {:else if limit}
+            <p class="mt-1 text-body text-muted tabular-nums">The daily limit is {money(limit)}.</p>
+          {/if}
+          {#if limit}
+            <ProgressBar class="mt-3" value={spent} max={limit} {tone} label="Today's spending" valueText="{money(spent)} of {money(limit)}" />
+            {#if tone === 'danger'}
+              <p class="mt-2 text-body text-danger-text">
+                Bothy reached today's limit. New work waits until midnight.{#if session.isAdmin}{' '}<LinkButton onclick={() => router.navigate('/settings/general')}>Change limit</LinkButton>{/if}
+              </p>
+            {:else if tone === 'warning'}
+              <p class="mt-2 text-body text-warning-text">Bothy will stop starting new work at {money(limit)}.</p>
+            {/if}
+          {/if}
+          {#if chatLimit}
+            {#if chatRatio >= 1}
+              <p class="mt-2 text-body text-danger-text tabular-nums">
+                Chat apps used their {money(chatLimit)} share of today's limit. Their new work waits until midnight.{' '}<LinkButton
+                  onclick={() => router.navigate('/settings/people')}>Change share</LinkButton
+                >
+              </p>
+            {:else if chatRatio >= 0.8}
+              <p class="mt-2 text-body text-warning-text tabular-nums">Chat apps have used {Math.floor(chatRatio * 100)}% of their {money(chatLimit)} share of today's limit.</p>
+            {:else}
+              <p class="mt-2 text-body text-muted tabular-nums">Chat apps today: {money(chatSpent)} of their {money(chatLimit)} share</p>
+            {/if}
+          {/if}
         {/if}
-      {/if}
-      {#if chatLimit}
-        {#if chatRatio >= 1}
-          <p class="mt-2 text-body text-danger-text tabular-nums">
-            Chat apps used their {money(chatLimit)} share of today's limit. Their new work waits until midnight.{' '}<LinkButton
-              onclick={() => router.navigate('/settings/people')}>Change share</LinkButton
-            >
-          </p>
-        {:else if chatRatio >= 0.8}
-          <p class="mt-2 text-body text-warning-text tabular-nums">Chat apps have used {Math.floor(chatRatio * 100)}% of their {money(chatLimit)} share of today's limit.</p>
-        {:else}
-          <p class="mt-2 text-body text-muted tabular-nums">Chat apps today: {money(chatSpent)} of their {money(chatLimit)} share</p>
-        {/if}
-      {/if}
-    {/if}
-
-    {#if days > 1}<BarChart data={bars} format={(v) => money(v)} {axis} {summary} />{/if}
+      </div>
+      {#if days > 1}<div class="py-4"><BarChart data={bars} format={(v) => money(v)} {axis} {summary} /></div>{/if}
+    </div>
 
     {#each sections as [g, title] (g)}
       {@const all = lines(g)}
+      {@const linked = all.some((l) => l.href)}
       <section class="mt-10">
         <h2 class="section-title">{title}</h2>
-        <ul class="list-card mt-2">
+        <ul class="list-card mt-2 overflow-hidden">
           {#each open[g] ? all : all.slice(0, 5) as l (l.key)}
             <li class="flex min-h-10 items-center gap-4 border-b border-border last:border-b-0 pointer-coarse:min-h-12">
               {#if l.href}
                 <a href={l.href} onclick={router.link} class="row-link flex min-h-10 min-w-0 flex-1 items-center gap-4 pointer-coarse:min-h-12"
-                  ><span class="min-w-0 flex-1 truncate text-body text-text" title={l.name}>{l.name}</span><span class="meta">{l.amount}</span></a
+                  ><span class="min-w-0 flex-1 truncate text-body text-text" title={l.name}>{l.name}</span><span class="meta">{l.amount}</span><Icon
+                    name="chevron-right"
+                    class="-ml-1 shrink-0 text-muted"
+                  /></a
                 >
               {:else}
                 <span class="min-w-0 flex-1 truncate text-body text-text" title={l.name}
                   ><span data-copy-ignore>{l.name}</span>{#if l.sub}<span class="text-muted">{' · '}{l.sub}</span>{/if}</span
                 >
                 {#if l.unpriced}<span class="text-small text-muted">Price not set</span>{@render setPrice()}{:else}<span class="meta">{l.amount}</span>{/if}
+                <!-- Room for the › of the rows that open something, so the amounts line up. -->
+                {#if linked}<span class="-ml-1 w-4 shrink-0" aria-hidden="true"></span>{/if}
               {/if}
             </li>
           {/each}

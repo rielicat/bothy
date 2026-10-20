@@ -282,6 +282,15 @@
   .row-link {
     @apply -mx-2 rounded-md px-2 hover:bg-subtle focus-visible:outline-offset-[-2px];
   }
+  /* In a group card a row that opens something hovers edge to edge, as the empty chat's starters do;
+     the card is `overflow-hidden`, so its corners round the first and last row. */
+  .list-card .row-link {
+    @apply -mx-4 rounded-none px-4;
+  }
+  /* A row whose link is stretched over it (`after:absolute after:inset-0`), its own controls lifted above (`relative z-10`). */
+  .row-stretch {
+    @apply relative hover:bg-subtle has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-focus;
+  }
 
   .tabs {
     @apply inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg bg-subtle p-1 [scrollbar-width:none];

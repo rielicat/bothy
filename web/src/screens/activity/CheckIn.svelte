@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Button, LinkButton, Page, Select, TextArea, toast } from '../../components/ui';
+  import { Button, LinkButton, Page, Select, SettingsRow, TextArea, toast } from '../../components/ui';
   import { api, ApiError } from '../../lib/api/client';
   import type { ConfigView, List, MemoryDoc, ModelInfo, Schedule, ScheduleExamples } from '../../lib/api/types.gen';
   import { estimate } from '../../lib/format';
@@ -102,46 +102,53 @@
     <Loading {failed} retry={load} />
   {:else}
     <form onsubmit={save}>
-      <Select
-        class="sm:max-w-64"
-        label="How often"
-        options={[
-          { value: '15m', label: 'Every 15 min' },
-          { value: '30m', label: 'Every 30 min' },
-          { value: '1h', label: 'Every hour' },
-        ]}
-        value={interval === 15 ? '15m' : interval === 60 ? '1h' : '30m'}
-        onchange={(e) => s && (s.spec = e.currentTarget.value)}
-      />
-      <fieldset class="mt-6">
-        <legend class="field-label">Between</legend>
-        <div class="mt-2 flex items-center gap-2">
-          <Select label="From" hideLabel options={timeOptions(from)} bind:value={from} />
-          <span class="text-body text-text">and</span>
-          <Select label="Until" hideLabel options={timeOptions(to)} bind:value={to} />
+      <div class="list-card">
+        <SettingsRow label="How often">
+          {#snippet children(c)}
+            <Select
+              id={c.id}
+              options={[
+                { value: '15m', label: 'Every 15 min' },
+                { value: '30m', label: 'Every 30 min' },
+                { value: '1h', label: 'Every hour' },
+              ]}
+              value={interval === 15 ? '15m' : interval === 60 ? '1h' : '30m'}
+              onchange={(e) => s && (s.spec = e.currentTarget.value)}
+            />
+          {/snippet}
+        </SettingsRow>
+        <SettingsRow label="Between">
+          {#snippet children(c)}
+            <div role="group" aria-labelledby={c.labelId} class="flex items-center gap-2">
+              <Select class="min-w-0 flex-1" label="From" hideLabel options={timeOptions(from)} bind:value={from} />
+              <span class="text-body text-text">and</span>
+              <Select class="min-w-0 flex-1" label="Until" hideLabel options={timeOptions(to)} bind:value={to} />
+            </div>
+          {/snippet}
+        </SettingsRow>
+        <div class="border-b border-border py-4">
+          <TextArea
+            label="What to check"
+            bind:value={list}
+            rows={5}
+            maxRows={16}
+            placeholder="One thing per line, for example: Tell me if a deploy to production failed overnight"
+            help="Bothy looks through this list regularly and messages you only when something needs attention."
+            error={listError}
+            bind:textarea={box}
+          />
+          {#if lines.length && !list.trim()}
+            <LinkButton
+              class="mt-2"
+              onclick={() => {
+                list = lines.join('\n');
+                box?.focus();
+              }}>Use suggested lines</LinkButton
+            >
+          {/if}
         </div>
-      </fieldset>
-      <TextArea
-        class="mt-6"
-        label="What to check"
-        bind:value={list}
-        rows={5}
-        maxRows={16}
-        placeholder="One thing per line, for example: Tell me if a deploy to production failed overnight"
-        help="Bothy looks through this list regularly and messages you only when something needs attention."
-        error={listError}
-        bind:textarea={box}
-      />
-      {#if lines.length && !list.trim()}
-        <LinkButton
-          class="mt-2"
-          onclick={() => {
-            list = lines.join('\n');
-            box?.focus();
-          }}>Use suggested lines</LinkButton
-        >
-      {/if}
-      {#if costLine}<p class="mt-4 text-small text-muted">{costLine}</p>{/if}
+      </div>
+      {#if costLine}<p class="mt-3 text-small text-muted">{costLine}</p>{/if}
       <div class="mt-8 flex flex-wrap gap-2 max-sm:flex-col">
         <Button type="submit" variant="primary" loading={saving} loadingLabel="Saving…">Save</Button>
         <Button href="/activity/schedules">Cancel</Button>

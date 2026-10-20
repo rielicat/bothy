@@ -115,7 +115,7 @@ describe('Spending (docs/design/ui.md §10.5)', () => {
 
   it("doesn't repeat today's amount in the Today view", async () => {
     await start('/activity/spending?range=today');
-    expect(await screen.findByText('$1.20 today')).toBeTruthy();
+    expect((await screen.findByText('today', { selector: 'span' })).parentElement!.textContent).toBe('$1.20 today');
     expect(screen.getByText('The daily limit is $3.00.')).toBeTruthy();
     expect(screen.queryByText(/^Today: /)).toBeNull();
   });

@@ -94,10 +94,10 @@
       <EmptyState class="mt-6" text="Nothing matches these filters." action={{ label: 'Clear filters', variant: 'secondary', onclick: () => router.setQuery({ person: null, where: null, result: null }) }} />
     {/if}
 
-    {#each groups as g (g.label)}
-      <section class="mt-6">
-        <h2 class="mb-1 text-caption text-muted">{g.label}</h2>
-        <ul class="list-card">
+    {#each groups as g, i (g.label)}
+      <section class={i ? 'mt-10' : 'mt-6'}>
+        <h2 class="section-title">{g.label}</h2>
+        <ul class="list-card mt-2 overflow-hidden">
           {#each g.items as r (r.id)}
             <TaskRow
               href="/activity/tasks/{encodeURIComponent(r.id)}"

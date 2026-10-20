@@ -124,18 +124,26 @@
 
 {#snippet row(name: string, href: string, s: Schedule | undefined, enabled: boolean, meta: { text: string; danger?: boolean }[])}
   {@const error = errors[s?.id ?? 'checkin']}
-  <li class="flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
+  <!-- The whole row opens the schedule; its link stretches over it and the switch and ⋯ sit above it. -->
+  <li class="row-stretch flex min-h-14 items-center gap-3 border-b border-border py-2 last:border-b-0">
     <div class="min-w-0 flex-1">
-      <a {href} onclick={router.link} class="-my-0.5 flex min-h-6 items-center text-body font-medium text-text hover:underline [overflow-wrap:anywhere] pointer-coarse:-my-3 pointer-coarse:min-h-11">{name}</a>
+      <a
+        {href}
+        onclick={router.link}
+        class="-my-0.5 block py-0.5 text-body font-medium text-text [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none pointer-coarse:-my-3 pointer-coarse:py-3"
+        >{name}</a
+      >
       <p class="text-small text-muted">
         {#each meta as m, i (i)}{#if i}{' · '}{/if}<span class={m.danger ? 'text-danger-text' : ''}>{m.text}</span>{/each}
       </p>
       {#if error}<p class="text-small text-danger-text" role="alert">{error}</p>{/if}
     </div>
-    <Switch label={name} hideLabel checked={enabled} onchange={(on) => toggle(s, on)} />
-    <Menu items={menu(s, href)} placement="bottom-end">
-      {#snippet trigger(props)}<IconButton icon="more" label="More for {name}" size="sm" {...props} />{/snippet}
-    </Menu>
+    <div class="relative z-10 flex items-center gap-3">
+      <Switch label={name} hideLabel checked={enabled} onchange={(on) => toggle(s, on)} />
+      <Menu items={menu(s, href)} placement="bottom-end">
+        {#snippet trigger(props)}<IconButton icon="more" label="More for {name}" size="sm" {...props} />{/snippet}
+      </Menu>
+    </div>
   </li>
 {/snippet}
 
@@ -145,7 +153,7 @@
   {#if list === null}
     <Loading {failed} retry={load} />
   {:else}
-    <ul class="list-card">
+    <ul class="list-card overflow-hidden">
       {@render row('Check-in', '/activity/schedules/checkin', checkin, checkin ? checkin.enabled : checkinOn, [
         { text: `${every(checkin?.spec ?? '30m')}, ${hours(checkin)}` },
         { text: 'Looks through your list and tells you only when something needs attention' },
@@ -167,14 +175,14 @@
     {#if ex?.examples.length}
       <section class="mt-10" aria-labelledby="schedule-examples">
         <h2 id="schedule-examples" class="section-title">Examples</h2>
-        <ul class="list-card mt-2">
+        <ul class="list-card mt-2 overflow-hidden">
           {#each ex.examples as e (e.id)}
             <li class="border-b border-border last:border-b-0">
               <!-- One that can't run yet leads to what it needs, so a new install still shows what schedules do. -->
               <a
                 href={e.ready ? `/activity/schedules/new?example=${encodeURIComponent(e.id)}` : e.needs === 'github' ? '/settings/connections/github' : '/settings/connections'}
                 onclick={router.link}
-                class="-mx-2 flex min-h-14 items-center gap-3 rounded-md px-2 py-2 hover:bg-subtle focus-visible:outline-offset-[-2px]"
+                class="row-link flex min-h-14 items-center gap-3 py-2"
               >
                 <span class="min-w-0 flex-1">
                   <span class="block text-body font-medium text-text">{e.name}</span>
@@ -182,7 +190,7 @@
                     >{when(e)} · {e.ready ? `Uses ${e.needs === 'github' ? 'GitHub' : 'web search'}` : e.needs === 'github' ? 'Connect GitHub first' : 'Turn on web search first'}</span
                   >
                 </span>
-                <Icon name="chevron-right" class="text-muted" />
+                <Icon name="chevron-right" class="shrink-0 text-muted" />
               </a>
             </li>
           {/each}

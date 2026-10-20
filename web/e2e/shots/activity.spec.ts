@@ -72,7 +72,8 @@ const states: ShotState[] = [
   // Schedules (§10.3)
   { name: 'schedules', route: '/activity/schedules', ready: 'Weekly PR digest', setup: frame },
   { name: 'schedules-examples', route: '/activity/schedules', mock: 'activity-empty', ready: 'Monday pull request summary', setup: frame },
-  { name: 'schedules-empty', route: '/activity/schedules', mock: 'activity-empty,github-none', ready: 'Add your own, like a Monday summary', setup: frame },
+  // Admins are offered the examples that can't run yet, so only a member with nothing connected sees no examples.
+  { name: 'schedules-empty', route: '/activity/schedules', mock: 'activity-empty,github-none,member', ready: 'Add your own, like a Monday summary', setup: frame },
   {
     name: 'schedules-run-now',
     route: '/activity/schedules',

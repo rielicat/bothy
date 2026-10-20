@@ -32,6 +32,15 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     expect(screen.getByText('Morning briefing').closest('li')!.textContent).toContain('Posts to your chats');
   });
 
+  it('opens a schedule from anywhere on its row, its switch and ⋯ staying their own', async () => {
+    await start();
+    const row = screen.getByText('Morning briefing').closest('li')!;
+    expect(row.classList.contains('row-stretch')).toBe(true);
+    expect(within(row).getByRole('link', { name: 'Morning briefing' }).className).toMatch(/after:absolute after:inset-0/);
+    const controls = within(row).getByRole('switch', { name: 'Morning briefing' }).closest('.z-10');
+    expect(controls?.contains(within(row).getByRole('button', { name: 'More for Morning briefing' }))).toBe(true);
+  });
+
   // A failed run doesn't stop the next one; the row used to drop "Next:".
   it('says when a schedule whose last run failed runs next', async () => {
     await start();
