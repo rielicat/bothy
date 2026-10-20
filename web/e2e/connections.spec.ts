@@ -197,12 +197,13 @@ test('connect GitHub: Bothy creates its app, then the repositories, then reading
   // The mock's handoff page stands in for GitHub's create and install pages.
   await page.getByRole('button', { name: 'Continue on GitHub' }).click();
   const dialog = page.getByRole('dialog', { name: 'Which repositories can Bothy use?' });
-  await dialog.getByLabel('acme/web').check();
+  // One Knowledge hasn't read yet: a repository already read isn't read again.
+  await dialog.getByLabel('acme/mobile').check();
   await dialog.getByRole('button', { name: 'Add repositories' }).click();
   await expect(page.getByText('Bothy is reading 1 repository.', { exact: false })).toBeVisible();
   await expect(page.getByText('Connected to acme as Bothy (acme)')).toBeVisible();
   await expect(page).toHaveURL(/\/settings\/connections\/github$/);
-  await expect(page.getByRole('switch', { name: 'Bothy can use acme/web' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Bothy can use acme/mobile' })).toBeChecked();
 });
 
 test('connect GitHub: a token, the repositories, then reading starts', async ({ page }) => {
@@ -210,11 +211,11 @@ test('connect GitHub: a token, the repositories, then reading starts', async ({ 
   await page.getByRole('button', { name: 'Other ways to connect' }).click();
   await page.getByLabel('Token', { exact: true }).fill('github_pat_11ABCDEFG0123456789abcdef');
   await expect(page.getByText('Connected as maya-acme. Bothy can see 6 repositories.')).toBeVisible();
-  await page.getByLabel('acme/web').check();
+  await page.getByLabel('acme/mobile').check();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Bothy is reading 1 repository.', { exact: false })).toBeVisible();
   await expect(page.getByRole('heading', { level: 1, name: 'GitHub' })).toBeVisible();
-  await expect(page.getByRole('switch', { name: 'Bothy can use acme/web' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Bothy can use acme/mobile' })).toBeChecked();
 });
 
 test('add a deploy environment that needs two approvals', async ({ page }) => {

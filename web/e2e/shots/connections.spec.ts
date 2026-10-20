@@ -98,7 +98,7 @@ const states: ShotState[] = [
   { name: 'github-create-personal', route: '/settings/connections/github', mock: 'github-none', setup: steps(click('Your personal account', 'radio'), click("Change the app's name"), click('What can the app do?')) },
   { name: 'github-app-pending', route: '/settings/connections/github', mock: 'github-app-pending', setup: steps(see('Finish installing Bothy (acme) on GitHub')) },
   { name: 'github-app-requested', route: '/settings/connections/github?github_app=requested', mock: 'github-app-pending', setup: steps(see('needs to approve')) },
-  { name: 'github-app-retired', route: '/settings/connections/github', mock: 'github-app-retired', setup: steps(see('Bothy no longer uses Bothy (acme).')) },
+  { name: 'github-app-retired', route: '/settings/connections/github', mock: 'github-app-retired', setup: steps(see('Bothy no longer uses the GitHub App “Bothy (acme)”.')) },
   { name: 'github-app-landing-installed', route: '/settings/connections/github?github_app=installed', mock: 'github-app-made', setup: steps(dialog('Add repositories'), see('acme/mobile')), full: false },
   { name: 'github-app-not-finished', route: '/settings/connections/github?github_app=not_finished&apps=acme', mock: 'github-none', setup: steps(see("couldn't finish setting up the app")) },
   { name: 'github-app-manage', route: '/settings/connections/github', mock: 'github-app-made', setup: steps(see('Connected to acme as Bothy (acme)')) },
