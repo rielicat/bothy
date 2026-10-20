@@ -4,6 +4,7 @@
   import type { UploadResp } from '../../lib/api/types.gen';
   import FileToken from '../../components/ui/FileToken.svelte';
   import IconButton from '../../components/ui/IconButton.svelte';
+  import { fromKeyboard } from '../../components/ui/modality';
   import ToggleButton from '../../components/ui/ToggleButton.svelte';
 
   // §7.5. Enter sends on a fine pointer and adds a line on touch; "/" opens
@@ -56,6 +57,8 @@
 
   let text = $state('');
   let files: Attached[] = $state([]);
+  // The halo only when the keyboard brought focus here: the composer takes focus by itself (§7.5).
+  let ring = $state(false);
   let sending = $state(false);
   let index = $state(0);
   let ta: HTMLTextAreaElement | undefined = $state();
@@ -218,7 +221,9 @@
   {/if}
 
   <div
-    class="rounded-lg border border-border-strong bg-surface p-3 shadow-card transition-[border-color,box-shadow] duration-120 has-[textarea:focus]:border-focus has-[textarea:focus]:shadow-focus"
+    class="rounded-lg border bg-surface p-3 transition-[border-color,box-shadow] duration-120 has-[textarea:focus]:outline-2 has-[textarea:focus]:outline-offset-0 has-[textarea:focus]:outline-transparent {ring
+      ? 'border-focus shadow-focus'
+      : 'border-border-strong shadow-card has-[textarea:focus]:border-focus'}"
   >
     {#if files.length}
       <ul class="mb-2 flex flex-wrap gap-2" aria-label="Attached files">
@@ -249,6 +254,8 @@
       aria-activedescendant={menu ? `${id}-cmd-${index}` : undefined}
       aria-describedby={paused ? `${id}-why` : undefined}
       onkeydown={keydown}
+      onfocus={() => (ring = fromKeyboard())}
+      onblur={() => (ring = false)}
       oninput={fit}
       onpaste={paste}
     ></textarea>
