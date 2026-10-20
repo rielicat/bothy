@@ -510,7 +510,8 @@
     { label: 'Rename', onselect: startRename },
     { label: `Pinned (${conv.pins.length})`, onselect: () => ((pinAdding = false), (pinsOpen = true)) },
     { label: 'Chat details', onselect: () => ((detailsRun = ''), (detailsOpen = true)) },
-    { label: 'New related chat', onselect: () => chats.relate(conv.id) },
+    // Nothing is lost, so it needs no dialog (§7.7).
+    { label: 'New related chat', onselect: () => chats.fork(conv.id).catch(() => toast("Couldn't start a new chat. Try again.")) },
     { label: 'Continue in a clean chat', onselect: () => ((dialogError = ''), (cleanOpen = true)) },
     'separator',
     { label: 'Delete chat…', danger: true, onselect: () => (chats.deleting = s) },

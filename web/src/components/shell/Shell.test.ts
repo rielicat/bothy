@@ -190,6 +190,22 @@ describe('sidebar (§4.2)', () => {
     approvals.reset();
   });
 
+  it("keeps a head's toggle where it is when the ⋯ appears on hover", async () => {
+    await start('/activity', { mock: 'team-chats,chats-idle' });
+    const n = within(nav());
+    const options = await waitFor(() => n.getByRole('button', { name: 'Options for Q3 pricing notes' }));
+    // Hidden without giving up its room, so the toggle beside it doesn't shift when the row is hovered.
+    expect(options.classList.contains('invisible')).toBe(true);
+    expect(options.classList.contains('hidden')).toBe(false);
+    // A row without a toggle has nothing to shift.
+    expect(n.getByRole('button', { name: 'Options for Fix login redirect' }).classList.contains('hidden')).toBe(true);
+    // With a state glyph in the ⋯'s place, the glyph takes the ⋯'s width.
+    chats.running['ses_01jteampricing00000000000000'] = true;
+    const glyph = await waitFor(() => within(n.getByRole('link', { name: 'Q3 pricing notes' }).parentElement!).getByText('Bothy is working').closest('.pr-2')!);
+    expect(glyph.classList.contains('w-8')).toBe(true);
+    expect(n.getByRole('button', { name: 'Options for Q3 pricing notes' }).classList.contains('hidden')).toBe(true);
+  });
+
   it('gives admins Settings with the attention dot, and members no Settings at all', async () => {
     await start('/activity');
     await waitFor(() => expect(within(nav()).getByRole('link', { name: /^Settings/ })).toBeTruthy());
@@ -435,6 +451,24 @@ describe('related chats', () => {
     // The new chat says where it came from.
     const from = await within(screen.getByRole('main')).findByRole('link', { name: 'Fix login redirect' });
     expect(from.getAttribute('href')).toBe(`/chat/${id}`);
+  });
+
+  it("says so in a toast when the related chat can't be started, and stays on the chat", async () => {
+    const id = fixtureSessions.find((s) => s.title === 'Fix login redirect')!.id;
+    await start(`/chat/${id}`, { override: (m, url) => (m === 'POST' && url.endsWith('/fork') ? new Response('{"error":"internal"}', { status: 500 }) : undefined) });
+    await screen.findByRole('button', { name: 'Fix login redirect' });
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'New related chat' }));
+    expect(await screen.findByText("Couldn't start a new chat. Try again.")).toBeTruthy();
+    expect(router.path).toBe(`/chat/${id}`);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    // Continue in a clean chat says the same, in its dialog.
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Continue in a clean chat' }));
+    const dialog = await waitFor(() => screen.getByRole('dialog', { name: 'Continue in a clean chat?' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Continue in a clean chat' }));
+    expect((await within(dialog).findByRole('alert')).textContent).toBe("Couldn't start a new chat. Try again.");
+    expect(router.path).toBe(`/chat/${id}`);
   });
 });
 

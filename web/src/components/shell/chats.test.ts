@@ -24,10 +24,19 @@ describe('families (§4.2)', () => {
       ses('alone', 'Continued from a deleted chat', at(2026, 10, 12), { parent_id: 'gone', root_id: 'gone' }),
     ];
     expect(rows(list)).toEqual([
-      ['root', ['fork2', 'fork1']],
-      ['fork1', ['orphan']],
+      ['root', ['fork2', 'fork1', 'orphan']],
       ['alone', []],
     ]);
+  });
+
+  it('hangs a chain whose root is gone from the oldest chat still listed, so no chat is listed twice', () => {
+    // A clean chat of a clean chat of a clean chat; the chat they all came from was deleted.
+    const list = [
+      ses('third', 'Third', at(2026, 10, 14, 11), { parent_id: 'second', root_id: 'gone' }),
+      ses('second', 'Second', at(2026, 10, 14, 10), { parent_id: 'first', root_id: 'gone' }),
+      ses('first', 'First', at(2026, 10, 14, 9), { parent_id: 'gone', root_id: 'gone' }),
+    ];
+    expect(rows(list)).toEqual([['first', ['third', 'second']]]);
   });
 
   it("heads a schedule's results with the newest, and keeps a chat continued from one of them in its series", () => {
@@ -219,5 +228,14 @@ describe('chat list store', () => {
     expect(row.kids[0].title).toBe('Q3 pricing notes (clean)');
     expect(router.path).toBe(`/chat/${row.kids[0].id}`);
     expect(calls.some((c) => c.method === 'POST' && c.url === `/api/sessions/${pricing.id}/fork`)).toBe(true);
+  });
+
+  it('lists a clean chat once when a reload listed it before the answer came', async () => {
+    const made = ses('ses_clean', 'Q3 pricing notes (clean)', base.last_message_at, { parent_id: 'root', root_id: 'root' });
+    calls = installApi({ override: (m, url) => (m === 'POST' && url.endsWith('/fork') ? made : url.startsWith('/api/sessions?') ? { items: [made, ses('root', 'Q3 pricing notes', base.last_message_at)] } : undefined) });
+    // The fork's notice reached the event stream first, and the list was read again.
+    await chats.load();
+    await chats.fork('root');
+    expect(chats.list.filter((s) => s.id === 'ses_clean')).toHaveLength(1);
   });
 });

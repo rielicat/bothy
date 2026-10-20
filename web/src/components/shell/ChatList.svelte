@@ -31,6 +31,7 @@
   {@const menuOpen = menuFor === s.id}
   {@const state = stateOf(members)}
   {@const related = stateOf([s]) === state ? '' : ' in a related chat'}
+  {@const hold = r && !state}
   <div class="group flex items-center rounded-md {members.some((m) => m.id === current) ? 'bg-selected' : menuOpen ? 'bg-hover' : 'hover:bg-hover'}">
     <a
       href="/chat/{encodeURIComponent(s.id)}"
@@ -52,9 +53,10 @@
         onclick={() => chats.toggle(r.key)}
       />
     {/if}
-    <!-- The ⋯ takes the glyph's place on hover; touch has no hover, so there both show. -->
+    <!-- The ⋯ takes the glyph's place on hover; touch has no hover, so there both show. On a head
+         the ⋯ keeps its room while hidden and the glyph takes as much, so the toggle never moves under the pointer. -->
     {#if state}
-      <span class="shrink-0 items-center pr-2 {menuOpen ? 'hidden' : 'flex group-focus-within:hidden group-hover:hidden'} pointer-coarse:flex!">
+      <span class="shrink-0 items-center justify-end pr-2 {r ? 'w-8' : ''} {menuOpen ? 'hidden' : 'flex group-focus-within:hidden group-hover:hidden'} pointer-coarse:flex!">
         {#if state === 'running'}
           <Spinner size={12} label="Bothy is working{related}" />
         {:else}
@@ -77,7 +79,7 @@
           size="sm"
           variant="quiet"
           label="Options for {title}"
-          class="shrink-0 hover:bg-transparent active:bg-transparent {menuOpen ? '' : 'hidden group-focus-within:inline-flex group-hover:inline-flex'} pointer-coarse:inline-flex"
+          class="shrink-0 hover:bg-transparent active:bg-transparent {menuOpen ? '' : hold ? 'invisible group-focus-within:visible group-hover:visible pointer-coarse:visible' : 'hidden group-focus-within:inline-flex group-hover:inline-flex'} pointer-coarse:inline-flex"
         />
       {/snippet}
     </Menu>

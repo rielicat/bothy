@@ -8,7 +8,6 @@ import { appendNew } from '../../lib/list';
 import { router } from '../../lib/router.svelte';
 import { events } from '../../lib/sse.svelte';
 import { approvals } from '../../lib/stores/session.svelte';
-import { toast } from '../ui/toast.svelte';
 
 /** Rows shown before "Show more", and how many more each press shows. */
 export const PAGE = 30;
@@ -27,16 +26,21 @@ const time = (s: Session) => date(s.last_message_at)?.getTime() ?? 0;
 const byId = (s: Session) => s.id;
 
 /**
- * Families one level deep (§4.2): a chat hangs from its root, else its
- * parent, and one whose anchor holds a schedule's result joins that
- * schedule's series, headed by its newest result. `parents` are anchors
- * whose own page isn't loaded yet.
+ * Families one level deep (§4.2): a chat hangs from its root, else from the
+ * oldest chat of its line still listed, and one whose anchor holds a
+ * schedule's result joins that schedule's series, headed by its newest
+ * result. `parents` are anchors whose own page isn't loaded yet.
  */
 export function families(list: Session[], parents: Session[] = []): ChatRow[] {
   const known = new Map([...parents, ...list].map((s) => [s.id, s]));
+  const up = (s: Session) => known.get(s.root_id!) ?? known.get(s.parent_id!);
   const groups: Record<string, Session[]> = {};
   for (const s of list) {
-    const a = known.get(s.root_id!) ?? known.get(s.parent_id!) ?? s;
+    // Once the root is gone every chat of the line still names it, so climb
+    // the parents: stopping at the first would list that one twice, nested
+    // and as a head. Bounded, as the ids come from the server.
+    let a = s;
+    for (let i = 0, b; i++ < 50 && (b = up(a)); ) a = b;
     (groups[a.schedule_id ? `s:${a.schedule_id}` : a.id] ??= []).push(a, s);
   }
   return Object.entries(groups)
@@ -133,8 +137,8 @@ class Chats {
       for (let i = more ? 2 : 0; i < 3; i++) {
         const r = await api.get<SessionPage>(`/api/sessions${qs({ limit: 50, before: i ? this.next : undefined })}`);
         if (seq !== this.#seq) return;
-        this.list = i ? appendNew(this.list, r.items, byId) : (r.items ?? []);
-        this.parents = i ? appendNew(this.parents, r.parents, byId) : (r.parents ?? []);
+        this.list = appendNew(i ? this.list : [], r.items, byId);
+        this.parents = appendNew(i ? this.parents : [], r.parents, byId);
         this.next = r.next ?? 0;
         if (!this.next || this.rows.length >= PAGE) break;
       }
@@ -163,13 +167,9 @@ class Chats {
   /** A clean chat of this one, listed under it and opened at once (§7.7). */
   async fork(id: string) {
     const n = await api.post<Session>(`/api/sessions/${id}/fork`);
-    this.list = [n, ...this.list];
+    // Its notice's event may already have read the list again, with it in.
+    this.list = appendNew([n], this.list, byId);
     router.navigate(`/chat/${n.id}`);
-  }
-
-  /** New related chat: nothing is lost, so it needs no dialog. */
-  relate(id: string) {
-    this.fork(id).catch(() => toast("Couldn't start a new chat. Try again."));
   }
 
   rename(id: string, title: string) {
