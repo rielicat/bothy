@@ -42,10 +42,10 @@ The base is proposal A ("Quiet tool"): its subtraction rules, single content col
 | D22 | Approvals inbox | One column, expand in place | List and detail side by side | **One column, expand in place**, tabs "Waiting" and "Done", sections "For you" and "Waiting for others" | Same layout at 1280 and 360; respects D5. |
 | D23 | Badges | 5 allowed badges | No pills at all | **No badges.** Status is a word, coloured only when abnormal. Counts are plain numbers; one 8 px attention dot | Easiest rule to enforce. |
 | D24 | Banners | Includes 80 % spend and failing sandbox | Only when work stops | **Only when work stops** | 80 % lives on Spending; sandbox problems live in Security with the attention dot. |
-| D25 | Chat list | "Recent" + "All chats" page | Grouped list with "Show more" | **Grouped list (Today, Previous 7 days, Older), "Show more"**, no `/chats` page | One place for chats. |
-| D26 | Empty chat | Composer in the middle; suggestion fills | Composer at the bottom; suggestion sends | **Composer at the bottom; suggestion fills, never sends** | The composer never moves; the person can edit before sending. |
+| D25 | Chat list | "Recent" + "All chats" page | Grouped list with "Show more" | **Grouped list (Today, Previous 7 days, Older), "Show more"**, no `/chats` page; related chats fold into one row (D42) | One place for chats. |
+| D26 | Empty chat | Composer in the middle; suggestion fills | Composer at the bottom; suggestion sends | **Composer at the bottom; a starter fills, never sends** (the rows come from the server, D44) | The composer never moves; the person can edit before sending. |
 | D27 | Chat details, pins | Drawer | Dialog | **Drawer** (400 px, full screen on phones) | The chat stays visible beside it. |
-| D28 | Fork clean | "Start a clean copy" | "Start a fresh chat" | **"Continue in a clean chat"** | Says both halves: the summary carries over, the outside content does not. |
+| D28 | Fork clean | "Start a clean copy" | "Start a fresh chat" | **"Continue in a clean chat"** | A fresh start without the outside content: the new chat carries none of the messages, private information or outside content, and is listed under the chat it came from (D42). |
 | D29 | Memory | Two document pages | One page, two sections | **One page, two sections** ("About you", "Things Bothy remembers") | One place. |
 | D30 | Heartbeat | Pinned "Check-in" schedule | A checkbox on any schedule | **Pinned "Check-in" row** in Schedules with its own form | Matches the backend: one heartbeat with one checklist per person. |
 | D31 | Note suggestions | Routed to Approvals | Own review dialog | **Both surfaces show the same approval card**: a notice on the project page opens a dialog of those cards; the inbox lists them too | One approval system. |
@@ -59,6 +59,10 @@ The base is proposal A ("Quiet tool"): its subtraction rules, single content col
 | D39 | Sidebar collapse | — | Collapsible | **Not in v0.2** (§19) | Not needed to ship. |
 | D40 | Approvals on phones | Drawer only | Bell with count | **A "2 waiting" text button in the phone top bar** when something waits for you, plus a dot on the menu button | One tap, no bell icon. |
 | D41 | Default approval preset | Careful | Balanced | **Unchanged config default (Careful)** | A UI redesign does not loosen a security default. |
+| D42 | Related chats | One row per chat | Virtual group rows | **A chat continued from another nests under it, one level deep; a schedule's results group under its newest result; every row is a chat.** "New related chat" and "Continue in a clean chat" both start one | Related work stays together, as in Claude Desktop, without rows that aren't chats. |
+| D43 | First run | An empty chat | Several "home" chats | **One welcome chat per account: a static message from Bothy with the starters under it** | A first look that explains Bothy, at no cost and without filling the list. |
+| D44 | Starters | Guessed on the client | Seven templates | **The server sends up to four rows** for what is set up: two prompts, at most one link to something not set up yet, "What can you do for our team?" | One request, and the copy costs no JavaScript. |
+| D45 | Default schedules | Seeded | Seeded | **Examples on the Schedules page, nothing created** until the person saves one; the check-in stays off | Nothing appears in someone's list that they didn't start. |
 
 ---
 
@@ -482,22 +486,32 @@ Four destinations (Chat, Approvals, Knowledge, Activity) plus Settings, where v0
 │ Today                    │
 │ Fix login redirect     ◌ │  12 px spinner while Bothy is working there
 │ v2.3 launch checklist  • │  8 px warning dot: waiting for approval
+│ Q3 pricing notes     ›   │  a family's head: the chat others continued from
+│ PR summary · 19 Oct  ⌄   │  a schedule's newest result, open
+│     2 h ago              │  its earlier results, by date
+│     12 Oct               │
+│     Chase the reviews    │  a chat continued from one of them, by title
 │ Previous 7 days          │
-│ Q3 pricing notes         │
-│ Show more                │  after 30 chats, text-muted
+│ Onboarding checklist     │
+│ Show more                │  after 30 rows, text-muted
 │ ──────────────────────── │  border-t border-border, pinned to the bottom
 │ Settings               • │  admins only; attention dot (§4.10)
 │ (MC) Maya Chen         ⋯ │  avatar 24, name text-body 500, ⋯ opens the account menu
 └──────────────────────────┘
 ```
 
-- Container: 256 px, full height, `sticky top-0 h-dvh`, `bg-sidebar`, `border-r border-border`, `px-2`, own scroll.
+- Container: 256 px, full height, `sticky top-0 h-dvh`, `bg-sidebar`, `border-r border-border`, `px-2`, own scroll. The phone drawer (§4.4) has the same rows; there titles get about 200 px, with the full title in the tooltip and the chat's header.
 - Items: `h-8 rounded-md px-2 text-body`. Nav items (Approvals, Knowledge, Activity) are 500 weight, `text-muted`; hover `bg-hover text-text`; current `bg-selected text-text` with `aria-current="page"`. New chat and Search use the same item style with a 16 px leading icon.
 - Group labels: `text-caption text-muted`, 16 px above, 4 px below.
 - Chat rows: one line, truncate with a `title` tooltip. The open chat is `selected`. Running: spinner at the right. Waiting for approval: 8 px `bg-warning-text` dot with visually hidden "Waiting for approval". On hover (always on coarse pointers) a `⋯` replaces the trailing slot with Rename and Delete chat….
 - No origin icons. A chat that came from a chat app says so in its header (§7.1), not in the list.
 - No group chats. Chats in chat apps belong to the people and channels there (SPEC §5.2), not to anyone's account, so they are in nobody's list, admins' included.
-- Chats are stored only once a message is sent. Until the title arrives the row shows the first 48 characters of the first message. Never "New chat", "Untitled chat" or "never".
+- Chats are stored only once a message is sent. Until the generated title arrives the server titles the chat by the first 48 characters of its first message (S14), so the list asks for nothing else. Never "New chat", "Untitled chat" or "never".
+- **Related chats** (D42, SPEC §14.10): a chat hangs from its root, else its parent, one level deep, so a clean chat of a clean chat sits under the first chat; if that chat was deleted it hangs from the oldest chat of its line still listed (never from two rows at once), else it stands alone. One whose anchor holds a schedule's result joins that schedule's series, headed by the newest result; earlier results read as their date ("2 h ago", "12 Oct", full title in the tooltip) and a chat continued from one of them by its title. `GET /api/sessions` sends the anchors of a page's chats that aren't on it as `parents`, so a family is drawn before its head's page loads.
+- **Order and paging:** a family sits where its newest message puts it, in that day's group. "Show more" counts rows, 30 a press; a family is one row. The first load reads up to three pages of 50 until there are 30 rows.
+- **Disclosure:** a head with related chats gets a trailing toggle after its title (`IconButton` "chevron-right", small, quiet, turned 90° when open; 24 × 32 on fine pointers, 44 × 44 on coarse ones, always visible), so a row reads link, toggle, state or ⋯. On a head the ⋯ keeps its room while hidden and a state glyph is as wide as the ⋯, so the toggle never moves when the pointer reaches the row. It is a `<button aria-expanded aria-controls>` named "Related chats for “{title}”", with no count (counts change while paging). The related chats are a nested `<ul aria-label="Related to “{title}”">` in the head's `<li>`, indented 20 px, rows as tall as any other, each with its own ⋯. Families start closed; the toggles are remembered in `localStorage["bothy.sidebar.open"]` (a JSON array of at most 100 keys; storage that fails is ignored). The family of the open chat opens by itself, once, without being remembered, and never closes by itself; a head whose family is closed with the open chat in it is `bg-selected`.
+- **State of a closed family:** the strongest of its chats, the waiting dot over the spinner, with hidden words "Waiting for approval in a related chat" or "Bothy is working in a related chat" when it isn't the head's own.
+- **Row menu:** Rename and Delete chat…, as for any row; New related chat is in the chat's own menu (§7.1). Search (⌘K) still lists chats one by one.
 - Sidebar scroll position is kept across navigation.
 - **Account menu** (`Menu`, opens upward): "Your account", "Theme ▸" (System, Light, Dark as `menuitemradio`), "Keyboard shortcuts", separator, "Pause Bothy…" (admins, `danger-text`), "Sign out".
 
@@ -988,7 +1002,7 @@ Give each person their own sign-in to Bothy.
 
 - Setup is marked complete when this screen opens, so each row goes to a normal app page: `/settings/connections`, `/settings/connections/github`, `/settings/people` with the "Add person" dialog open.
 - Rows are link rows: the title (`text-body` 500) is the link and its hit area covers the row, a muted › sits at the right edge, and the description (`text-body` muted, `text-pretty`) stays under the title. No row has a button at any width, so "Start chatting" is the only button on the screen. "Add people", not "Invite", because Bothy creates the accounts and sends no invitations.
-- "Start chatting" is the one primary and opens `/chat`.
+- "Start chatting" is the one primary and opens `/chat`, where the owner's welcome chat opens in place of the empty chat (§7.2).
 - No warnings and no icons. The background security audit writes to Security → Needs attention and lights the attention dot.
 
 ### 5.8 Defaults applied without asking
@@ -1005,7 +1019,10 @@ Give each person their own sign-in to Bothy.
 | Package downloads ("Let code download Python packages", "… JavaScript packages") | Off | Settings → Security → Running code |
 | Bothy's name and tone | "Bothy", "Warm and brief" | Settings → General → Bothy |
 | About you | Empty | Knowledge → Memory |
-| Check-in | Off | Activity → Schedules → Check-in |
+| Check-in | Off; the form suggests lines about the repository while the list is empty | Activity → Schedules → Check-in |
+| Schedules | None; up to three examples under the list until the person has three (D45) | Activity → Schedules |
+| Welcome chat | One per new account, opened the first time the app loads (D43) | Delete it like any chat |
+| Starters | Up to four rows under the empty chat and the welcome message, from what is set up (D44) | — |
 | Quick tasks model | The provider's recommended cheap model | Settings → Models |
 | Backup models | None | Settings → Models → Backup models |
 | Refine | Off | Composer; default in Settings → Models |
@@ -1044,6 +1061,8 @@ The provider buttons (SPEC §15) are text only, no logos (§2.1). A click asks t
 | Provider: account turned off | "This account is turned off. Ask an admin to turn it back on." |
 | Provider: anything else | "{Google} sign-in isn't working right now. Sign in with your username and password, or ask an admin." |
 | Opened at another address | "Open Bothy at {bothy.acme.com} to sign in with {Google}." + link button "Go there" |
+
+The first time a new account reaches the app (after setup's "Start chatting", the first sign-in or the first password change) the shell asks for its welcome chat once (`Me.welcome_pending`, `POST /api/me/welcome`) and, on `/chat` without `?prompt`, opens it in place of the empty chat. Accounts from before 0015 never get one.
 
 **Choose a new password** (`/password`, after signing in with a one-time password, S9): title "Choose a new password", sentence "You signed in with a one-time password. Choose your own to continue.", one password field with the Step 1 help text, button "Save and continue". Typing the one-time password again as the new one: "Choose a new password, not the one-time password." on the field. Locked after too many wrong one-time passwords (asked again after a reload): "Too many tries. Try again in {n} minutes." under the form.
 
@@ -1145,7 +1164,8 @@ From the account menu, or "?" when focus is not in a text field. A 440 px dialog
 ```
 
 - **Header:** `sticky h-13 bg-bg` inside the column, at the top or just under a banner (§4.9). Title `text-heading`, one line, truncate; click (or Enter on focus) renames inline, Enter saves, Esc cancels. Below 1024 px the header is hidden and the phone top bar holds the title, so renaming happens there (§4.4). Chats from chat apps add a second line in `text-small muted`: "In #eng on Slack", "Telegram". `border-b border-border` appears only once the transcript has scrolled. Right: `⋯` (label "Chat options").
-- **Chat menu:** Rename · Pinned ({n}) · Chat details · Continue in a clean chat · separator · Delete chat… (`danger-text`).
+- **Chat menu:** Rename · Pinned ({n}) · Chat details · New related chat · Continue in a clean chat · separator · Delete chat… (`danger-text`).
+- **Where it came from:** the first row of the transcript at every width, above "Load earlier messages", in `text-small muted` with the name as a `.link`: "Continued from “{title}”" (→ that chat), "Continued from a deleted chat", "From the schedule “{name}”" (→ the schedule), "From your check-in" (the link is on "your check-in", → the check-in form), "From a deleted schedule". A chat that came from nowhere has none.
 - **Transcript:** turns 24 px apart; a person's message 16 px above Bothy's reply; activity lines 12 px above the text that follows them.
 - **Composer:** `sticky bottom-0` on a solid `bg-bg` strip (`pt-2`), 16 px below it plus `env(safe-area-inset-bottom)`. No gradient fade.
 - **Scroll:** the transcript follows new output only while the reader is within 120 px of the bottom; otherwise a small secondary button "Jump to latest" appears centred above the composer.
@@ -1166,15 +1186,19 @@ What can you do for our team?                                      left-aligned 
 ```
 
 - One "New chat" control only, in the sidebar. `/chat` is the new chat itself, not a "pick a chat" screen.
-- Suggestions (at most three): with GitHub connected, the first two use the most recently indexed repository: "Summarise the open pull requests in {owner/repo}", "What changed in {owner/repo} this week?". Without GitHub: "Draft a release checklist for our next version", "Turn these meeting notes into a list of tasks". Always last: "What can you do for our team?". An admin without GitHub sees "Connect GitHub so Bothy can read your code" as the second row; it links to Settings → Connections → GitHub.
-- Clicking a suggestion puts it in the composer and focuses it. It never sends.
+- Starters (at most four, `GET /api/starters`, SPEC §14.10; the copy comes from the server): two prompts for what is set up (with a repository and GitHub connected, "Summarise the open pull requests in {owner/repo}" and "What changed in {owner/repo} this week?"; with a repository Bothy has only read, "How is {owner/repo} organised?" and "Find where something is handled in {owner/repo}"; with web search, "Research a topic on the web" and "Draft a release checklist for our next version"; otherwise that checklist and "Turn meeting notes into a list of tasks"), at most one link to something not set up yet ("Connect GitHub so Bothy can read your code", "Choose which repositories Bothy can read", "Connect Slack, Discord or Telegram so your team can ask Bothy there", "Add people so they get their own sign-in" for admins; "Have Bothy do something on a schedule" for anyone without schedules of their own), and always "What can you do for our team?". A link row is an accent link; members never get a settings link.
+- Clicking a prompt puts its words in the composer (a row may carry longer words than it shows, such as "Research this on the web and give me a short summary with links to sources: ") and focuses it. It never sends.
+- While the rows load the list keeps the height of four, so nothing moves; if they fail, only "What can you do for our team?" shows.
+- The same rows sit under the welcome chat's message until the person writes (§7.3).
 - Nothing is stored until the first message is sent (S14). The sidebar row appears then, titled with the first 48 characters until the generated title arrives. Attaching a file first gives the chat its id, since uploads need one, but the screen stays this one (heading, suggestions, no header) until the message is sent.
 
 ### 7.3 Messages
 
 | Element | Spec |
 |---|---|
-| Person's message | `ml-auto max-w-[85%] bg-subtle rounded-lg px-4 py-2.5 text-reading`. Attachments render below as `FileToken`s. Messages added while Bothy was working get a caption under the block: "Added while Bothy was working". On hover or focus a Copy icon button appears beside it (always visible on coarse pointers). |
+| Person's message | `ml-auto max-w-[85%] bg-subtle rounded-lg px-4 py-2.5 text-reading`. Attachments render below as `FileToken`s. Messages added while Bothy was working get a caption under the block: "Added while Bothy was working". A prompt a schedule sent gets "Sent by the schedule", or "Your check-in list" in a check-in's chat, so it doesn't read as something the person typed. On hover or focus a Copy icon button appears beside it (always visible on coarse pointers). |
+| Check-in all-clear | A reply that is only the check-in's all-clear token reads "Nothing needs your attention right now." (such chats are listed only once someone writes in them). |
+| Welcome message | The welcome chat's one message (a notice from `bothy:welcome`, D43) renders like Bothy's reply, in Markdown at reading size, not as a notice line. The starters (§7.2) follow it until the person's first message. |
 | Bothy's reply | No container, no avatar, no name. Full column width, `text-reading`, Markdown per SPEC §9 (security rules unchanged), headings mapped down (§3.2). |
 | Reply actions | Under the last message of each turn, ghost icon buttons (32 px): Copy, Try again (latest turn only), Details (opens Chat details at that turn). A Refine answer adds a muted "Refined from 3 drafts" before them. Visible on hover and focus-within on fine pointers; always visible under the latest reply and on tap on coarse pointers. |
 | Files Bothy made | When a step created or changed a workspace file, the reply ends with `FileToken`s: "launch-checklist.md · Open". |
@@ -1349,8 +1373,9 @@ A notice is a system line at the column edge: `text-small muted`, no box, at mos
   ```
   The Model row and the model picker never show a model id: a model without a name from the server reads as its friendly name ("Claude Sonnet 4.5"), and a chat's model that is no longer connected reads "A model that's no longer connected".
 - **Pinned** (`Drawer`): title "Pinned to this chat", sentence "Bothy keeps these in mind for every reply in this chat.", list of pins (name, "Unpin" ghost), secondary "Pin a file".
-- **Continue in a clean chat** (`Dialog` 440): title "Continue in a clean chat?"; body "Bothy will start a new chat with a summary of this one, without the private information and outside content it has seen. This chat stays as it is."; buttons [Continue in a clean chat] (primary) [Cancel]. On confirm the new chat opens with the toast "Started a clean chat."
-- **Delete chat** (`Dialog` 440): title "Delete “{chat title}”?" in curly quotes, so it names the chat when opened from a sidebar row while another page shows; body "The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone."; buttons [Delete chat] (danger) [Cancel] (focused). Then toast "Chat deleted."
+- **New related chat**: no dialog, since nothing is lost: a clean chat of this one opens at once, listed under it and selected in the sidebar (D42). It starts with the notice every clean chat has; its first message names it. A failure says "Couldn't start a new chat. Try again." in a toast.
+- **Continue in a clean chat** (`Dialog` 440): title "Continue in a clean chat?"; body "Bothy will start a new chat without this chat's messages, or the private information and outside content it has seen. This chat stays as it is, and the new one is listed under it."; buttons [Continue in a clean chat] (primary) [Cancel]. On confirm the new chat opens, listed under this one, with the toast "Started a clean chat."
+- **Delete chat** (`Dialog` 440, one dialog for the chat menu and the sidebar's ⋯): title "Delete “{chat title}”?" in curly quotes, so it names the chat when opened from a sidebar row while another page shows; body "The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.", whose first sentence becomes "The messages will be deleted; the chats continued from it stay in your list." when listed chats came from it; buttons [Delete chat] (danger) [Cancel] (focused). Then toast "Chat deleted." Those chats stay where they are; a schedule's next newest result heads its series.
 - **Rename**: inline in the header.
 
 ---
@@ -2443,7 +2468,7 @@ Bothy's interface sounds like a capable colleague at your company: plain, direct
 - **Calm:** no exclamation marks, no "Oops", no reassurance nobody asked for. Security shows through good defaults and clear cards; a security fact is said once, where it matters (for example as field help where a key is entered).
 - **Short:** two sentences at most in any message, then Details.
 - **For a company:** teams, projects, repositories, people, "this server". Never "household", "your machine", "your own assistant", "plan a calm week".
-- **Pronouns:** the interface calls the product "Bothy" (it) and the reader "you". It never says "I" or "we". Bothy's own chat replies are model output and may say "I"; so does the hello someone in a chat app gets the first time ("Hi Maya, I'm Bothy. Ask me anything. …", SPEC §5.1), which speaks as Bothy like its replies. Those are the only places.
+- **Pronouns:** the interface calls the product "Bothy" (it) and the reader "you". It never says "I" or "we". Bothy's own chat replies are model output and may say "I"; so do the hello someone in a chat app gets the first time ("Hi Maya, I'm Bothy. Ask me anything, for example …", SPEC §5.1) and the welcome chat's message ("Hi Maya, I'm Bothy. I work for your team: …", D43), which speak as Bothy like its replies. Those are the only places.
 
 ### 14.2 Mechanics
 
@@ -2690,6 +2715,7 @@ These are acceptance criteria, not guidance.
 - Approval flow without a pointer: sidebar → Approvals → J/K → Enter → A/S/D; focus lands on the next waiting item; the result is announced. A held key decides one item.
 - Shortcuts are single keys only inside the inbox or a focused card, never while typing in a field. "Always allow" has no shortcut.
 - A "Skip to content" link is the first focusable element.
+- A sidebar family's toggle (§4.2) is a real button with `aria-expanded` and `aria-controls`: Enter and Space open and close it, focus stays on it, and the tab order is title, toggle, ⋯. The related chats are a nested, labelled list, not a `tree`.
 
 **Focus**
 - Visible focus on every focusable element (§3.5), never removed. Rows draw focus inside; cards never get a second outline.
@@ -2761,6 +2787,10 @@ The UI never parses error strings or invents sentences from model output where s
 | S32 | `GET /api/me/sign-ins`, `POST` and `DELETE /api/me/sign-ins/{p}` | §11.2 | — (landed with SPEC §15) | — |
 | S33 | `GET`/`PATCH /api/sign-in`, `PATCH /api/sign-in/{p}`, `POST /api/sign-in/{p}/check` | §11.6 | — (landed with SPEC §15) | — |
 | S34 | Bothy's picture: `GET /api/agent/picture` (`?download=1` names the file after Bothy), `GET /api/agent/picture/info` (`custom`, `version`), `PUT` (an image, ≤ 5 MB) and `DELETE` (back to the default) answering `PictureChange` with one plain `detail` per chat app (`updated`, `failed`, `manual` for Slack); Slack's `app_id` on `ChannelStatus` for the link to its app settings | §11.3, §12.3 | — (landed with SPEC §8.3) | — |
+| S35 | Related chats: `parent_id`, `root_id` and `schedule_id` on sessions, `parents` on `GET /api/sessions`, `from` on the session detail, a fork listed at once under its chat | §4.2, §7.1 | — (landed with SPEC §14.10) | — |
+| S36 | Starters: `GET /api/starters`, up to four rows for the viewer; schedule examples and check-in lines (`GET /api/schedules/examples`) | §7.2, §10.3 | — (landed with SPEC §14.10) | — |
+| S37 | The welcome chat: `Me.welcome_pending`, `POST /api/me/welcome` | §5.9, §7.3 | — (landed with SPEC §14.10) | — |
+| S38 | Quiet check-ins: a check-in's chat stays hidden until it parks, finds something or someone writes in it; schedule results titled "{name} · 19 Oct", "Check-in · 19 Oct" | §4.2, §7.3 | — (landed with SPEC §14.10) | — |
 
 S21–S30 landed together (SPEC §14.7, "UI state"); their fallbacks are gone from the UI.
 
@@ -2971,3 +3001,8 @@ Acceptance: every gate over the whole app; `--color-*: initial` in place and the
 - Per-person avatar colours or images.
 - Embeddings-based Knowledge search (F6 keeps FTS5).
 - "Sign out everywhere" (needs a server-side session revoke).
+- Branching a chat from one of its messages (the parent and root columns already support it).
+- Bothy introducing itself when an admin turns a group chat on.
+- "Also delete the chats with its past results" when deleting a schedule.
+- A "Set up in “{chat}”" link on the schedule page.
+- "In “{parent}”" next to a related chat in search results.

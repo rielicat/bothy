@@ -47,7 +47,8 @@ export type ToolItem = {
 };
 
 export type Item =
-  | { kind: 'user'; key: string; msg: Message; text: string; files: Blob[]; steer: boolean }
+  /** `auto`: a schedule sent it, not the person (§7.3). */
+  | { kind: 'user'; key: string; msg: Message; text: string; files: Blob[]; steer: boolean; auto?: boolean }
   | { kind: 'assistant'; key: string; msg: Message; text: string; thinking: string }
   | { kind: 'notice'; key: string; msg: Message; text: string }
   | { kind: 'summary'; key: string; msg: Message; text: string }
@@ -69,6 +70,9 @@ export function unwrap(name: string, args: unknown): { tool: string; args: unkno
 
 const hidden = (tool: string) => tool === 'tool_search' || tool === 'use_tool';
 
+/** A check-in's all-clear, with the tolerance the server has for emphasis or code ticks around it. */
+export const isHeartbeatOK = (t: string) => /^[\s*_`>]*HEARTBEAT_OK/.test(t);
+
 // Builds the transcript rows: tool results are folded into their calls, and a
 // live run's streamed tool rows replace the matching persisted parts in order
 // (or trail the run when their message has not been persisted yet).
@@ -85,7 +89,8 @@ export function buildItems(messages: Message[], live: LiveRun | null, known?: Ma
 
   for (const m of messages) {
     const key = `m${m.id}`;
-    if (m.kind === 'notice') {
+    // The welcome chat's message is Bothy greeting the person (§7.3), so it reads as a reply, not a notice.
+    if (m.kind === 'notice' && m.sender !== 'bothy:welcome') {
       items.push({ kind: 'notice', key, msg: m, text: text(m) });
       continue;
     }
@@ -96,11 +101,11 @@ export function buildItems(messages: Message[], live: LiveRun | null, known?: Ma
     if (m.role === 'user') {
       const files = m.parts.filter((p) => (p.t === 'file' || p.t === 'image') && p.blob).map((p) => p.blob!);
       const t = text(m);
-      if (t || files.length) items.push({ kind: 'user', key, msg: m, text: t, files, steer: m.kind === 'steer' });
+      if (t || files.length) items.push({ kind: 'user', key, msg: m, text: t, files, steer: m.kind === 'steer', auto: m.sender?.startsWith('schedule:') });
       continue;
     }
     if (m.role !== 'assistant') continue;
-    const t = text(m);
+    const t = isHeartbeatOK(text(m)) ? 'Nothing needs your attention right now.' : text(m);
     const thinking = text(m, 'thinking');
     if (t || thinking) items.push({ kind: 'assistant', key, msg: m, text: t, thinking });
     const ofLive = !!live && m.run_id === live.id;

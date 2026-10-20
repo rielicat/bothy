@@ -1,9 +1,11 @@
 // Chat (C3): sessions, messages, pins, uploads, search, the run records of
 // chat runs, and the scripted run that streams a reply (with an approval card
-// when a message asks to run, send or delete something).
-import type { Approval, Message, RunDetail, Session, ToolCallRecord } from '../../src/lib/api/types.gen.ts';
+// when a message asks to run, send or delete something). Also related chats
+// (a clean chat under the chat it came from, a schedule's results, quiet
+// check-ins), starters and the welcome chat (SPEC §14.10).
+import type { Approval, IndexedRepo, Message, RunDetail, Schedule, Session, SessionFrom, StarterRow, ToolCallRecord, User } from '../../src/lib/api/types.gen.ts';
 import { state as approvalState, waiting } from './approvals.ts';
-import { ago, ahead, body, clone, core, emit, fail, ids, isPaused, json, member, newId, nowISO, on, onReset, owner, routes, scenario, sleep, type Req } from './core.ts';
+import { ago, ahead, body, clone, core, emit, fail, ids, isPaused, json, member, newId, nowISO, on, onReset, owner, routes, scenario, sleep, viewer, type Req, type Res } from './core.ts';
 
 const ses = (id: string, title: string, origin: string, minAgo: number, extra: Partial<Session> = {}): Session => ({
   id,
@@ -39,7 +41,23 @@ const at = (h: number, m: number, days = 0) => {
   return d.toISOString();
 };
 
-const S = { staging: sid('staging'), login: sid('login'), pricing: sid('pricing'), notices: sid('notices'), decided: sid('decided'), paused: sid('paused') };
+const S = {
+  staging: sid('staging'),
+  login: sid('login'),
+  pricing: sid('pricing'),
+  notices: sid('notices'),
+  decided: sid('decided'),
+  paused: sid('paused'),
+  pricingCopy: sid('pricingcopy'),
+  brief2: sid('brief2'),
+  checkin: sid('checkin'),
+  checkin2: sid('checkin2'),
+};
+const CHECKIN = 'sch_01jcheckin00000000000000';
+/** "19 Oct": the date in a schedule result's title. */
+const dm = (minAgo: number) => new Date(ago(minAgo)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+const FORK_NOTICE =
+  "This clean chat starts without the messages, private information or outside content of the chat it came from. Bothy's files are shared, so files from outside your team still count as outside content here.";
 const R = { staging: rid('staging'), login1: rid('login1'), login2: rid('login2'), pricing: rid('pricing'), notices: rid('notices'), decided: rid('decided') };
 
 export const sessions: Session[] = [
@@ -50,8 +68,13 @@ export const sessions: Session[] = [
   ses(S.notices, 'Weekly status summary', 'web', 120, { taint: 1 | 2 | 4 }),
   ses(S.decided, 'Tidy the shared drive', 'web', 150),
   ses(S.paused, 'Plan the team offsite', 'telegram', 160),
-  ses(ids.brief, 'Morning briefing · Mon 12 Oct', 'schedule', 60 * 9),
+  // A check-in is listed only when it found something or someone wrote in it.
+  ses(S.checkin, `Check-in · ${dm(200)}`, 'schedule', 200, { schedule_id: CHECKIN }),
+  ses(ids.brief, `Morning briefing · ${dm(60 * 9)}`, 'schedule', 60 * 9, { schedule_id: ids.briefSchedule }),
   ses(S.pricing, 'Q3 pricing notes', 'web', 60 * 22, { created_at: at(15, 2, 1), last_message_at: at(15, 10, 1) }),
+  ses(S.pricingCopy, 'Pricing page copy for the launch', 'web', 60 * 20, { parent_id: S.pricing, root_id: S.pricing }),
+  ses(S.checkin2, `Check-in · ${dm(60 * 24 + 200)}`, 'schedule', 60 * 24 + 150, { schedule_id: CHECKIN }),
+  ses(S.brief2, `Morning briefing · ${dm(60 * 33)}`, 'schedule', 60 * 33, { schedule_id: ids.briefSchedule }),
   ses('ses_01jbudget0000000000000000', 'Team budget spreadsheet', 'web', 60 * 26, { taint: 1 }),
   ses('ses_01jslack00000000000000000', 'Release notes draft', 'slack', 60 * 50),
   ses('ses_01jrecipe0000000000000000', 'Dinner ideas without dairy', 'discord', 60 * 24 * 9),
@@ -253,6 +276,39 @@ export const messages: Record<string, Message[]> = {
       ],
       { run_id: R.pricing, created_at: at(15, 10, 1) },
     ),
+  ],
+  [S.pricingCopy]: [
+    msg(S.pricingCopy, 1, 'assistant', [text(FORK_NOTICE)], { kind: 'notice', created_at: ago(60 * 20 + 5) }),
+    msg(S.pricingCopy, 2, 'user', [text('Write the copy for the new pricing page: three plans, a free plan for up to 3 people, and two months off for paying yearly.')], { created_at: ago(60 * 20 + 4) }),
+    msg(
+      S.pricingCopy,
+      3,
+      'assistant',
+      [
+        text(
+          '## Pick the plan that fits your team\n\n- **Free**: for up to 3 people. Everything you need to get started.\n- **Team**: $9 per person a month, for growing teams.\n- **Business**: $16 per person a month, with admin controls and priority support.\n\nPay yearly and get two months free.',
+        ),
+      ],
+      { created_at: ago(60 * 20) },
+    ),
+  ],
+  [ids.brief]: [
+    msg(ids.brief, 1, 'user', [text('Summarise overnight alerts from status.example.com and anything that changed in the release checklist.')], { sender: `schedule:${ids.briefSchedule}`, created_at: ago(60 * 9 + 2) }),
+    msg(ids.brief, 2, 'assistant', [text('No alerts overnight. The release checklist gained one item: "Run the database migration on staging before Thursday."')], { created_at: ago(60 * 9) }),
+  ],
+  [S.brief2]: [
+    msg(S.brief2, 1, 'user', [text('Summarise overnight alerts from status.example.com and anything that changed in the release checklist.')], { sender: `schedule:${ids.briefSchedule}`, created_at: ago(60 * 33 + 2) }),
+    msg(S.brief2, 2, 'assistant', [text('Two alerts overnight, both resolved: the API was slow for 6 minutes at 02:10, and one background job retried twice. The release checklist is unchanged.')], { created_at: ago(60 * 33) }),
+  ],
+  [S.checkin]: [
+    msg(S.checkin, 1, 'user', [text('- Tell me if a deploy to production failed.\n- Tell me about pull requests in acme/web that have waited more than 2 days for a review.')], { sender: `schedule:${CHECKIN}`, created_at: ago(202) }),
+    msg(S.checkin, 2, 'assistant', [text('One pull request in acme/web has waited 3 days for a review: **Fix login redirect** (#482). No deploys failed.')], { created_at: ago(200) }),
+  ],
+  [S.checkin2]: [
+    msg(S.checkin2, 1, 'user', [text('- Tell me if a deploy to production failed.\n- Tell me about pull requests in acme/web that have waited more than 2 days for a review.')], { sender: `schedule:${CHECKIN}`, created_at: ago(60 * 24 + 202) }),
+    msg(S.checkin2, 2, 'assistant', [text('HEARTBEAT_OK')], { created_at: ago(60 * 24 + 200) }),
+    msg(S.checkin2, 3, 'user', [text('Thanks. From tomorrow, also tell me when a build on main fails.')], { created_at: ago(60 * 24 + 160) }),
+    msg(S.checkin2, 4, 'assistant', [text("I can't change the check-in list myself, but you can add that line under Activity → Schedules → Check-in.")], { created_at: ago(60 * 24 + 150) }),
   ],
   [S.notices]: [
     msg(S.notices, 1, 'assistant', [text('The team wants a short status summary every Friday: shipped, in progress, blocked.')], { kind: 'summary', created_at: ago(130) }),
@@ -575,6 +631,8 @@ const runFails = scenario('chat-fail', 'The scripted run fails after its first w
 const refineEst = scenario('refine', 'Refine cost for the composer: refine:estimate adds dollars to the multiplier; refine:none fails the estimate and GET /api/refine.', 'chat');
 const queuedNow = scenario('chat-queued', 'Messages sent now wait for the current step (the server answers queued).', 'chat');
 const uploadFail = scenario('upload-fail', 'Uploads fail: upload-fail:large (413) or upload-fail:type (415).', 'chat');
+const welcomeOn = scenario('welcome', 'A new account: the app asks for its welcome chat once and opens it instead of an empty chat.', 'chat');
+const startersFail = scenario('starters-fail', 'GET /api/starters fails, so only "What can you do for our team?" shows.', 'chat');
 
 const stopped = new Set<string>();
 const uploads = new Map<string, string>();
@@ -704,9 +762,9 @@ const visible = (req: Req) => (noChats(req) ? [] : state.sessions);
 on('GET', '/api/sessions', (req, res, _m, q) => {
   const term = (q.get('q') ?? '').toLowerCase();
   const items = visible(req)
-    .filter((s) => !s.archived && (!term || s.title.toLowerCase().includes(term)))
+    .filter((s) => !s.archived && !s.hidden && (!term || s.title.toLowerCase().includes(term)))
     .sort((a, b) => b.last_message_at.localeCompare(a.last_message_at));
-  json(res, 200, { items });
+  json(res, 200, { items, parents: term ? undefined : parentsOf(items, visible(req)) });
 });
 on('POST', '/api/sessions', (_q, res) => {
   const s: Session = { ...clone(sessions[0]), id: newId('ses'), title: '', taint: 0, created_at: nowISO(), updated_at: nowISO(), last_message_at: nowISO() };
@@ -714,7 +772,7 @@ on('POST', '/api/sessions', (_q, res) => {
   state.messages[s.id] = [];
   json(res, 200, s);
 });
-on('GET', '/api/sessions/{id}', (_q, res, m) => {
+on('GET', '/api/sessions/{id}', async (req, res, m) => {
   if (m[1] === S.staging) seed();
   const s = session(m[1]);
   if (!s) return fail(res, 404, 'not_found', 'No such chat.');
@@ -723,6 +781,7 @@ on('GET', '/api/sessions/{id}', (_q, res, m) => {
   const runId = live?.run?.id ?? (s.id === S.staging && pending.length ? R.staging : '');
   json(res, 200, {
     session: s,
+    from: await fromOf(req, s),
     pins: state.pins[s.id] ?? [],
     pending_approvals: pending,
     refine: state.refine[s.id] ?? '',
@@ -785,11 +844,28 @@ on('GET', '/api/sessions/{id}/refine-estimate', (req, res) => {
   if (kind === 'none') return fail(res, 500, 'internal', 'mock: refine estimate failed');
   json(res, 200, { multiplier: 12, drafts: 3, ...(kind === 'estimate' ? { usd: 0.18 } : {}) });
 });
+// Runner.Fork: a clean chat with no history under the chat it came from,
+// listed at once, opening with a notice (SPEC §5.3).
 on('POST', '/api/sessions/{id}/fork', (_q, res, m) => {
   const old = session(m[1]);
-  const s: Session = { ...clone(old ?? sessions[0]), id: newId('ses'), title: `${old?.title ?? 'Chat'} (clean)`, taint: 0, created_at: nowISO(), last_message_at: nowISO() };
+  if (!old) return fail(res, 404, 'not_found', 'No such chat.');
+  const at = nowISO();
+  const s: Session = {
+    ...clone(old),
+    id: newId('ses'),
+    title: `${old.title} (clean)`,
+    taint: 0,
+    hidden: false,
+    parent_id: old.id,
+    root_id: old.root_id || old.id,
+    schedule_id: undefined,
+    created_at: at,
+    updated_at: at,
+    last_message_at: at,
+  };
   state.sessions.unshift(s);
-  state.messages[s.id] = [{ id: 1, session_id: s.id, seq: 1, role: 'assistant', kind: 'summary', parts: [text(`Summary of “${old?.title}”, without the outside content it had seen.`)], provenance: 'system', tokens: 10, created_at: nowISO() }];
+  state.messages[s.id] = [];
+  addMessage(s.id, { role: 'assistant', kind: 'notice', provenance: 'system', parts: [text(FORK_NOTICE)] });
   json(res, 200, s);
 });
 on('GET', '/api/sessions/{id}/pins', (_q, res, m) => json(res, 200, state.pins[m[1]] ?? []));
@@ -814,6 +890,128 @@ on('POST', '/api/uploads', async (req, res) => {
   json(res, 200, { id, name, mime: 'application/octet-stream', size: raw.length });
 });
 on('POST', '/api/runs/{id}/continue', (_q, res) => json(res, 202, { queued: false, steered: false }));
+
+/** The anchors (root, else parent) of a page's chats that aren't on it, as SessionRepo.Related reads them. */
+function parentsOf(items: Session[], all: Session[]): Session[] {
+  const on = new Set(items.map((s) => s.id));
+  const want = new Set(items.flatMap((s) => [s.root_id, s.parent_id]).filter((id): id is string => !!id && !on.has(id)));
+  return all.filter((s) => want.has(s.id) && !s.archived && !s.hidden);
+}
+
+/**
+ * Another domain's answer to GET path for this request, the way the gateway
+ * reads its own services for starters and `from`; null when it fails.
+ */
+async function peek<T>(req: Req, path: string): Promise<T | null> {
+  const route = routes.find(([m, re]) => m === 'GET' && re.test(path));
+  if (!route) return null;
+  let out = '';
+  let status = 200;
+  const res: Res = {
+    get statusCode() {
+      return status;
+    },
+    set statusCode(v: number) {
+      status = v;
+    },
+    setHeader() {},
+    write: (s) => void (out += s),
+    end: (s) => void (out += s ?? ''),
+    on() {},
+  };
+  await route[2](req, res, path.match(route[1])!, new URLSearchParams());
+  return status < 300 && out ? (JSON.parse(out) as T) : null;
+}
+
+async function fromOf(req: Req, s: Session): Promise<SessionFrom | undefined> {
+  if (s.parent_id) {
+    const p = session(s.parent_id);
+    return p && !p.archived ? { kind: 'chat', id: p.id, title: p.title } : { kind: 'chat' };
+  }
+  if (!s.schedule_id) return undefined;
+  const sc = await peek<Schedule>(req, `/api/schedules/${s.schedule_id}`);
+  if (!sc) return { kind: 'schedule' };
+  return sc.kind === 'heartbeat' ? { kind: 'checkin', id: sc.id, title: 'Check-in' } : { kind: 'schedule', id: sc.id, title: sc.name };
+}
+
+// What the starters depend on (h_starters.go starterState), read from the other domains' routes.
+async function starterState(req: Req) {
+  const repos = (await peek<{ items: IndexedRepo[] | null }>(req, '/api/knowledge/repos'))?.items ?? [];
+  const allowed = ((await peek<{ owner: string; name: string; allowed?: boolean }[]>(req, '/api/github/repos')) ?? []).filter((r) => r.allowed !== false);
+  const ready = repos.filter((r) => r.status === 'ready').sort((a, b) => b.indexed_at.localeCompare(a.indexed_at))[0];
+  const config = (await peek<{ entries: { path: string; value: unknown }[] }>(req, '/api/config'))?.entries ?? [];
+  const searchOn = !['', 'none', undefined].includes(config.find((e) => e.path === 'search.provider')?.value as string);
+  const schedules = ((await peek<Schedule[]>(req, '/api/schedules')) ?? []).filter((sc) => sc.kind !== 'heartbeat' && sc.principal_id === viewer(req).id);
+  return {
+    admin: viewer(req).role !== 'member',
+    repo: ready?.repo ?? (allowed[0] ? `${allowed[0].owner}/${allowed[0].name}` : ''),
+    github: ((await peek<unknown[]>(req, '/api/github/connections')) ?? []).length > 0,
+    githubRepos: allowed.length > 0,
+    webSearch: searchOn,
+    chatApp: ((await peek<{ enabled: boolean }[]>(req, '/api/channels')) ?? []).some((c) => c.enabled),
+    accounts: ((await peek<User[]>(req, '/api/users')) ?? []).length,
+    schedules: schedules.map((sc) => sc.name),
+  };
+}
+
+// starters.Rows: two prompts for what is set up, at most one link to something that isn't, and the ask.
+on('GET', '/api/starters', async (req, res) => {
+  if (startersFail(req)) return fail(res, 500, 'internal', 'mock: starters-fail');
+  const st = await starterState(req);
+  const rows: StarterRow[] =
+    st.repo && st.github
+      ? [{ text: `Summarise the open pull requests in ${st.repo}` }, { text: `What changed in ${st.repo} this week?` }]
+      : st.repo
+        ? [{ text: `How is ${st.repo} organised?` }, { text: `Find where something is handled in ${st.repo}`, fill: `Where in ${st.repo} do we handle ` }]
+        : st.webSearch
+          ? [{ text: 'Research a topic on the web', fill: 'Research this on the web and give me a short summary with links to sources: ' }, { text: 'Draft a release checklist for our next version' }]
+          : [{ text: 'Draft a release checklist for our next version' }, { text: 'Turn meeting notes into a list of tasks', fill: 'Turn these meeting notes into a list of tasks, with an owner for each:\n\n' }];
+  const examples = st.schedules.length < 3 && ((st.repo && st.github) || st.webSearch);
+  const link: StarterRow | undefined =
+    st.admin && !st.github
+      ? { text: 'Connect GitHub so Bothy can read your code', href: '/settings/connections/github' }
+      : st.admin && !st.githubRepos
+        ? { text: 'Choose which repositories Bothy can read', href: '/settings/connections/github' }
+        : st.admin && !st.chatApp
+          ? { text: 'Connect Slack, Discord or Telegram so your team can ask Bothy there', href: '/settings/connections' }
+          : st.admin && st.accounts <= 1
+            ? { text: 'Add people so they get their own sign-in', href: '/settings/people?add=1' }
+            : !st.schedules.length && examples
+              ? { text: 'Have Bothy do something on a schedule', href: '/activity/schedules' }
+              : undefined;
+  json(res, 200, [...rows, ...(link ? [link] : []), { text: 'What can you do for our team?' }]);
+});
+
+// The welcome chat (h_starters.go welcome): once per account, a static notice from Bothy.
+let welcomed = false;
+onReset(() => (welcomed = false));
+export const welcomePending = (req?: Req) => welcomeOn(req) && !welcomed;
+
+on('POST', '/api/me/welcome', async (req, res) => {
+  if (!welcomePending(req)) return json(res, 200, {});
+  welcomed = true;
+  const st = await starterState(req);
+  const at = nowISO();
+  const first = viewer(req).display_name?.split(' ')[0];
+  const s: Session = { ...clone(sessions[0]), id: newId('ses'), title: 'Welcome to Bothy', taint: 0, created_at: at, updated_at: at, last_message_at: at };
+  state.sessions.unshift(s);
+  state.messages[s.id] = [];
+  addMessage(s.id, {
+    role: 'assistant',
+    kind: 'notice',
+    provenance: 'system',
+    sender: 'bothy:welcome',
+    parts: [
+      text(
+        `Hi${first ? ` ${first}` : ''}, I'm Bothy. I work for your team: I can research questions, draft documents, ${st.repo ? `read your code in ${st.repo}` : 'work through lists of tasks'} and keep an eye on things on a schedule.\n\n` +
+          "Before I do anything you'd want to check, like changing a file or opening a pull request, I ask first and show exactly what I want to do.\n\n" +
+          "- **Approvals** shows what's waiting for a decision.\n- **Knowledge** holds your projects, what I remember and the skills your team has taught me.\n- **Activity** shows what I've worked on, your schedules and what it cost.\n\n" +
+          'Ask me anything to get started.',
+      ),
+    ],
+  });
+  json(res, 200, { chat_id: s.id });
+});
 on('GET', '/api/search', (req, res, _m, q) => {
   const term = (q.get('q') ?? '').toLowerCase();
   const hits = [];

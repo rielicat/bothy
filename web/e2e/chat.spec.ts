@@ -103,7 +103,47 @@ test('Enter adds a line instead of sending on a touch screen', async ({ browser 
   await ctx.close();
 });
 
-const screens = ['/chat', `/chat/${sid('login')}`, `/chat/${sid('staging')}`, `/chat/${sid('decided')}`, `/chat/${sid('notices')}`, `/chat/${sid('pricing')}`];
+test('a clean chat is listed at once, under the chat it came from and selected', async ({ page }) => {
+  const problems = watch(page);
+  await page.goto(`/chat/${sid('login')}?mock=`);
+  await page.getByRole('heading', { level: 1, name: 'Fix login redirect' }).waitFor();
+  await page.getByRole('button', { name: 'Chat options' }).first().click();
+  await page.getByRole('menuitem', { name: 'Continue in a clean chat' }).click();
+  await page.getByRole('dialog', { name: 'Continue in a clean chat?' }).getByRole('button', { name: 'Continue in a clean chat' }).click();
+  await expect(page).not.toHaveURL(new RegExp(sid('login')));
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  const kids = nav.getByRole('list', { name: 'Related to “Fix login redirect”' });
+  await expect(kids.getByRole('link', { name: 'Fix login redirect (clean)' })).toHaveAttribute('aria-current', 'page');
+  await expect(nav.getByRole('button', { name: 'Related chats for “Fix login redirect”' })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('main').getByText('Continued from “Fix login redirect”')).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test('New related chat opens one under this chat without asking', async ({ page }) => {
+  await page.goto(`/chat/${sid('pricing')}?mock=`);
+  await page.getByRole('heading', { level: 1, name: 'Q3 pricing notes' }).waitFor();
+  await page.getByRole('button', { name: 'Chat options' }).first().click();
+  await page.getByRole('menuitem', { name: 'New related chat' }).click();
+  await expect(page).not.toHaveURL(new RegExp(sid('pricing')));
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const kids = page.getByRole('navigation', { name: 'Main' }).getByRole('list', { name: 'Related to “Q3 pricing notes”' });
+  await expect(kids.getByRole('link', { name: 'Q3 pricing notes (clean)' })).toHaveAttribute('aria-current', 'page');
+  // The chat continued earlier stays in the family.
+  await expect(kids.getByRole('link', { name: 'Pricing page copy for the launch' })).toBeVisible();
+});
+
+const screens = [
+  '/chat',
+  `/chat/${sid('login')}`,
+  `/chat/${sid('staging')}`,
+  `/chat/${sid('decided')}`,
+  `/chat/${sid('notices')}`,
+  `/chat/${sid('pricing')}`,
+  // A chat continued from another, a schedule's result and a check-in someone answered.
+  `/chat/${sid('pricingcopy')}`,
+  `/chat/ses_01jbrief00000000000000000`,
+  `/chat/${sid('checkin2')}`,
+];
 
 test('chat screens use plain words', async ({ page }) => {
   for (const r of screens) {
@@ -129,6 +169,26 @@ test.describe('axe on the chat screens', () => {
         });
         expect.soft(violations, `${r} (${scheme})`).toEqual([]);
       }
+    });
+  }
+
+  // A family open around the open chat and a closed one with a toggle, pinned at 1280 and in the drawer at 360.
+  for (const [name, size] of [
+    ['wide', { width: 1280, height: 820 }],
+    ['phone', { width: 360, height: 760 }],
+  ] as const) {
+    test(`on a sidebar with related chats (${name})`, async ({ page }) => {
+      await page.setViewportSize(size);
+      await page.goto(`/chat/${sid('pricingcopy')}?mock=`);
+      if (name === 'phone') await page.getByRole('button', { name: /^Open menu/ }).click();
+      const where = name === 'phone' ? page.getByRole('dialog', { name: 'Menu' }) : page.getByRole('navigation', { name: 'Main' });
+      await where.getByRole('list', { name: 'Related to “Q3 pricing notes”' }).waitFor();
+      await page.addScriptTag({ path: axePath });
+      const violations = await page.evaluate(async () => {
+        const res = await (window as unknown as { axe: { run: (n: Node) => Promise<{ violations: { id: string; nodes: { target: string[] }[] }[] }> } }).axe.run(document);
+        return res.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`);
+      });
+      expect(violations).toEqual([]);
     });
   }
 });

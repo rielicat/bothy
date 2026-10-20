@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { approvals as fixtureApprovals } from '../../../mock/fixtures';
+import { approvals as fixtureApprovals, sessions as fixtureSessions } from '../../../mock/fixtures';
 import { chatIds } from '../../../mock/domains/chat';
 import { resetMock } from '../../../mock/server';
+import { chats } from '../../components/shell/chats.svelte';
 import { api } from '../../lib/api/client';
+import type { Message, SessionFrom } from '../../lib/api/types.gen';
 import { router } from '../../lib/router.svelte';
 import { session } from '../../lib/stores/session.svelte';
 import { installApi, type Call } from '../../test/api';
@@ -122,6 +124,28 @@ describe('conversation', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Continue in a clean chat?' });
     await fireEvent.click(dialog.querySelector('.btn-primary')!);
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/fork'))).toBe(true));
+  });
+
+  it("asks again before a clean chat, saying honestly what it leaves behind", async () => {
+    render(ConversationView, { id: SID });
+    await loaded();
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Continue in a clean chat' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Continue in a clean chat?' });
+    expect(dialog.textContent).toContain(
+      "Bothy will start a new chat without this chat's messages, or the private information and outside content it has seen. This chat stays as it is, and the new one is listed under it.",
+    );
+    expect(dialog.textContent).not.toContain('summary');
+  });
+
+  it("hands Delete to the shell's one dialog instead of keeping its own", async () => {
+    render(ConversationView, { id: SID });
+    await screen.findByRole('button', { name: 'Team budget spreadsheet' });
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete chat…' }));
+    expect(chats.deleting?.id).toBe(SID);
+    expect(screen.queryByText(/^Delete “/)).toBeNull();
+    chats.deleting = null;
   });
 
   it('runs slash commands instead of sending them', async () => {
@@ -264,6 +288,84 @@ describe('conversation', () => {
   });
 });
 
+describe('where a chat came from (§7.1)', () => {
+  const budget = fixtureSessions.find((s) => s.id === SID)!;
+  const userMsg = (text: string, sender: string): Message => ({ id: 1, session_id: SID, seq: 1, role: 'user', kind: 'normal', provenance: 'user', sender, tokens: 1, created_at: budget.created_at, parts: [{ t: 'text', text }] });
+  const reply = (text: string): Message => ({ id: 2, session_id: SID, seq: 2, run_id: 'run_1', role: 'assistant', kind: 'normal', provenance: 'system', tokens: 1, created_at: budget.created_at, parts: [{ t: 'text', text }] });
+
+  function serve(from: SessionFrom | undefined, messages: Message[] = []) {
+    return installApi({
+      override: (m, url) => {
+        if (m !== 'GET') return undefined;
+        if (url === `/api/sessions/${SID}`) return { session: budget, pins: [], pending_approvals: [], refine: '', from };
+        if (url.startsWith(`/api/sessions/${SID}/messages`)) return { messages, has_more: false };
+        return undefined;
+      },
+    });
+  }
+
+  beforeEach(async () => {
+    installApi();
+    await session.init();
+  });
+
+  it.each([
+    [{ kind: 'chat', id: 'ses_parent', title: 'Q3 pricing notes' }, 'Continued from “Q3 pricing notes”', '/chat/ses_parent'],
+    [{ kind: 'chat' }, 'Continued from a deleted chat', null],
+    [{ kind: 'schedule', id: 'sch_brief', title: 'Morning briefing' }, 'From the schedule “Morning briefing”', '/activity/schedules/sch_brief'],
+    [{ kind: 'checkin', id: 'sch_checkin', title: 'Check-in' }, 'From your check-in', '/activity/schedules/checkin'],
+    [{ kind: 'schedule' }, 'From a deleted schedule', null],
+  ])('says it in the first line of the transcript: %j', async (from, words, href) => {
+    serve(from as SessionFrom, [userMsg('Hello', 'web:usr_1')]);
+    render(ConversationView, { id: SID });
+    const line = await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === words);
+    expect(line.closest('section')?.firstElementChild).toBe(line);
+    const link = line.querySelector('a');
+    expect(link?.getAttribute('href') ?? null).toBe(href);
+  });
+
+  it('says nothing for a chat that came from nowhere', async () => {
+    serve(undefined, [userMsg('Hello', 'web:usr_1')]);
+    render(ConversationView, { id: SID });
+    await screen.findByText('Hello');
+    expect(screen.queryByText(/^(Continued from|From )/)).toBeNull();
+  });
+
+  it("captions what a schedule sent and says a check-in's all-clear in plain words", async () => {
+    serve({ kind: 'schedule', id: 'sch_brief', title: 'Morning briefing' }, [userMsg('Summarise the overnight alerts.', 'schedule:sch_brief'), reply('No alerts overnight.')]);
+    const view = render(ConversationView, { id: SID });
+    expect(await screen.findByText('Sent by the schedule')).toBeTruthy();
+    view.unmount();
+
+    serve({ kind: 'checkin', id: 'sch_checkin', title: 'Check-in' }, [userMsg('- Tell me if a deploy failed.', 'schedule:sch_checkin'), reply('HEARTBEAT_OK')]);
+    render(ConversationView, { id: SID });
+    expect(await screen.findByText('Your check-in list')).toBeTruthy();
+    expect(screen.getByText('Nothing needs your attention right now.')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('HEARTBEAT');
+  });
+
+  it("doesn't caption what the person typed", async () => {
+    serve(undefined, [userMsg('Summarise the overnight alerts.', 'web:usr_1')]);
+    render(ConversationView, { id: SID });
+    await screen.findByText('Summarise the overnight alerts.');
+    expect(screen.queryByText('Sent by the schedule')).toBeNull();
+  });
+
+  it('shows the welcome message as Bothy speaking, with the starters under it until the person writes', async () => {
+    const welcome: Message = { id: 1, session_id: SID, seq: 1, role: 'assistant', kind: 'notice', provenance: 'system', sender: 'bothy:welcome', tokens: 0, created_at: budget.created_at, parts: [{ t: 'text', text: "Hi Sam, I'm Bothy.\n\n- **Approvals** shows what's waiting for a decision." }] };
+    serve(undefined, [welcome]);
+    render(ConversationView, { id: SID });
+    // Markdown, as a reply reads, not a muted notice line.
+    expect((await screen.findByText('Approvals')).tagName).toBe('STRONG');
+    const ask = await screen.findByRole('button', { name: 'What can you do for our team?' });
+    expect(screen.queryByRole('heading', { name: 'What should Bothy work on?' })).toBeNull();
+    await fireEvent.click(ask);
+    expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('What can you do for our team?');
+    emit('message.created', { message: { ...welcome, id: 2, seq: 2, role: 'user', kind: 'normal', provenance: 'user', sender: 'web:usr_1', parts: [{ t: 'text', text: 'What can you do for our team?' }] } }, '');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'What can you do for our team?' })).toBeNull());
+  });
+});
+
 describe('new chat', () => {
   let calls: Call[];
 
@@ -272,15 +374,18 @@ describe('new chat', () => {
     await session.init();
   });
 
-  it('fills the composer from a suggestion without sending, and stores nothing before the first message', async () => {
-    resetMock({ mock: 'knowledge-empty' });
+  it('fills the composer from a starter without sending, and stores nothing before the first message', async () => {
+    resetMock({ mock: 'knowledge-empty,github-none' });
     render(ConversationView, { id: '' });
     expect(await screen.findByRole('heading', { level: 1, name: 'What should Bothy work on?' })).toBeTruthy();
+    // A row can carry longer words for the composer than it shows.
+    await fireEvent.click(await screen.findByRole('button', { name: 'Turn meeting notes into a list of tasks' }));
+    expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('Turn these meeting notes into a list of tasks, with an owner for each:\n\n');
     await fireEvent.click(screen.getByRole('button', { name: 'What can you do for our team?' }));
     expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('What can you do for our team?');
     expect(calls.some((c) => c.method === 'POST')).toBe(false);
-    // An admin without GitHub is offered to connect it instead of the meeting-notes idea.
-    expect(screen.getByRole('link', { name: 'Connect GitHub so Bothy can read your code' })).toBeTruthy();
+    // An admin without GitHub is offered to connect it.
+    expect(screen.getByRole('link', { name: 'Connect GitHub so Bothy can read your code' }).getAttribute('href')).toBe('/settings/connections/github');
 
     await fireEvent.keyDown(screen.getByLabelText('Message'), { key: 'Enter' });
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && /\/api\/sessions\/[^/]+\/messages$/.test(c.url))).toBe(true));
@@ -315,7 +420,7 @@ describe('new chat', () => {
     expect(router.path).toMatch(/^\/chat\/ses_/);
     expect(screen.getByRole('heading', { level: 1, name: 'What should Bothy work on?' })).toBeTruthy();
     expect(screen.queryByRole('heading', { level: 1, name: 'Chat' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'What can you do for our team?' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'What can you do for our team?' })).toBeTruthy();
   });
 
   it('puts a ?prompt= from Knowledge in the composer without sending it', async () => {

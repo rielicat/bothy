@@ -27,6 +27,7 @@ async function start(path: string, opts: { mock?: string; override?: (m: string,
 afterEach(() => {
   shell.search = shell.shortcuts = shell.pause = shell.drawer = false;
   chats.reset();
+  localStorage.clear();
 });
 
 describe('banners (§4.9)', () => {
@@ -70,9 +71,9 @@ describe('sidebar (§4.2)', () => {
     await start('/activity', { mock: 'team-chats' });
     const n = within(nav());
     await waitFor(() => expect(n.getByText('Waiting for approval')).toBeTruthy());
-    const row = (title: string) => n.getByRole('link', { name: title }).closest('li')!;
+    const row = (title: string) => n.getByRole('link', { name: title }).parentElement!;
     // link + ⋯ only, against link + glyph + ⋯
-    expect(row('Q3 pricing notes').children).toHaveLength(2);
+    expect(row('Onboarding checklist for new engineers').children).toHaveLength(2);
     expect(row('v2.3 launch checklist').children).toHaveLength(3);
   });
 
@@ -82,7 +83,7 @@ describe('sidebar (§4.2)', () => {
     const trigger = await waitFor(() => n.getByRole('button', { name: 'Options for Q3 pricing notes' }));
     await fireEvent.click(trigger);
     await waitFor(() => expect(screen.getByRole('menu')).toBeTruthy());
-    expect(trigger.closest('li')?.classList.contains('bg-hover')).toBe(true);
+    expect(trigger.parentElement?.classList.contains('bg-hover')).toBe(true);
   });
 
   it('draws a hairline above the chats only once they have scrolled', async () => {
@@ -95,23 +96,114 @@ describe('sidebar (§4.2)', () => {
     expect(list.classList.contains('border-border')).toBe(true);
   });
 
-  it('never lists a chat without messages, and titles an untitled one by its first words', async () => {
+  it('never lists a chat without messages, and shows the title the server gives a new one', async () => {
     await start('/activity', { mock: 'team-chats' });
     const n = within(nav());
-    await waitFor(() => expect(n.getByRole('link', { name: 'Draft the October release notes from the merged…' })).toBeTruthy());
+    await waitFor(() => expect(n.getByRole('link', { name: 'Draft the October release notes from the merged' })).toBeTruthy());
     expect(n.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('/chat/')).map((a) => a.textContent?.trim())).not.toContain('');
     expect(nav().querySelector('a[href="/chat/ses_01jteamempty0000000000000000"]')).toBeNull();
   });
 
-  it('shows Show more after 30 chats', async () => {
+  it('shows Show more after 30 rows, a family counting as one', async () => {
     await start('/activity', { mock: 'long-chats' });
     const n = within(nav());
     await waitFor(() => expect(n.getByRole('button', { name: 'Show more' })).toBeTruthy());
     const count = () => nav().querySelectorAll('a[href^="/chat/"]').length;
     expect(count()).toBe(30);
     await fireEvent.click(n.getByRole('button', { name: 'Show more' }));
-    expect(count()).toBe(44);
+    // 48 chats with messages: a chat continued in another and a schedule's three results each make one row.
+    expect(count()).toBe(45);
     expect(n.queryByRole('button', { name: 'Show more' })).toBeNull();
+  });
+
+  it('folds related chats under their head behind a toggle that Enter and Space open, remembered for next time', async () => {
+    await start('/activity', { mock: 'team-chats' });
+    const n = within(nav());
+    const toggle = await waitFor(() => n.getByRole('button', { name: 'Related chats for “Q3 pricing notes”' }));
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(n.queryByRole('link', { name: 'Pricing page copy for the launch' })).toBeNull();
+    // Link, then toggle, then ⋯, all in one row.
+    const row = n.getByRole('link', { name: 'Q3 pricing notes' }).parentElement!;
+    expect([...row.querySelectorAll('a, button')].map((e) => e.getAttribute('aria-label') ?? e.textContent?.trim())).toEqual(['Q3 pricing notes', 'Related chats for “Q3 pricing notes”', 'Options for Q3 pricing notes']);
+    toggle.focus();
+    await fireEvent.keyDown(toggle, { key: 'Enter' });
+    await fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const kids = n.getByRole('list', { name: 'Related to “Q3 pricing notes”' });
+    expect(toggle.getAttribute('aria-controls')).toBe(kids.id);
+    expect(within(kids).getByRole('link', { name: 'Pricing page copy for the launch' })).toBeTruthy();
+    expect(kids.closest('li')).toBe(row.parentElement);
+    expect(document.activeElement).toBe(toggle);
+    expect(JSON.parse(localStorage.getItem('bothy.sidebar.open') ?? '[]')).toEqual(['ses_01jteampricing00000000000000']);
+    await fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(n.queryByRole('list', { name: 'Related to “Q3 pricing notes”' })).toBeNull();
+  });
+
+  it("lists a schedule's results as one row, the earlier ones by date and a chat continued from one by its title", async () => {
+    await start('/activity', { mock: 'team-chats' });
+    const n = within(nav());
+    const toggle = await waitFor(() => n.getByRole('button', { name: /^Related chats for “Monday pull request summary · / }));
+    await fireEvent.click(toggle);
+    const kids = within(n.getByRole('list', { name: /^Related to “Monday pull request summary · / }));
+    expect(kids.getAllByRole('link').map((a) => a.textContent?.trim())).toEqual(['Chase the reviews waiting in acme/web', expect.stringMatching(/^(\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2})$/)]);
+    expect(kids.getAllByRole('link')[1].getAttribute('title')).toMatch(/^Monday pull request summary · /);
+  });
+
+  it('opens the family of the open chat by itself, and marks its head while it is closed', async () => {
+    await start('/chat/ses_01jteamcopy0000000000000000', { mock: 'team-chats' });
+    const n = within(nav());
+    const kid = await waitFor(() => n.getByRole('link', { name: 'Pricing page copy for the launch' }));
+    expect(kid.getAttribute('aria-current')).toBe('page');
+    const toggle = n.getByRole('button', { name: 'Related chats for “Q3 pricing notes”' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    // Opened by itself, so not kept for the next visit, and it doesn't close when another page opens.
+    expect(localStorage.getItem('bothy.sidebar.open')).toBeNull();
+    router.navigate('/activity');
+    await waitFor(() => expect(n.getByRole('link', { name: 'Pricing page copy for the launch' }).getAttribute('aria-current')).toBeNull());
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    router.navigate('/chat/ses_01jteamcopy0000000000000000');
+    const head = n.getByRole('link', { name: 'Q3 pricing notes' });
+    expect(head.parentElement?.classList.contains('bg-selected')).toBe(false);
+    await fireEvent.click(toggle);
+    expect(head.parentElement?.classList.contains('bg-selected')).toBe(true);
+    expect(head.getAttribute('aria-current')).toBeNull();
+    // It doesn't open again by itself while the same chat stays open.
+    chats.list = [...chats.list];
+    await waitFor(() => expect(toggle.getAttribute('aria-expanded')).toBe('false'));
+  });
+
+  it("shows a closed family's strongest state, saying it is in a related chat", async () => {
+    await start('/activity', { mock: 'team-chats,chats-idle' });
+    const n = within(nav());
+    await waitFor(() => expect(n.getByRole('link', { name: 'Q3 pricing notes' })).toBeTruthy());
+    const row = () => n.getByRole('link', { name: 'Q3 pricing notes' }).parentElement!;
+    chats.running['ses_01jteamcopy0000000000000000'] = true;
+    await waitFor(() => expect(within(row()).getByText('Bothy is working in a related chat')).toBeTruthy());
+    approvals.pending = [{ id: 'apr_1', session_id: 'ses_01jteamcopy0000000000000000', status: 'pending' } as never];
+    await waitFor(() => expect(within(row()).getByText('Waiting for approval in a related chat')).toBeTruthy());
+    expect(within(row()).queryByText(/Bothy is working/)).toBeNull();
+    // Open, each row says its own.
+    await fireEvent.click(n.getByRole('button', { name: 'Related chats for “Q3 pricing notes”' }));
+    expect(within(row()).queryByText(/Waiting for approval/)).toBeNull();
+    expect(n.getByRole('link', { name: 'Pricing page copy for the launch' }).parentElement?.textContent).toContain('Waiting for approval');
+    approvals.reset();
+  });
+
+  it("keeps a head's toggle where it is when the ⋯ appears on hover", async () => {
+    await start('/activity', { mock: 'team-chats,chats-idle' });
+    const n = within(nav());
+    const options = await waitFor(() => n.getByRole('button', { name: 'Options for Q3 pricing notes' }));
+    // Hidden without giving up its room, so the toggle beside it doesn't shift when the row is hovered.
+    expect(options.classList.contains('invisible')).toBe(true);
+    expect(options.classList.contains('hidden')).toBe(false);
+    // A row without a toggle has nothing to shift.
+    expect(n.getByRole('button', { name: 'Options for Fix login redirect' }).classList.contains('hidden')).toBe(true);
+    // With a state glyph in the ⋯'s place, the glyph takes the ⋯'s width.
+    chats.running['ses_01jteampricing00000000000000'] = true;
+    const glyph = await waitFor(() => within(n.getByRole('link', { name: 'Q3 pricing notes' }).parentElement!).getByText('Bothy is working').closest('.pr-2')!);
+    expect(glyph.classList.contains('w-8')).toBe(true);
+    expect(n.getByRole('button', { name: 'Options for Q3 pricing notes' }).classList.contains('hidden')).toBe(true);
   });
 
   it('gives admins Settings with the attention dot, and members no Settings at all', async () => {
@@ -315,6 +407,96 @@ describe('chat row menu', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete chat' }));
     await waitFor(() => expect(router.path).toBe('/chat'));
     expect(within(nav()).queryByRole('link', { name: fixtureSessions[3].title })).toBeNull();
+  });
+});
+
+describe('related chats', () => {
+  it("deletes from the chat's menu through the same dialog, which says the chats continued from it stay", async () => {
+    await start('/chat/ses_01jteampricing00000000000000', { mock: 'team-chats' });
+    await screen.findByRole('button', { name: 'Q3 pricing notes' });
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete chat…' }));
+    const dialog = await waitFor(() => screen.getByRole('dialog', { name: 'Delete “Q3 pricing notes”?' }));
+    expect(dialog.textContent).toContain("The messages will be deleted; the chats continued from it stay in your list. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.");
+    // One dialog serves the sidebar and the chat menu; the chat used to keep its own copy.
+    expect(screen.getAllByText('Delete “Q3 pricing notes”?')).toHaveLength(1);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Delete chat' }));
+    await waitFor(() => expect(router.path).toBe('/chat'));
+    // The chat continued from it stays, on its own now.
+    await waitFor(() => expect(within(nav()).getByRole('link', { name: 'Pricing page copy for the launch' })).toBeTruthy());
+  });
+
+  it('says only that the messages go for a chat nothing continued from', async () => {
+    await start('/activity', { mock: 'team-chats' });
+    await fireEvent.click(await waitFor(() => within(nav()).getByRole('button', { name: 'Options for Fix login redirect' })));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Delete chat…' }));
+    const dialog = await waitFor(() => screen.getByRole('dialog', { name: 'Delete “Fix login redirect”?' }));
+    expect(dialog.textContent).toContain('The messages will be deleted. Anything Bothy');
+  });
+
+  it('starts a related chat from the chat menu with no dialog, listed under it and selected', async () => {
+    const calls = await start(`/chat/${fixtureSessions.find((s) => s.title === 'Fix login redirect')!.id}`);
+    const id = fixtureSessions.find((s) => s.title === 'Fix login redirect')!.id;
+    await screen.findByRole('button', { name: 'Fix login redirect' });
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'New related chat' }));
+    await waitFor(() => expect(router.path).not.toBe(`/chat/${id}`));
+    expect(calls.some((c) => c.method === 'POST' && c.url === `/api/sessions/${id}/fork`)).toBe(true);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    const n = within(nav());
+    const kids = await waitFor(() => n.getByRole('list', { name: 'Related to “Fix login redirect”' }));
+    const link = within(kids).getByRole('link', { name: 'Fix login redirect (clean)' });
+    expect(link.getAttribute('aria-current')).toBe('page');
+    expect(n.getByRole('button', { name: 'Related chats for “Fix login redirect”' }).getAttribute('aria-expanded')).toBe('true');
+    // The new chat says where it came from.
+    const from = await within(screen.getByRole('main')).findByRole('link', { name: 'Fix login redirect' });
+    expect(from.getAttribute('href')).toBe(`/chat/${id}`);
+  });
+
+  it("says so in a toast when the related chat can't be started, and stays on the chat", async () => {
+    const id = fixtureSessions.find((s) => s.title === 'Fix login redirect')!.id;
+    await start(`/chat/${id}`, { override: (m, url) => (m === 'POST' && url.endsWith('/fork') ? new Response('{"error":"internal"}', { status: 500 }) : undefined) });
+    await screen.findByRole('button', { name: 'Fix login redirect' });
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'New related chat' }));
+    expect(await screen.findByText("Couldn't start a new chat. Try again.")).toBeTruthy();
+    expect(router.path).toBe(`/chat/${id}`);
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    // Continue in a clean chat says the same, in its dialog.
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Chat options' })[0]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Continue in a clean chat' }));
+    const dialog = await waitFor(() => screen.getByRole('dialog', { name: 'Continue in a clean chat?' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Continue in a clean chat' }));
+    expect((await within(dialog).findByRole('alert')).textContent).toBe("Couldn't start a new chat. Try again.");
+    expect(router.path).toBe(`/chat/${id}`);
+  });
+});
+
+describe('welcome chat (§5.7)', () => {
+  it('asks for it once and opens it in place of an empty new chat', async () => {
+    const calls = await start('/chat', { mock: 'welcome' });
+    await waitFor(() => expect(router.path).toMatch(/^\/chat\/ses_/));
+    expect(calls.filter((c) => c.method === 'POST' && c.url === '/api/me/welcome')).toHaveLength(1);
+    expect(await screen.findByText(/^Hi Sam, I'm Bothy\. I work for your team/)).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'What can you do for our team?' })).toBeTruthy();
+    // Listed without waiting for its event, which the stream may have missed.
+    await waitFor(() => expect(within(nav()).getByRole('link', { name: 'Welcome to Bothy' }).getAttribute('aria-current')).toBe('page'));
+  });
+
+  it('leaves a prompt someone brought, or another page, where it is', async () => {
+    for (const path of ['/chat?prompt=About%20acme%2Fweb%3A%20', '/activity']) {
+      const calls = await start(path, { mock: 'welcome' });
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/me/welcome')).toBe(true));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(router.path).toBe(path.split('?')[0]);
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('never asks when the account already had one', async () => {
+    const calls = await start('/chat');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls.some((c) => c.url === '/api/me/welcome')).toBe(false);
   });
 });
 

@@ -64,7 +64,7 @@ test('search opens the chat it found, and Esc gives focus back', async ({ page }
   await page.goto('/activity?mock=team-chats');
   const trigger = sidebar(page).getByRole('button', { name: /^Search/ });
   await trigger.click();
-  await page.keyboard.type('pricing');
+  await page.keyboard.type('Q3 pricing');
   await expect(page.getByRole('dialog').getByRole('option').first()).toContainText('Q3 pricing notes');
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(/\/chat\/ses_01jteampricing00000000000000#m1$/);

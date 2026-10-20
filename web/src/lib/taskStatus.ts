@@ -1,5 +1,6 @@
 import type { RunStatus } from './api/types.gen';
 import { plural } from './format';
+import { channelName } from './labels';
 
 export type Tone = 'muted' | 'warning' | 'danger';
 
@@ -8,11 +9,9 @@ export interface Outcome {
   tone: Tone;
 }
 
-const apps: Record<string, string> = { web: 'Web', slack: 'Slack', telegram: 'Telegram', discord: 'Discord', api: 'API' };
-
 /** The app's name for a chat origin or channel: "Web", "Slack", "API". */
 export function appName(channel: string | undefined): string {
-  return apps[channel ?? ''] ?? (channel ? channel[0].toUpperCase() + channel.slice(1) : 'Web');
+  return channelName[channel ?? ''] ?? (channel ? channel[0].toUpperCase() + channel.slice(1) : 'Web');
 }
 
 /** Where a task came from: the chat app, the API, or the web. */

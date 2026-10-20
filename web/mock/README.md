@@ -60,6 +60,16 @@ fixture has no web address. Its GitHub knows every organization but
 `no-such-org`, and a refused round trip leaves the account in the
 `bothy_signin_who` cookie, as the gateway does.
 
+Chats include related ones (SPEC §14.10): "Pricing page copy for the launch"
+continued from "Q3 pricing notes", two results each of "Morning briefing" and
+the check-in (one answered all-clear, then by the person), and `team-chats`
+adds a schedule's series with a chat continued from an earlier result. A fork
+lists its chat under the one it came from with the clean-chat notice.
+`GET /api/starters` reads the other domains' routes, as the gateway reads its
+services, so `knowledge-empty`, `github-none`, `github-no-repos`,
+`chat-apps-off`, `people-solo` and `member` change the rows; `starters-fail`
+fails it. `welcome` gives the account its welcome chat once.
+
 Bothy's picture has `picture-custom` (an admin replaced the default),
 `picture-fail[:telegram|discord]` (a change fails in that chat app; Discord
 says it allows only a few changes an hour) and

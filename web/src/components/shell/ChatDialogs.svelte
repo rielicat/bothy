@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { api } from '../../lib/api/client';
   import { router } from '../../lib/router.svelte';
   import Button from '../ui/Button.svelte';
@@ -7,11 +8,12 @@
   import { toast } from '../ui/toast.svelte';
   import { chats } from './chats.svelte';
 
-  // Rename and Delete from a chat row's ⋯ (§4.2); the delete copy is the chat menu's (§7.7).
+  // Rename and Delete from a chat row's ⋯ (§4.2) and Delete from the chat menu (§7.7).
   const uid = $props.id();
   let name = $state('');
-  // Kept after `deleting` clears so the title doesn't change while the dialog closes.
+  // Kept after `deleting` clears so the words don't change while the dialog closes.
   let deletingTitle = $state('');
+  let continued = $state(false);
   let busy = $state(false);
   let error = $state('');
 
@@ -19,7 +21,10 @@
     const s = chats.renaming ?? chats.deleting;
     error = '';
     if (s) name = chats.title(s);
-    if (chats.deleting) deletingTitle = chats.title(chats.deleting);
+    const d = chats.deleting;
+    if (!d) return;
+    deletingTitle = chats.title(d);
+    continued = untrack(() => chats.list.some((x) => x.parent_id === d.id || x.root_id === d.id));
   });
 
   async function rename(e: SubmitEvent) {
@@ -75,7 +80,9 @@
 </Dialog>
 
 <Dialog bind:open={() => !!chats.deleting, (v) => !v && (chats.deleting = null)} title="Delete “{deletingTitle}”?" initialFocus="cancel" {busy}>
-  <p class="text-body text-text">The messages will be deleted. Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.</p>
+  <p class="text-body text-text">
+    {continued ? 'The messages will be deleted; the chats continued from it stay in your list.' : 'The messages will be deleted.'} Anything Bothy already did stays done, and its record stays in Activity. This can't be undone.
+  </p>
   {#if error}<p class="mt-3 text-small text-danger-text" role="alert">{error}</p>{/if}
   {#snippet footer({ close })}
     <Button data-cancel onclick={close}>Cancel</Button>

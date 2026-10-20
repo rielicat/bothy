@@ -90,6 +90,17 @@ const states: ShotState[] = [
     },
   },
   { name: 'sidebar-member', route: '/activity', mock: m(TEAM, 'member'), ready: chatsReady() },
+  // Related chats (§4.2): the open chat's family opens by itself; a schedule's results fold under the newest.
+  {
+    name: 'sidebar-related',
+    route: '/chat/ses_01jteamcopy0000000000000000',
+    mock: TEAM,
+    ready: chatsReady('Pricing page copy for the launch'),
+    setup: async (page, { viewport }) => {
+      const where = await inSidebar(page, viewport.coarse);
+      await where.getByRole('button', { name: /^Related chats for “Monday pull request summary/ }).click();
+    },
+  },
 
   // Settings mode (§4.3) and the phone list of groups
   { name: 'settings-admin', route: '/settings/connections/github', mock: TEAM },

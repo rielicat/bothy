@@ -30,4 +30,4 @@ class People {
 
 export const people = new People();
 
-export const appName: Record<string, string> = { telegram: 'Telegram', slack: 'Slack', discord: 'Discord', web: 'Web', api: 'API', schedule: 'a schedule' };
+export { channelName as appName } from '../../lib/labels';

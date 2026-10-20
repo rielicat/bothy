@@ -2,6 +2,7 @@
 // scenarios that fill the sidebar for review (a team's chat list, a long one).
 import type { Approval, BannerData, Me, Message, Run, SearchHit, Session } from '../../src/lib/api/types.gen.ts';
 import { approvals as approvalFixtures } from './approvals.ts';
+import { welcomePending } from './chat.ts';
 import { active, ago, body, boot, clients, core, emit, fail, ids, isPaused, json, nowISO, on, onReset, owner, pausedBanner, pauseInfo, pausedNow, principals, routes, scenario, scenarios, viewer, ZERO, type Handler, type Req } from './core.ts';
 
 const sealed = scenario('sealed', "Bothy's saved keys are locked (vault sealed banner).", 'shell');
@@ -10,7 +11,11 @@ const safeMode = scenario('safe-mode', 'Bothy started with safe defaults after a
 const restart = scenario('restart', 'A changed setting needs a restart (banner).', 'shell');
 const noBanners = scenario('no-banners', 'Drop the default banners.', 'shell');
 const teamAccess = scenario('team-access', 'The 0013 upgrade moved people in chat apps off linked accounts (a notice on People and Approvals).', 'shell');
-const teamChats = scenario('team-chats', "A team's chat list: a group chat, chats from today, this week and earlier, one running, one waiting for approval, one untitled, one empty.", 'shell');
+const teamChats = scenario(
+  'team-chats',
+  "A team's chat list: chats from today, this week and earlier, one running, one waiting for approval, one titled by its first words, one empty, a chat continued in another and a schedule's results.",
+  'shell',
+);
 const longChats = scenario('long-chats', 'Forty-five chats, so the sidebar shows Show more (implies team-chats).', 'shell');
 const idleChats = scenario('chats-idle', 'The team-chats list with nothing running and nothing waiting for approval (implies team-chats).', 'shell');
 
@@ -37,7 +42,14 @@ const T = {
   support: 'ses_01jteamsupport00000000000000',
   pricing: 'ses_01jteampricing00000000000000',
   empty: 'ses_01jteamempty0000000000000000',
+  copy: 'ses_01jteamcopy0000000000000000',
+  prs: 'ses_01jteamprs00000000000000000',
+  prsOld: 'ses_01jteamprsold00000000000000',
+  chase: 'ses_01jteamchase000000000000000',
 };
+const PRS = 'sch_01jteamprs00000000000000000';
+/** "19 Oct": the date in a schedule result's title. */
+const dm = (minAgo: number) => new Date(ago(minAgo)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 const chat = (id: string, title: string, minAgo: number, extra: Partial<Session> = {}): Session => ({
   id,
@@ -60,7 +72,13 @@ const chat = (id: string, title: string, minAgo: number, extra: Partial<Session>
 const teamList = (): Session[] => [
   chat(T.fix, 'Fix login redirect', 3),
   chat(T.launch, 'v2.3 launch checklist', 25),
-  chat(T.draft, '', 50),
+  // The server titles a chat by its first words until the generated title arrives.
+  chat(T.draft, 'Draft the October release notes from the merged', 50),
+  // A schedule's results, and a chat continued from an earlier one.
+  chat(T.prs, `Monday pull request summary · ${dm(130)}`, 130, { origin: 'schedule', schedule_id: PRS }),
+  chat(T.prsOld, `Monday pull request summary · ${dm(60 * 24 * 7 + 130)}`, 60 * 24 * 7 + 130, { origin: 'schedule', schedule_id: PRS }),
+  chat(T.chase, 'Chase the reviews waiting in acme/web', 60 * 24 * 6, { parent_id: T.prsOld, root_id: T.prsOld }),
+  chat(T.copy, 'Pricing page copy for the launch', 60 * 24 * 2 - 90, { parent_id: T.pricing, root_id: T.pricing }),
   chat(T.support, "Summarise yesterday's support tickets", 140),
   chat(T.pricing, 'Q3 pricing notes', 60 * 24 * 2),
   chat('ses_01jteamonboard00000000000000', 'Onboarding checklist for new engineers', 60 * 24 * 3),
@@ -110,7 +128,14 @@ function overlay(method: string, path: string, when: (req: Req, m: RegExpMatchAr
 }
 
 overlay('GET', '/api/sessions', team, (req, res) => json(res, 200, { items: edited(longChats(req) ? longList() : teamList()) }));
+// Opening one of them: where it came from and its first message.
 const ours = (req: Req, m: RegExpMatchArray) => team(req) && longList().some((s) => s.id === m[1]);
+overlay('GET', '/api/sessions/{id}', ours, (_q, res, m) => {
+  const s = edited(longList()).find((x) => x.id === m[1])!;
+  const p = s.parent_id ? edited(longList()).find((x) => x.id === s.parent_id) : undefined;
+  const from = p ? { kind: 'chat', id: p.id, title: p.title } : s.parent_id ? { kind: 'chat' } : s.schedule_id ? { kind: 'schedule', id: PRS, title: 'Monday pull request summary' } : undefined;
+  json(res, 200, { session: s, from, pins: [], pending_approvals: [], refine: '' });
+});
 overlay('PATCH', '/api/sessions/{id}', ours, async (req, res, m) => {
   const { title } = JSON.parse(await body(req));
   edits.titles.set(m[1], title);
@@ -181,6 +206,7 @@ export function me(req?: Req): Me {
     sandbox_available: true,
     banners: banners(req),
     access: { peer: 'local', tls: false },
+    welcome_pending: welcomePending(req) || undefined,
   };
 }
 

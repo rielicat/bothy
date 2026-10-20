@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/svelte';
+import { render, screen, waitFor, within } from '@testing-library/svelte';
 import axe from 'axe-core';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import App from './App.svelte';
 import { router } from './lib/router.svelte';
 import { session } from './lib/stores/session.svelte';
+import { shell } from './lib/stores/ui.svelte';
 import { installApi } from './test/api';
 
 // jsdom has no layout or computed colours, so contrast is checked in the
@@ -52,4 +53,30 @@ describe('accessibility (axe), first run', () => {
   });
 
   it('setup wizard', () => check('/setup', () => screen.getByText('Set up Bothy')));
+});
+
+describe('accessibility (axe), related chats in the sidebar', () => {
+  beforeEach(async () => {
+    installApi({ mock: 'team-chats' } as Parameters<typeof installApi>[0]);
+    session.ready = false;
+    session.me = null;
+    await session.init();
+  });
+  afterEach(() => {
+    shell.drawer = false;
+    delete (window as { matchMedia?: unknown }).matchMedia;
+  });
+
+  // The open chat's family opens by itself, so a closed family and an open one are both on screen.
+  const family = () => screen.getAllByRole('list', { name: 'Related to “Q3 pricing notes”' })[0];
+
+  it('wide (1280)', () => check('/chat/ses_01jteamcopy0000000000000000', family));
+
+  it('in the phone drawer (360)', () =>
+    check('/chat/ses_01jteamcopy0000000000000000', async () => {
+      window.matchMedia = ((q: string) => ({ matches: q.includes('max-width') || q.includes('coarse'), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+      shell.drawer = true;
+      const drawer = await screen.findByRole('dialog', { name: 'Menu' });
+      return within(drawer).getByRole('list', { name: 'Related to “Q3 pricing notes”' });
+    }));
 });

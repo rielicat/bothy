@@ -1,38 +1,29 @@
 <script lang="ts">
-  import { connectedRepos, readRepos } from '../../lib/api/repos';
+  import { api } from '../../lib/api/client';
+  import type { StarterRow } from '../../lib/api/types.gen';
   import { router } from '../../lib/router.svelte';
-  import { session } from '../../lib/stores/session.svelte';
 
-  // The empty chat (§7.2): a heading, one sentence and up to three suggestions
-  // that fill the composer (never send). With GitHub connected the first two
-  // name the most recently read repository.
-  let { onpick }: { onpick: (text: string) => void } = $props();
+  // The empty chat (§7.2), or with `bare` only its rows, under the welcome
+  // message: up to four starters from the server. A row fills the composer
+  // (never sends) or links to something not set up yet.
+  let { onpick, bare = false }: { onpick: (text: string) => void; bare?: boolean } = $props();
 
-  let repo = $state('');
+  let rows: StarterRow[] = $state([]);
   $effect(() => {
-    // Indexes are per person: a teammate may not have read a repository yet
-    // although GitHub is connected, so fall back to the connected ones.
-    readRepos()
-      .then((rs) => rs.filter((x) => x.status === 'ready').sort((a, b) => b.indexed_at.localeCompare(a.indexed_at))[0]?.repo ?? '')
-      .catch(() => '')
-      .then(async (r) => (repo = r || (await connectedRepos())[0] || ''));
+    api.get<StarterRow[]>('/api/starters').then(
+      (r) => (rows = r),
+      () => (rows = [{ text: 'What can you do for our team?' }]),
+    );
   });
-
-  const rows = $derived<{ text: string; href?: string }[]>(
-    repo
-      ? [{ text: `Summarise the open pull requests in ${repo}` }, { text: `What changed in ${repo} this week?` }, { text: 'What can you do for our team?' }]
-      : [
-          { text: 'Draft a release checklist for our next version' },
-          session.isAdmin ? { text: 'Connect GitHub so Bothy can read your code', href: '/settings/connections/github' } : { text: 'Turn these meeting notes into a list of tasks' },
-          { text: 'What can you do for our team?' },
-        ],
-  );
 </script>
 
-<div class="pt-[20vh] max-sm:pt-[12vh]">
-  <h1 class="text-display text-text" tabindex="-1">What should Bothy work on?</h1>
-  <p class="mt-2 max-w-[30rem] text-reading text-muted">Bothy can read your code, draft and research, and it asks before doing anything you'd want to check.</p>
-  <ul class="mt-6">
+<div class={bare ? '' : 'pt-[20vh] max-sm:pt-[12vh]'}>
+  {#if !bare}
+    <h1 class="text-display text-text" tabindex="-1">What should Bothy work on?</h1>
+    <p class="mt-2 max-w-[30rem] text-reading text-muted">Bothy can read your code, draft and research, and it asks before doing anything you'd want to check.</p>
+  {/if}
+  <!-- Room for four rows while they load, so the list doesn't push the page around. -->
+  <ul class="mt-6 min-h-40">
     {#each rows as r (r.text)}
       <li>
         {#if r.href}
@@ -45,7 +36,7 @@
           <button
             type="button"
             class="-mx-3 flex min-h-10 w-[calc(100%+1.5rem)] cursor-pointer items-center rounded-md px-3 text-left text-body text-text hover:bg-subtle pointer-coarse:min-h-11"
-            onclick={() => onpick(r.text)}>{r.text}</button
+            onclick={() => onpick(r.fill || r.text)}>{r.text}</button
           >
         {/if}
       </li>
