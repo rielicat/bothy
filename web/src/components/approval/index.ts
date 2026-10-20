@@ -5,7 +5,8 @@
 //   focused), 'inbox' (expanded inbox row), 'decided' (the line with "Show"),
 //   'readonly' (no buttons). The card sends the decision itself and then calls
 //   onresolve(choice, comment, updatedApproval).
-// <DecidedLine approval /> the one-line record of a decided approval.
+// <DecidedLine approval phrases? /> the one-line record of a decided approval;
+//   given the step's phrases, the chat transcript's line with its own "Show".
 // <DeployFollowUp approval /> what became of an approved deploy (§8.7).
 export { default as ApprovalCard } from './ApprovalCard.svelte';
 export { default as ApprovalFields } from './ApprovalFields.svelte';

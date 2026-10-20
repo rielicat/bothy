@@ -6,12 +6,11 @@
 
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import { ApprovalCard, DecidedLine } from '../../components/approval';
   import ActivityGroup from '../../components/chat/ActivityGroup.svelte';
   import ChatDetails from '../../components/chat/ChatDetails.svelte';
   import ChatNotice from '../../components/chat/ChatNotice.svelte';
   import { linkCitations } from '../../components/chat/citations';
-  import DecidedLine from '../../components/chat/DecidedLine.svelte';
-  import InlineApproval from '../../components/chat/InlineApproval.svelte';
   import ModelPicker from '../../components/chat/ModelPicker.svelte';
   import { models, providerName } from '../../components/chat/models.svelte';
   import NewChat from '../../components/chat/NewChat.svelte';
@@ -563,7 +562,7 @@
 {#snippet approvalFor(st: StepView, afterStep: boolean)}
   {@const a = st.approval!}
   {#if a.status === 'pending' || a.status === 'parked'}
-    <div class="mt-2 mb-3"><InlineApproval approval={a} onresolved={decided} /></div>
+    <div class="mt-2 mb-3"><ApprovalCard approval={a} onresolved={decided} /></div>
   {:else}
     <DecidedLine approval={a} phrases={st.phrases} {afterStep} />
   {/if}
@@ -720,7 +719,7 @@
       <!-- The welcome chat offers the starters under its message until the person writes (§7.1). -->
       {#if welcome}<NewChat bare onpick={(t) => composer?.fill(t)} />{/if}
 
-      {#each strayApprovals as a (a.id)}<div class="mt-3"><InlineApproval approval={a} onresolved={decided} /></div>{/each}
+      {#each strayApprovals as a (a.id)}<div class="mt-3"><ApprovalCard approval={a} onresolved={decided} /></div>{/each}
 
       {#if conv.queued.length}<div class="mt-3"><ChatNotice text="Bothy will read this when it finishes the current step." /></div>{/if}
       {#if working}
