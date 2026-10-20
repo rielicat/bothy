@@ -707,7 +707,7 @@ Not banners any more: sandbox off or not isolated (Security attention item), MCP
 
 ### 4.10 The attention dot
 
-An 8 px `rounded-full bg-warning-text` dot with visually hidden text "Needs attention", after "Settings" in the sidebar and after the group name inside Settings (Security for findings and sandbox problems, Connections for a disconnected app or a tool needing review). It is the only dot besides the chat-row waiting dot.
+An 8 px `rounded-full bg-warning-text` dot with visually hidden text "Needs attention", after "Settings" in the sidebar and after the group name inside Settings (Security for findings and sandbox problems, Connections for a disconnected app or a tool needing review). It looks again a second after a chat app, tool, sandbox, setting or banner changes (a banner clearing, such as the one for actions waiting for review, is often the only sign), so it goes without a reload. It is the only dot besides the chat-row waiting dot.
 
 ### 4.11 Who sees what
 
