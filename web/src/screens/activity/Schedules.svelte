@@ -38,6 +38,11 @@
     }
   }
 
+  // Examples hide once a person has three schedules, so deleting one can bring them back.
+  async function refreshExamples() {
+    ex = await api.get<ScheduleExamples>('/api/schedules/examples').catch(() => ex);
+  }
+
   async function load() {
     failed = false;
     try {
@@ -230,5 +235,5 @@
   {/if}
 </Activity>
 
-<DeleteSchedule bind:schedule={removing} ondeleted={(gone) => (list = (list ?? []).filter((x) => x.id !== gone.id))} />
+<DeleteSchedule bind:schedule={removing} ondeleted={(gone) => ((list = (list ?? []).filter((x) => x.id !== gone.id)), void refreshExamples())} />
 <DeleteSchedule bind:schedule={removingTeam} team ondeleted={(gone) => (team = team.filter((x) => x.id !== gone.id))} />

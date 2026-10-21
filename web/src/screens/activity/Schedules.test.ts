@@ -190,6 +190,16 @@ describe('Schedules (docs/design/ui.md §10.3)', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/schedules/sch_01jprdigest0000000000000')).toBe(true));
   });
 
+  it('brings the examples back when deleting a schedule leaves fewer than three', async () => {
+    const three = ['Check-in', 'Daily standup summary', 'Weekly PR digest', 'Invoice reminder'];
+    await start(undefined, undefined, 'Weekly PR digest', () => (mockActivity.schedules = mockActivity.schedules.filter((s) => three.includes(s.name))));
+    expect(examplesSection()).toBeUndefined();
+    await fireEvent.click(screen.getByRole('button', { name: 'More for Weekly PR digest' }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete…' }));
+    await fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete schedule' }));
+    expect(await screen.findByRole('heading', { name: 'Examples' })).toBeTruthy();
+  });
+
   it("says why Run now didn't start, when trying again can't help", async () => {
     const why = "The check-in list is empty, so there's nothing to check yet. Add something to it first.";
     await start(undefined, (m, url) =>
