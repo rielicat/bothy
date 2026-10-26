@@ -1,0 +1,23 @@
+# SearXNG for Bothy's web_search tool (SPEC §2.2), mounted read-only at
+# /etc/searxng/settings.yml by `docker compose --profile search up -d`.
+# Everything not set here keeps SearXNG's defaults.
+use_default_settings: true
+
+general:
+  instance_name: bothy-search
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  # web_search requests format=json; SearXNG answers 403 for formats not listed.
+  formats:
+    - html
+    - json
+
+server:
+  # secret_key comes from $SEARXNG_SECRET (deploy/.env); SearXNG refuses to
+  # start with the default key.
+  # Only the gateway on the compose network queries this instance, so the
+  # bot-detection limiter (which needs Valkey) stays off.
+  limiter: false
+  image_proxy: false

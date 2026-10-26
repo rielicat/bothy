@@ -1,0 +1,120 @@
+{
+  "family": "bothy",
+  "requiresCompatibilities": ["EC2"],
+  "networkMode": "bridge",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/bothy-task",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/bothy-task-execution",
+  "containerDefinitions": [
+    {
+      "name": "kek",
+      "image": "public.ecr.aws/aws-cli/aws-cli:<AWSCLI_TAG>@sha256:<AWSCLI_DIGEST>",
+      "essential": false,
+      "user": "0:0",
+      "entryPoint": ["/bin/sh", "-c"],
+      "command": [
+        "umask 077 && aws secretsmanager get-secret-value --secret-id \"$KEK_SECRET_ID\" --query SecretString --output text > /kek/bothy_kek && chown 65532:65532 /kek/bothy_kek"
+      ],
+      "environment": [
+        {"name": "KEK_SECRET_ID", "value": "bothy/kek"},
+        {"name": "AWS_REGION", "value": "<REGION>"},
+        {"name": "HOME", "value": "/tmp"}
+      ],
+      "memory": 128,
+      "readonlyRootFilesystem": true,
+      "dockerSecurityOptions": ["no-new-privileges"],
+      "linuxParameters": {
+        "capabilities": {"drop": ["ALL"], "add": ["CHOWN"]},
+        "tmpfs": [{"containerPath": "/tmp", "size": 16, "mountOptions": ["nosuid", "nodev", "noexec"]}]
+      },
+      "mountPoints": [{"sourceVolume": "kek", "containerPath": "/kek"}],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {"awslogs-group": "/ecs/bothy", "awslogs-region": "<REGION>", "awslogs-stream-prefix": "bothy"}
+      }
+    },
+    {
+      "name": "bothy",
+      "image": "ghcr.io/rielicat/bothy:0.1.0@sha256:2915208c058ca7f404794649226116675d3be9df2699705a5944e28ae64863bd",
+      "essential": true,
+      "command": ["serve"],
+      "user": "65532:10001",
+      "portMappings": [{"containerPort": 8080, "hostPort": 8080, "protocol": "tcp"}],
+      "environment": [
+        {"name": "BOTHY_DEPLOYMENT", "value": "container"},
+        {"name": "BOTHY_SANDBOX__BACKEND", "value": "sandboxd"},
+        {"name": "BOTHY_VAULT__KEK", "value": "file:/run/bothy-kek/bothy_kek"},
+        {"name": "GOMEMLIMIT", "value": "48MiB"}
+      ],
+      "memory": 256,
+      "readonlyRootFilesystem": true,
+      "dockerSecurityOptions": ["no-new-privileges"],
+      "linuxParameters": {
+        "capabilities": {"drop": ["ALL"]},
+        "tmpfs": [{"containerPath": "/tmp", "size": 32, "mountOptions": ["nosuid", "nodev", "noexec"]}]
+      },
+      "mountPoints": [
+        {"sourceVolume": "bothy_data", "containerPath": "/data"},
+        {"sourceVolume": "bothy_work", "containerPath": "/work"},
+        {"sourceVolume": "bothy_run", "containerPath": "/run/bothy"},
+        {"sourceVolume": "kek", "containerPath": "/run/bothy-kek", "readOnly": true}
+      ],
+      "dependsOn": [{"containerName": "kek", "condition": "SUCCESS"}],
+      "healthCheck": {
+        "command": ["CMD", "/bothy", "healthcheck"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {"awslogs-group": "/ecs/bothy", "awslogs-region": "<REGION>", "awslogs-stream-prefix": "bothy"}
+      }
+    },
+    {
+      "name": "sandboxd",
+      "image": "ghcr.io/rielicat/bothy:0.1.0@sha256:2915208c058ca7f404794649226116675d3be9df2699705a5944e28ae64863bd",
+      "essential": false,
+      "command": ["sandboxd"],
+      "user": "65532:65532",
+      "disableNetworking": true,
+      "environment": [
+        {"name": "BOTHY_SBX_ENGINE", "value": "unix:///var/run/docker.sock"},
+        {"name": "BOTHY_SBX_WORK_VOLUME", "value": "bothy_work"},
+        {"name": "BOTHY_SBX_RUN_VOLUME", "value": "bothy_run"},
+        {"name": "BOTHY_SBX_IMAGE", "value": "ghcr.io/rielicat/bothy-sandbox:0.1.0@sha256:a9ddee49ce8e6cd800cb24e3b36d9421ac1b0ed2bbfa4f875432d8610eb325df"},
+        {"name": "BOTHY_SBX_RUNTIME", "value": "auto"},
+        {"name": "BOTHY_SBX_MAX_BOXES", "value": "8"},
+        {"name": "BOTHY_SBX_GATEWAY_UID", "value": "65532"}
+      ],
+      "memory": 64,
+      "readonlyRootFilesystem": true,
+      "dockerSecurityOptions": ["no-new-privileges"],
+      "linuxParameters": {"capabilities": {"drop": ["ALL"]}},
+      "mountPoints": [
+        {"sourceVolume": "docker-sock", "containerPath": "/var/run/docker.sock"},
+        {"sourceVolume": "bothy_run", "containerPath": "/run/bothy"},
+        {"sourceVolume": "bothy_work", "containerPath": "/work", "readOnly": true}
+      ],
+      "restartPolicy": {"enabled": true, "restartAttemptPeriod": 60},
+      "healthCheck": {
+        "command": ["CMD", "/bothy", "healthcheck", "sandboxd"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {"awslogs-group": "/ecs/bothy", "awslogs-region": "<REGION>", "awslogs-stream-prefix": "bothy"}
+      }
+    }
+  ],
+  "volumes": [
+    {"name": "bothy_data", "dockerVolumeConfiguration": {"scope": "shared", "autoprovision": true, "driver": "local"}},
+    {"name": "bothy_work", "dockerVolumeConfiguration": {"scope": "shared", "autoprovision": true, "driver": "local"}},
+    {"name": "bothy_run", "dockerVolumeConfiguration": {"scope": "shared", "autoprovision": true, "driver": "local"}},
+    {"name": "kek", "dockerVolumeConfiguration": {"scope": "task", "driver": "local"}},
+    {"name": "docker-sock", "host": {"sourcePath": "/var/run/docker.sock"}}
+  ]
+}
