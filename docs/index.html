@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bothy: a self-hosted AI agent for your team</title>
+<meta name="description" content="Bothy is an AI agent your company runs on its own cloud. It works in your repos, chats and tools, keeps keys in its own vault and asks before anything leaves.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f4f0e8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Bothy">
+<meta property="og:title" content="Bothy: an AI agent that runs on your cloud">
+<meta property="og:description" content="Works in your repos, chats and tools. Keys stay in its vault; anything outward-facing waits for approval.">
+<meta property="og:url" content="https://rielicat.github.io/bothy/">
+<meta property="og:image" content="https://rielicat.github.io/bothy/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Bothy asking for approval before it opens a pull request in acme/web.">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="./" aria-label="Bothy, home">
+      <img src="assets/icon.svg" width="32" height="32" alt="">
+      <span>Bothy</span>
+    </a>
+    <nav aria-label="Sections">
+      <a href="#work">What it does</a>
+      <a href="#security">Security</a>
+      <a href="#install">Install</a>
+    </nav>
+    <a class="btn btn-quiet btn-sm" href="https://github.com/rielicat/bothy">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <h1 id="hero-title">An AI agent your company runs on its own cloud.</h1>
+    <p class="lede">Bothy works in your repos, your chats and your tools. It keeps your keys in its own vault, and it asks before it does anything people outside can see.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="#install">Install</a>
+      <a class="btn btn-quiet" href="https://github.com/rielicat/bothy">View on GitHub</a>
+    </div>
+  </section>
+
+  <figure class="shot wrap-wide">
+    <div class="shot-frame">
+      <picture>
+        <source srcset="assets/hero-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="1920">
+        <source srcset="assets/hero-phone.webp" media="(max-width: 640px)" width="750" height="1920">
+        <source srcset="assets/hero-dark.webp" media="(prefers-color-scheme: dark)">
+        <img src="assets/hero-light.webp" width="1600" height="1020" fetchpriority="high"
+          alt="The Bothy web app. Bothy has drafted release notes for acme/web from 14 merged pull requests and waits for approval to open a pull request, showing the branch, title and changed file with Open pull request and Deny buttons.">
+      </picture>
+    </div>
+    <figcaption>Release notes drafted from a week of merged pull requests. The pull request opens when someone clicks the button, not before.</figcaption>
+  </figure>
+
+  <section id="work" class="work wrap" aria-labelledby="work-title">
+    <div class="section-head">
+      <h2 id="work-title">What it does</h2>
+      <p>Six things teams use it for, shown as they look in Bothy.</p>
+    </div>
+
+    <article class="row">
+      <div class="row-text">
+        <p class="eyebrow">Code</p>
+        <h3>Answers that point at the line.</h3>
+        <p>Bothy indexes the repositories you connect and reads them before it answers. When it changes something, it says which file and which lines, runs the tests in a sandbox and links the change.</p>
+      </div>
+      <figure class="panel">
+        <picture>
+          <source srcset="assets/code-answer-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="974">
+          <source srcset="assets/code-answer-phone.webp" media="(max-width: 640px)" width="750" height="974">
+          <source srcset="assets/code-answer-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/code-answer.webp" width="960" height="490" loading="lazy" decoding="async"
+            alt="Bothy explains that the return address is dropped in callback.ts, shows the one-line fix, reports 42 of 42 tests passing and links to src/auth/callback.ts, lines 10 to 18.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="row">
+      <div class="row-text">
+        <p class="eyebrow">Deploys</p>
+        <h3>Production waits for two people.</h3>
+        <p>Set an environment to need two approvals and Bothy holds the deploy until two admins agree. The card shows what will run and who has said yes so far.</p>
+      </div>
+      <figure class="panel">
+        <picture>
+          <source srcset="assets/deploy-approval-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="1050">
+          <source srcset="assets/deploy-approval-phone.webp" media="(max-width: 640px)" width="750" height="1050">
+          <source srcset="assets/deploy-approval-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/deploy-approval.webp" width="940" height="473" loading="lazy" decoding="async"
+            alt="An approval card: Deploy acme/web to production? Environment production, version main, workflow deploy.yml, 1 of 2 approvals. Maya Chen approved; one more from you, Priya Rao or any admin. Buttons: Approve deploy, Deny.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="row">
+      <div class="row-text">
+        <p class="eyebrow">Connections</p>
+        <h3>Works where your team already is.</h3>
+        <p>Slack, Telegram, Discord and the web. GitHub for code. Any MCP server for the rest, with each of its actions marked as reading or changing things, so you decide which ones need a yes.</p>
+      </div>
+      <figure class="panel">
+        <picture>
+          <source srcset="assets/connections-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="1546">
+          <source srcset="assets/connections-phone.webp" media="(max-width: 640px)" width="750" height="1546">
+          <source srcset="assets/connections-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/connections.webp" width="960" height="810" loading="lazy" decoding="async"
+            alt="The Connections settings page: Slack connected to Acme, Telegram connected, Discord not connected, GitHub connected with two repositories, and MCP servers Docs, Linear and Notes.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="row">
+      <div class="row-text">
+        <p class="eyebrow">Team memory</p>
+        <h3>Learns how you work, with an admin's say.</h3>
+        <p>When someone asks Bothy to remember something for everyone, it becomes a request. An admin approves the exact words before they shape a single answer.</p>
+      </div>
+      <figure class="panel">
+        <picture>
+          <source srcset="assets/team-memory-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="644">
+          <source srcset="assets/team-memory-phone.webp" media="(max-width: 640px)" width="750" height="644">
+          <source srcset="assets/team-memory-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/team-memory.webp" width="940" height="274" loading="lazy" decoding="async"
+            alt="A request: Remember this for everyone? Note: Customer names never go in public channels. Requested by Alex. Buttons: Remember for everyone, Deny.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="row">
+      <div class="row-text">
+        <p class="eyebrow">Schedules</p>
+        <h3>Runs the jobs nobody wants to remember.</h3>
+        <p>Standup summaries, invoice reminders, a weekly pull request digest. Each schedule posts to the chat you pick, and a failed run tells you why.</p>
+      </div>
+      <figure class="panel">
+        <picture>
+          <source srcset="assets/schedules-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="1032">
+          <source srcset="assets/schedules-phone.webp" media="(max-width: 640px)" width="750" height="1032">
+          <source srcset="assets/schedules-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/schedules.webp" width="960" height="420" loading="lazy" decoding="async"
+            alt="A list of schedules: Check-in, Daily standup summary, Invoice reminder, Morning briefing and Weekly PR digest, whose last run failed because the GitHub token was rejected.">
+        </picture>
+      </figure>
+    </article>
+
+    <article class="row">
+      <div class="row-text">
+        <p class="eyebrow">Refine</p>
+        <h3>A second and third opinion, when it counts.</h3>
+        <p>Turn on Refine and Bothy writes several drafts, checks them against each other and keeps the answer they agree on. The record says how many agreed and what it cost.</p>
+      </div>
+      <figure class="panel">
+        <picture>
+          <source srcset="assets/refine-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="944">
+          <source srcset="assets/refine-phone.webp" media="(max-width: 640px)" width="750" height="944">
+          <source srcset="assets/refine-dark.webp" media="(prefers-color-scheme: dark)">
+          <img src="assets/refine.webp" width="960" height="455" loading="lazy" decoding="async"
+            alt="A task record titled Q3 pricing summary: took 2 minutes, cost $0.42, refined from 3 drafts, 2 of 3 agreed. The answer recommends raising the team plan from $20 to $24 a seat.">
+        </picture>
+      </figure>
+    </article>
+  </section>
+
+  <section id="security" class="security" aria-labelledby="security-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="security-title">Safe before you configure anything.</h2>
+        <p>An agent with your keys and your code should be boring about security. These are the defaults, not add-ons.</p>
+      </div>
+      <div class="sec-grid">
+        <dl class="facts">
+          <div>
+            <dt>Your infrastructure</dt>
+            <dd>Bothy runs in your cloud or on your server: one container and one data volume. No telemetry and no auto-update.</dd>
+          </div>
+          <div>
+            <dt>An encrypted vault</dt>
+            <dd>API keys and tokens are encrypted at rest. Each key goes only to the service it belongs to, and none ever enters a sandbox.</dd>
+          </div>
+          <div>
+            <dt>Sandboxed code</dt>
+            <dd>Shell and Python run in throwaway containers with no network, a read-only root and no capabilities. Without a sandbox they are off; nothing falls back to the host.</dd>
+          </div>
+          <div>
+            <dt>Approval for anything outward</dt>
+            <dd>Messages, pull requests, deploys and deletes wait on a card built from the exact action, never from the model's description of it.</dd>
+          </div>
+          <div>
+            <dt>An audit log that shows tampering</dt>
+            <dd>Every action, approval and sign-in is written to an append-only log with a hash chain.</dd>
+          </div>
+        </dl>
+        <div class="sec-shots">
+          <figure class="panel">
+            <picture>
+              <source srcset="assets/audit-log-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="647">
+              <source srcset="assets/audit-log-phone.webp" media="(max-width: 640px)" width="750" height="647">
+              <source srcset="assets/audit-log-dark.webp" media="(prefers-color-scheme: dark)">
+              <img src="assets/audit-log.webp" width="960" height="370" loading="lazy" decoding="async"
+                alt="The audit log for today: you approved deleting notes/staging.md, Bothy asked to delete it, a sign-in, a scheduled run, Bothy blocked from sending to paste.example.net, and Alex changed settings.">
+            </picture>
+          </figure>
+          <figure class="panel">
+            <picture>
+              <source srcset="assets/saved-keys-phone-dark.webp" media="(max-width: 640px) and (prefers-color-scheme: dark)" width="750" height="1186">
+              <source srcset="assets/saved-keys-phone.webp" media="(max-width: 640px)" width="750" height="1186">
+              <source srcset="assets/saved-keys-dark.webp" media="(prefers-color-scheme: dark)">
+              <img src="assets/saved-keys.webp" width="960" height="595" loading="lazy" decoding="async"
+                alt="Saved keys: Anthropic, Brave Search, GitHub, Google sign-in, OpenRouter, Slack and Telegram, each listed with the service that uses it and when it was last used. No key values are shown.">
+            </picture>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="install wrap" aria-labelledby="install-title">
+    <div class="section-head">
+      <h2 id="install-title">Install</h2>
+      <p>You need Docker. Bothy listens on this machine only until you decide otherwise.</p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <h3>Start Bothy</h3>
+        <div class="code">
+          <pre tabindex="0" aria-label="docker run command"><code>docker run -d --name bothy -p 127.0.0.1:8080:8080 -v bothy-data:/data ghcr.io/rielicat/bothy:latest</code></pre>
+          <button class="copy" type="button" aria-label="Copy the docker run command">Copy</button>
+        </div>
+        <p class="note">The same image is on Docker Hub as <code>rielicat/bothy</code>.</p>
+      </li>
+      <li>
+        <h3>Open the setup link</h3>
+        <div class="code">
+          <pre tabindex="0" aria-label="docker logs command"><code>docker logs bothy</code></pre>
+          <button class="copy" type="button" aria-label="Copy the docker logs command">Copy</button>
+        </div>
+        <p class="note">The log prints a one-time link to <code>http://127.0.0.1:8080/setup</code>. It walks you through the owner account, a model provider and your chat apps.</p>
+      </li>
+    </ol>
+
+    <div class="more">
+      <h3>Run code too</h3>
+      <p>The single container chats, uses your tools and opens pull requests. To let Bothy run shell and Python, start it with the compose file, which adds the sandbox sidecar. On AWS, the ECS templates set up the same pair.</p>
+      <ul class="links">
+        <li><a href="https://github.com/rielicat/bothy/blob/main/compose.yaml">compose.yaml</a></li>
+        <li><a href="https://github.com/rielicat/bothy/tree/main/aws">AWS ECS templates</a></li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <p>&copy; 2026 Catec SpA. All rights reserved.</p>
+    <ul>
+      <li><a href="https://github.com/rielicat/bothy/blob/main/LICENSE">License</a></li>
+      <li><a href="https://github.com/rielicat/bothy/blob/main/SECURITY.md">Security policy</a></li>
+      <li><a href="https://github.com/rielicat/bothy">GitHub</a></li>
+    </ul>
+  </div>
+</footer>
+
+<p class="sr-only" aria-live="polite" id="copy-status"></p>
+<script>
+(function () {
+  var status = document.getElementById('copy-status');
+  function fallback(text) {
+    var t = document.createElement('textarea');
+    t.value = text;
+    t.setAttribute('readonly', '');
+    t.style.position = 'fixed';
+    t.style.opacity = '0';
+    document.body.appendChild(t);
+    t.select();
+    try { document.execCommand('copy'); } finally { document.body.removeChild(t); }
+  }
+  document.querySelectorAll('.copy').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var text = b.parentElement.querySelector('code').textContent;
+      var done = function () {
+        b.textContent = 'Copied';
+        status.textContent = 'Copied to the clipboard.';
+        setTimeout(function () { b.textContent = 'Copy'; status.textContent = ''; }, 1600);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, function () { fallback(text); done(); });
+      } else {
+        fallback(text);
+        done();
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>
