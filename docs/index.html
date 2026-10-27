@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bothy: a self-hosted AI agent for your team</title>
-<meta name="description" content="Bothy is an AI agent your company runs on its own cloud. It works in your repos, chats and tools, keeps keys in its own vault and asks before anything leaves.">
+<title>Bothy: an AI teammate that runs on your own cloud</title>
+<meta name="description" content="Bothy is an AI teammate for your whole company. It answers questions, handles the busywork and gets things done in the tools you already use, on your own cloud, with your team approving anything that matters.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#f4f0e8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
@@ -13,8 +13,8 @@
 <link rel="stylesheet" href="style.css">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Bothy">
-<meta property="og:title" content="Bothy: an AI agent that runs on your cloud">
-<meta property="og:description" content="Works in your repos, chats and tools. Keys stay in its vault; anything outward-facing waits for approval.">
+<meta property="og:title" content="Bothy: one AI teammate for your whole company">
+<meta property="og:description" content="Faster answers and less busywork across your tools, on your own cloud, with your team in control.">
 <meta property="og:url" content="https://rielicat.github.io/bothy/">
 <meta property="og:image" content="https://rielicat.github.io/bothy/assets/og.png">
 <meta property="og:image:width" content="1200">
@@ -32,9 +32,9 @@
       <span>Bothy</span>
     </a>
     <nav aria-label="Sections">
-      <a href="#work">What it does</a>
+      <a href="#work">How it helps</a>
       <a href="#security">Security</a>
-      <a href="#install">Install</a>
+      <a href="#install">Get started</a>
     </nav>
     <a class="btn btn-quiet btn-sm" href="https://github.com/rielicat/bothy">GitHub</a>
   </div>
@@ -42,11 +42,11 @@
 
 <main id="main">
   <section class="hero wrap" aria-labelledby="hero-title">
-    <h1 id="hero-title">An AI agent your company runs on its own cloud.</h1>
-    <p class="lede">Bothy works in your repos, your chats and your tools. It keeps your keys in its own vault, and it asks before it does anything people outside can see.</p>
+    <h1 id="hero-title">One AI teammate for your whole company.</h1>
+    <p class="lede">Bothy answers your team's questions, takes the busywork off their plate and gets things done in the tools you already use. It runs on your own cloud, so your data stays with you, and nothing important happens without a person's yes.</p>
     <div class="actions">
-      <a class="btn btn-primary" href="#install">Install</a>
-      <a class="btn btn-quiet" href="https://github.com/rielicat/bothy">View on GitHub</a>
+      <a class="btn btn-primary" href="#install">Get started</a>
+      <a class="btn btn-quiet" href="#work">See how it helps</a>
     </div>
   </section>
 
@@ -60,20 +60,20 @@
           alt="The Bothy web app. Bothy has drafted release notes for acme/web from 14 merged pull requests and waits for approval to open a pull request, showing the branch, title and changed file with Open pull request and Deny buttons.">
       </picture>
     </div>
-    <figcaption>Release notes drafted from a week of merged pull requests. The pull request opens when someone clicks the button, not before.</figcaption>
+    <figcaption>A week of work summed up into release notes in seconds. Bothy prepares it; your team approves it with one click.</figcaption>
   </figure>
 
   <section id="work" class="work wrap" aria-labelledby="work-title">
     <div class="section-head">
-      <h2 id="work-title">What it does</h2>
-      <p>Six things teams use it for, shown as they look in Bothy.</p>
+      <h2 id="work-title">What changes for your team</h2>
+      <p>Less time chasing answers and repeating chores, more time on the work only people can do.</p>
     </div>
 
     <article class="row">
       <div class="row-text">
-        <p class="eyebrow">Code</p>
-        <h3>Answers that point at the line.</h3>
-        <p>Bothy indexes the repositories you connect and reads them before it answers. When it changes something, it says which file and which lines, runs the tests in a sandbox and links the change.</p>
+        <p class="eyebrow">Engineering</p>
+        <h3>Answers in seconds, not meetings.</h3>
+        <p>Anyone can ask how a part of your product works and get a clear answer that shows exactly where it comes from. Small fixes arrive already tested and ready for a quick review, so engineers spend their time on what moves the business.</p>
       </div>
       <figure class="panel">
         <picture>
@@ -88,9 +88,9 @@
 
     <article class="row">
       <div class="row-text">
-        <p class="eyebrow">Deploys</p>
-        <h3>Production waits for two people.</h3>
-        <p>Set an environment to need two approvals and Bothy holds the deploy until two admins agree. The card shows what will run and who has said yes so far.</p>
+        <p class="eyebrow">Releases</p>
+        <h3>Ship faster without losing control.</h3>
+        <p>Bothy prepares each release and waits. Nothing reaches your customers until the right people approve it, with two sign-offs where you want them, and everyone can see who said yes.</p>
       </div>
       <figure class="panel">
         <picture>
@@ -105,9 +105,9 @@
 
     <article class="row">
       <div class="row-text">
-        <p class="eyebrow">Connections</p>
-        <h3>Works where your team already is.</h3>
-        <p>Slack, Telegram, Discord and the web. GitHub for code. Any MCP server for the rest, with each of its actions marked as reading or changing things, so you decide which ones need a yes.</p>
+        <p class="eyebrow">Your tools</p>
+        <h3>Works inside the tools you already pay for.</h3>
+        <p>Your team asks in Slack, Telegram, Discord or the web app. Bothy connects to GitHub, your ticketing, your docs and your internal systems, so work happens where it already lives. There is no new tool to learn.</p>
       </div>
       <figure class="panel">
         <picture>
@@ -122,9 +122,9 @@
 
     <article class="row">
       <div class="row-text">
-        <p class="eyebrow">Team memory</p>
-        <h3>Learns how you work, with an admin's say.</h3>
-        <p>When someone asks Bothy to remember something for everyone, it becomes a request. An admin approves the exact words before they shape a single answer.</p>
+        <p class="eyebrow">Know-how</p>
+        <h3>Knowledge stays with the company.</h3>
+        <p>Bothy learns your processes, decisions and preferences as your team works with it. Anything shared with everyone is approved by an admin first, so what it knows stays accurate when people change roles or leave.</p>
       </div>
       <figure class="panel">
         <picture>
@@ -139,9 +139,9 @@
 
     <article class="row">
       <div class="row-text">
-        <p class="eyebrow">Schedules</p>
-        <h3>Runs the jobs nobody wants to remember.</h3>
-        <p>Standup summaries, invoice reminders, a weekly pull request digest. Each schedule posts to the chat you pick, and a failed run tells you why.</p>
+        <p class="eyebrow">Routine work</p>
+        <h3>The recurring busywork runs itself.</h3>
+        <p>Daily stand-up summaries, morning briefings, invoice reminders, weekly progress reports. Set them up once and Bothy delivers them to the right channel, on time, every time.</p>
       </div>
       <figure class="panel">
         <picture>
@@ -156,9 +156,9 @@
 
     <article class="row">
       <div class="row-text">
-        <p class="eyebrow">Refine</p>
-        <h3>A second and third opinion, when it counts.</h3>
-        <p>Turn on Refine and Bothy writes several drafts, checks them against each other and keeps the answer they agree on. The record says how many agreed and what it cost.</p>
+        <p class="eyebrow">Important decisions</p>
+        <h3>Extra care for the answers that matter.</h3>
+        <p>For pricing, planning and other high-stakes questions, Bothy works out several answers, checks them against each other and gives you the one they agree on, along with exactly what it cost.</p>
       </div>
       <figure class="panel">
         <picture>
@@ -175,30 +175,30 @@
   <section id="security" class="security" aria-labelledby="security-title">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="security-title">Safe before you configure anything.</h2>
-        <p>An agent with your keys and your code should be boring about security. These are the defaults, not add-ons.</p>
+        <h2 id="security-title">Your data stays yours.</h2>
+        <p>Built for companies that can't hand their code, customers or credentials to someone else's cloud. Every safeguard is on from day one.</p>
       </div>
       <div class="sec-grid">
         <dl class="facts">
           <div>
-            <dt>Your infrastructure</dt>
-            <dd>Bothy runs in your cloud or on your server: one container and one data volume. No telemetry and no auto-update.</dd>
+            <dt>Runs in your cloud</dt>
+            <dd>Install it on AWS or any server you control. Your data never leaves, and nothing is sent back to us.</dd>
           </div>
           <div>
-            <dt>An encrypted vault</dt>
-            <dd>API keys and tokens are encrypted at rest. Each key goes only to the service it belongs to, and none ever enters a sandbox.</dd>
+            <dt>Credentials locked away</dt>
+            <dd>Passwords and access keys are encrypted and only ever used with the service they belong to.</dd>
           </div>
           <div>
-            <dt>Sandboxed code</dt>
-            <dd>Shell and Python run in throwaway containers with no network, a read-only root and no capabilities. Without a sandbox they are off; nothing falls back to the host.</dd>
+            <dt>Risky work is sealed off</dt>
+            <dd>Any code Bothy runs happens in a temporary, isolated space that can't reach your network or your other systems.</dd>
           </div>
           <div>
-            <dt>Approval for anything outward</dt>
-            <dd>Messages, pull requests, deploys and deletes wait on a card built from the exact action, never from the model's description of it.</dd>
+            <dt>Nothing goes out without a yes</dt>
+            <dd>Messages, code changes, releases and deletions wait for approval from the right person, who sees exactly what will happen.</dd>
           </div>
           <div>
-            <dt>An audit log that shows tampering</dt>
-            <dd>Every action, approval and sign-in is written to an append-only log with a hash chain.</dd>
+            <dt>Every action on record</dt>
+            <dd>A tamper-evident log shows who asked for what, who approved it and when, ready for your auditors. A daily budget keeps spending in check.</dd>
           </div>
         </dl>
         <div class="sec-shots">
@@ -227,8 +227,8 @@
 
   <section id="install" class="install wrap" aria-labelledby="install-title">
     <div class="section-head">
-      <h2 id="install-title">Install</h2>
-      <p>You need Docker. Bothy listens on this machine only until you decide otherwise.</p>
+      <h2 id="install-title">Up and running in minutes</h2>
+      <p>If your team uses Docker, getting started is one command. Setup then walks you through your AI provider and chat apps. Until you decide otherwise, Bothy is only reachable from the machine it runs on.</p>
     </div>
 
     <ol class="steps">
@@ -246,15 +246,15 @@
           <pre tabindex="0" aria-label="docker logs command"><code>docker logs bothy</code></pre>
           <button class="copy" type="button" aria-label="Copy the docker logs command">Copy</button>
         </div>
-        <p class="note">The log prints a one-time link to <code>http://127.0.0.1:8080/setup</code>. It walks you through the owner account, a model provider and your chat apps.</p>
+        <p class="note">This shows a one-time setup link. Open it to create the owner account and connect your AI provider and chat apps.</p>
       </li>
     </ol>
 
     <div class="more">
-      <h3>Run code too</h3>
-      <p>The single container chats, uses your tools and opens pull requests. To let Bothy run shell and Python, start it with the compose file, which adds the sandbox sidecar. On AWS, the ECS templates set up the same pair.</p>
+      <h3>For AWS and larger teams</h3>
+      <p>Ready-made templates for AWS ECS and Docker Compose add the isolated workspace Bothy uses to run code and tests, so it can take on engineering work end to end.</p>
       <ul class="links">
-        <li><a href="https://github.com/rielicat/bothy/blob/main/compose.yaml">compose.yaml</a></li>
+        <li><a href="https://github.com/rielicat/bothy/blob/main/compose.yaml">Docker Compose file</a></li>
         <li><a href="https://github.com/rielicat/bothy/tree/main/aws">AWS ECS templates</a></li>
       </ul>
     </div>
